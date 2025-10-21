@@ -33,7 +33,14 @@ class OpenAIApiKeyDialog(WorkDialog):
         self.key_entry.insert(0, get_workbench().clipboard_get())
 
     def get_instructions(self) -> Optional[str]:
-        return "blah, blah"
+        return """Чтобы использовать AI-ассистента для отладки:
+
+1. Получите бесплатный API ключ на platform.openai.com/api-keys
+2. Скопируйте ключ
+3. Нажмите кнопку 'Paste' ниже или вставьте вручную
+4. Нажмите 'OK'
+
+После этого вы сможете задавать вопросы AI во время отладки!"""
 
     def is_ready_for_work(self):
         return len(self.key_entry.get().strip()) > 0

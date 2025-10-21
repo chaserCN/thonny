@@ -77,9 +77,21 @@ class RstText(TweakableText):
         self.tag_configure(
             "code",
             font="TkFixedFont",
+            background="#f5f5f5",  # Серый фон для кода
             # wrap="none", # TODO: needs automatic hor-scrollbar and better padding mgmt
-            # background="#eeeeee"
         )
+        
+        # Отдельный стиль для блоков кода с отступами
+        self.tag_configure(
+            "code_block",
+            font="TkFixedFont",
+            background="#f5f5f5",
+            lmargin1=20,
+            lmargin2=20,
+            spacing1=5,
+            spacing3=5,
+        )
+        
         # if ui_utils.get_tk_version_info() >= (8,6,6):
         #    self.tag_configure("code", lmargincolor=self["background"])
 
@@ -344,10 +356,11 @@ class RstText(TweakableText):
                     self._pop_tag(cls)
 
             def visit_literal_block(self, node):
-                self._add_tag("code")
+                self._append_text("\n")  # Пустая строка перед блоком
+                self._add_tag("code_block")  # Используем стиль с отступами
 
             def depart_literal_block(self, node):
-                self._pop_tag("code")
+                self._pop_tag("code_block")
                 self._append_text("\n\n")
 
             def visit_bullet_list(self, node):

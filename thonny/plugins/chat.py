@@ -40,6 +40,7 @@ class ChatView(tktextext.TextFrame):
         tktextext.TextFrame.__init__(
             self,
             master,
+            text_class=rst_utils.RstText,  # Use RstText for beautiful formatting!
             horizontal_scrollbar_class=ui_utils.AutoScrollbar,
             read_only=True,
             wrap="word",
@@ -58,12 +59,14 @@ class ChatView(tktextext.TextFrame):
         self._formatted_attachmets_per_message: Dict[str, str] = {}
         self._last_tagged_attachments: Dict[str, Attachment] = {}
         self._active_chat_request_id: Optional[str] = None
+        self._current_chat_response_buffer: str = ""  # Buffer for streaming RST
 
         self._snapshots_per_main_file = {}
         self._current_snapshot = None
         self._current_suggestions: List[str] = []
 
         self._accepted_warning_sets = []
+        self._last_auto_explained_step = None  # Track last auto-explained step to avoid duplicates
 
         main_font = tk.font.nametofont("TkDefaultFont")
 
@@ -133,12 +136,14 @@ class ChatView(tktextext.TextFrame):
 
         from thonny.plugins.openai import OpenAIAssistant
 
-        self._current_assistant: Assistant = EchoAssistant()
+        # Try to use DebugAI if available, fallback to Echo
+        self._current_assistant: Assistant = get_workbench().assistants.get("debugai", EchoAssistant())
 
         get_workbench().bind("ToplevelResponse", self.handle_toplevel_response, True)
         get_workbench().bind(
             "AiChatResponseFragment", self.handle_assistant_chat_response_fragment, True
         )
+        get_workbench().bind("DebuggerResponse", self._handle_debugger_step, True)
 
         self.bind("<<ThemeChanged>>", self._on_theme_changed, True)
         self.bind("<Configure>", self._on_configure, True)
@@ -150,7 +155,9 @@ class ChatView(tktextext.TextFrame):
         bordercolor = "#aaaaaa"  # TODO
 
         panel = tk.Frame(self, background=background)
-        panel.rowconfigure(2, weight=1)
+        panel.rowconfigure(1, weight=0)  # suggestions
+        panel.rowconfigure(2, weight=0)  # lang button
+        panel.rowconfigure(3, weight=1)  # input
         panel.columnconfigure(1, weight=1)
 
         pad = ems_to_pixels(1)
@@ -211,8 +218,34 @@ class ChatView(tktextext.TextFrame):
         self.suggestions_text.tag_bind("suggestion", "<Leave>", dir_tag_leave)
         self.suggestions_text.tag_bind("suggestion", "<Motion>", dir_tag_motion)
 
+        # Language toggle button (UA/RU) above the input
+        def _current_lang() -> str:
+            try:
+                return get_workbench().get_option("ai.language", "uk")
+            except Exception:
+                return "uk"
+
+        def _lang_label_from(code: str) -> str:
+            return "УК" if code == "uk" else "РУ"
+
+        self.lang_button = tk.Button(
+            panel,
+            text=_lang_label_from(_current_lang()),
+            command=self._toggle_lang,
+            background=background,
+            activebackground=background,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+            padx=4,
+            pady=2,
+        )
+        self.lang_button.grid(row=2, column=1, sticky="w", padx=pad, pady=(pad//2, 0))
+
         border_frame = tk.Frame(panel, background="#cccccc")
-        border_frame.grid(row=2, column=1, sticky="nsew", padx=pad, pady=(pad, pad))
+        border_frame.grid(row=3, column=1, sticky="nsew", padx=pad, pady=(pad//2, pad))
+        border_frame.rowconfigure(0, weight=1)
+        border_frame.columnconfigure(0, weight=1)
 
         inside_frame = tk.Frame(border_frame, background="white")
         inside_frame.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
@@ -227,6 +260,8 @@ class ChatView(tktextext.TextFrame):
             highlightthickness=0,
             relief="groove",
             wrap="word",
+            insertwidth=2,  # Ширина курсора
+            insertbackground="black",  # Цвет курсора
         )
         self.query_text.bind("<Return>", self._on_press_enter_in_chat_entry, True)
         self.query_text.bind("<Key>", self._on_change_query_text, True)
@@ -241,10 +276,7 @@ class ChatView(tktextext.TextFrame):
             borderwidth=1,
             bordercolor=bordercolor,
         )
-        submit_button_frame.grid(row=2, column=2, sticky="e", padx=(0, pad), pady=pad)
-
-        border_frame.rowconfigure(0, weight=1)
-        border_frame.columnconfigure(0, weight=1)
+        submit_button_frame.grid(row=3, column=2, sticky="e", padx=(0, pad), pady=(pad//2, pad))
 
         return panel
 
@@ -256,7 +288,31 @@ class ChatView(tktextext.TextFrame):
             return
 
         fragment = fragment_with_request_id.fragment
-        self._append_text(fragment.content, source="chat")
+        
+        # For RstText, accumulate and render at the end
+        if isinstance(self.text, rst_utils.RstText):
+            if not fragment.is_final:
+                # Just accumulate the content
+                self._current_chat_response_buffer += fragment.content
+                # Show a placeholder or progress indicator
+                if not self._current_chat_response_buffer.strip():
+                    return
+            else:
+                # Render accumulated RST at the end
+                try:
+                    # Convert Markdown to RST before rendering
+                    rst_content = self._markdown_to_rst(self._current_chat_response_buffer)
+                    self.text.append_rst(rst_content)
+                except Exception as e:
+                    # Fallback to plain text if RST parsing fails
+                    logger.warning(f"RST/Markdown parsing failed: {e}")
+                    self.text.direct_insert("end", self._current_chat_response_buffer)
+                self.text.direct_insert("end", "\n")
+                self._current_chat_response_buffer = ""  # Clear buffer
+        else:
+            # For regular text, use streaming
+            self._append_text(fragment.content, source="chat")
+        
         last_msg = self._chat_messages.pop()
         if last_msg.role == "user":
             self._chat_messages.append(last_msg)
@@ -266,10 +322,24 @@ class ChatView(tktextext.TextFrame):
 
         current_msg = replace(current_msg, content=current_msg.content + fragment.content)
         self._chat_messages.append(current_msg)
+        
         if fragment.is_final:
-            self._append_text("\n", source="chat")
             self._active_chat_request_id = None
             self._update_suggestions()
+            self.text.see("end")
+
+    def _toggle_lang(self) -> None:
+        try:
+            current = get_workbench().get_option("ai.language", "uk")
+        except Exception:
+            current = "uk"
+        new_lang = "ru" if current == "uk" else "uk"
+        try:
+            get_workbench().set_option("ai.language", new_lang)
+        except Exception:
+            pass
+        self.lang_button.config(text=("УК" if new_lang == "uk" else "РУ"))
+        self._update_suggestions()
 
     def handle_toplevel_response(self, msg: ToplevelResponse) -> None:
         from thonny.plugins.cpython_frontend import LocalCPythonProxy
@@ -304,6 +374,46 @@ class ChatView(tktextext.TextFrame):
         else:
             self.main_file_path = None
 
+    def _handle_debugger_step(self, msg) -> None:
+        """Автоматически объясняет каждый шаг отладки"""
+        from thonny.plugins.debugger import get_current_debugger
+        from thonny.plugins.debug_assistant import DebugAIAssistant
+        
+        debugger = get_current_debugger()
+        if not debugger:
+            return
+        
+        # Проверяем что была команда step_over или step_into
+        last_cmd = getattr(debugger, '_last_debugger_command', None)
+        if not last_cmd or last_cmd.name not in ['step_over', 'step_into']:
+            return
+        
+        # Проверяем что используется DebugAI ассистент
+        if not isinstance(self._current_assistant, DebugAIAssistant):
+            return
+        
+        # Избегаем повторной генерации для того же шага
+        # Используем информацию о текущей строке кода
+        if hasattr(msg, 'stack') and msg.stack:
+            current_frame = msg.stack[-1]
+            step_id = (current_frame.filename, current_frame.lineno, current_frame.event)
+            
+            if step_id == self._last_auto_explained_step:
+                return
+            
+            self._last_auto_explained_step = step_id
+        
+        # Автоматично генеруємо пояснення (локалізовано)
+        try:
+            lang = get_workbench().get_option("ai.language", "uk")
+        except Exception:
+            lang = "uk"
+        if lang == "ru":
+            auto_prompt = "Что выполнено на предыдущем шаге? Что произойдёт на текущей строке?"
+        else:
+            auto_prompt = "Що виконалось на попередньому кроці? Що станеться коли виконається поточний рядок?"
+        self.submit_user_chat_message(auto_prompt)
+
     def _on_configure(self, event: tk.Event) -> None:
         self._update_suggestions_box()
 
@@ -330,7 +440,107 @@ class ChatView(tktextext.TextFrame):
                 self._format_file_url(error_info),
             )
 
+    def _markdown_to_rst(self, markdown_text: str) -> str:
+        """Convert limited Markdown to RST for ChatView.
+
+        Rules:
+        - Keep headings like **Що сталось:**, **Поточний стан:**, **Що далі:** as-is (bold).
+        - Preserve code fences (``` ... ```) as literal blocks (:: + indented lines).
+        - For the "**Поточний стан:**" section, render following non-empty lines
+          as a literal block to preserve line breaks (indented, monospace).
+        - Convert inline `code` → ``code``.
+        """
+        import re
+
+        lines = markdown_text.split("\n")
+        rst_lines: list[str] = []
+
+        in_fenced_code = False
+        fenced_code_lines: list[str] = []
+        previous_was_bullet = False
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            # Handle fenced code blocks
+            if stripped.startswith("```"):
+                if not in_fenced_code:
+                    in_fenced_code = True
+                    fenced_code_lines = []
+                else:
+                    # close fenced block → RST literal block
+                    in_fenced_code = False
+                    rst_lines.append("")
+                    rst_lines.append("::")
+                    rst_lines.append("")
+                    for cl in fenced_code_lines:
+                        rst_lines.append("    " + cl)
+                    rst_lines.append("")
+                i += 1
+                continue
+
+            if in_fenced_code:
+                fenced_code_lines.append(line)
+                i += 1
+                continue
+
+            # Convert inline code
+            line = re.sub(r"`([^`]+)`", r"``\1``", line)
+
+            # Simple Markdown headings (# → bold)
+            if line.startswith('# '):
+                line = '**' + line[2:] + '**'
+            elif line.startswith('## '):
+                line = '**' + line[3:] + '**'
+            elif line.startswith('### '):
+                line = '**' + line[4:] + '**'
+
+            # Handle "Поточний стан" as literal block for preserving newlines
+            if stripped.startswith('**Поточний стан:**'):
+                rst_lines.append(line)
+                i += 1
+
+                # Collect subsequent non-empty, non-heading lines
+                var_lines: list[str] = []
+                while i < len(lines):
+                    nxt = lines[i]
+                    nxs = nxt.strip()
+                    if nxs.startswith('**') or nxs.startswith('```') or nxs.startswith('# '):
+                        break
+                    if nxs != "":
+                        var_lines.append(nxt.rstrip())
+                    i += 1
+
+                if var_lines:
+                    rst_lines.append("")
+                    rst_lines.append("::")
+                    rst_lines.append("")
+                    for vl in var_lines:
+                        rst_lines.append("    " + vl)
+                    rst_lines.append("")
+                continue
+
+            # Bullet list handling: ensure a blank line before first bullet
+            if stripped.startswith('- ') or stripped.startswith('* '):
+                if len(rst_lines) > 0 and rst_lines[-1].strip() != "" and not previous_was_bullet:
+                    rst_lines.append("")
+                rst_lines.append(line)
+                previous_was_bullet = True
+                i += 1
+                continue
+
+            previous_was_bullet = False
+
+            # Default: keep line as-is (RST will wrap normal paragraphs)
+            rst_lines.append(line)
+            i += 1
+
+        return "\n".join(rst_lines)
+    
     def _append_text(self, chars, tags=(), source="analysis"):
+        # Just insert text directly (RST handled separately in streaming handler)
         self.text.direct_insert("end", chars, tags=tags)
 
         if source == "analysis":
@@ -632,18 +842,27 @@ class ChatView(tktextext.TextFrame):
     def _update_suggestions(self) -> None:
         logger.debug("Updating suggestions")
         new_suggestions = []
-        last_run_info = get_shell().text.extract_last_execution_info("%Run")
 
-        editor = get_workbench().get_editor_notebook().get_current_editor()
+        # Import here to avoid circular dependency
+        from thonny.plugins.debugger import get_current_debugger
+        
+        # Add debug suggestions if debugging is active
+        debugger = get_current_debugger()
+        if debugger and hasattr(debugger, '_last_progress_message') and debugger._last_progress_message:
+            try:
+                lang = get_workbench().get_option("ai.language", "uk")
+            except Exception:
+                lang = "uk"
+            if lang == "ru":
+                new_suggestions.append("🐛 Что здесь?")
+                new_suggestions.append("🔮 Что дальше?")
+                new_suggestions.append("📊 Переменные")
+            else:
+                new_suggestions.append("🐛 Що тут?")
+                new_suggestions.append("🔮 Що далі?")
+                new_suggestions.append("📊 Змінні")
 
-        if editor is not None and editor.get_content():
-            new_suggestions.append("Check #currentFile")
-
-        if get_shell().text.has_selection() and last_run_info is not None:
-            new_suggestions.append("Explain #selectedOutput in #lastRun")
-
-        if last_run_info is not None or True:
-            new_suggestions.append("Explain #lastRun")
+        # Removed: Check #currentFile, Explain #lastRun
 
         if new_suggestions != self._current_suggestions:
             self._remove_suggestions()
