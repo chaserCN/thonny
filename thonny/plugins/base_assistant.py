@@ -233,7 +233,7 @@ Format:
         logger = getLogger(__name__)
         
         logger.info("=" * 80)
-        logger.info("NORMAL MODE REQUEST")
+        logger.info(f"NORMAL MODE REQUEST (assistant: {self.__class__.__name__})")
         logger.info("=" * 80)
         
         # Get base prompt (use override if provided, e.g., for line explanation popup)
@@ -326,9 +326,9 @@ Format:
         is_debug_step = last_message and last_message.is_debug_related if last_message else False
         
         if is_debug_step:
-            return self._complete_debug_step(context)
+            yield from self._complete_debug_step(context)
         else:
-            return self._complete_normal(context)
+            yield from self._complete_normal(context)
 
     def cancel_completion(self) -> None:
         """Cancel current completion (default: do nothing)"""

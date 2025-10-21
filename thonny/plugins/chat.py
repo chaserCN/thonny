@@ -434,17 +434,10 @@ class ChatView(tktextext.TextFrame):
     
     def _on_model_selected(self) -> None:
         """Handle model selection change (GPT/Gemini/Claude), preserving chat history"""
-        from logging import getLogger
-        logger = getLogger(__name__)
-        
         # Map display name to internal value
         label_to_model = {"GPT": "gpt", "Gemini": "gemini", "Claude": "claude"}
         selected_label = self.model_var.get()
         new_model = label_to_model.get(selected_label, "gpt")
-        
-        logger.info(f"=" * 80)
-        logger.info(f"MODEL SELECTED: {selected_label} (internal: {new_model})")
-        logger.info(f"=" * 80)
         
         try:
             get_workbench().set_option("ai.model", new_model)
@@ -454,7 +447,6 @@ class ChatView(tktextext.TextFrame):
         # Switch assistant while preserving history (case-insensitive keys)
         # Switch to regular assistants (not debug versions)
         assistants = get_workbench().assistants
-        logger.info(f"Available assistants: {list(assistants.keys())}")
         
         if new_model == "gpt":
             self._current_assistant = (
@@ -471,8 +463,6 @@ class ChatView(tktextext.TextFrame):
                 assistants.get("claude")  # lowercase!
                 or EchoAssistant()
             )
-        
-        logger.info(f"Selected assistant: {self._current_assistant.__class__.__name__}")
         
         # History is preserved in self._chat_messages - no need to clear it
     

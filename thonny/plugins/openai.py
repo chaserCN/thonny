@@ -119,28 +119,38 @@ class OpenAIAssistant(BaseAIAssistant):
     
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to OpenAI API and stream response"""
-        from openai import OpenAI
-        from logging import getLogger
-        
-        logger = getLogger(__name__)
-        logger.info("🟢 SENDING REQUEST TO OPENAI (gpt-4o-mini)")
+        from openai import OpenAI, APIConnectionError, APIError
 
-        client = OpenAI(api_key=self._get_saved_api_key())
+        try:
+            client = OpenAI(api_key=self._get_saved_api_key())
 
-        # Combine system message with history
-        all_messages = [{"role": "system", "content": system_prompt}] + messages
+            # Combine system message with history
+            all_messages = [{"role": "system", "content": system_prompt}] + messages
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=all_messages,
-            stream=True,
-        )
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=all_messages,
+                stream=True,
+            )
 
-        for chunk in response:
-            chunk_message = chunk.choices[0].delta.content or ""
-            yield ChatResponseChunk(chunk_message, is_final=False)
+            for chunk in response:
+                chunk_message = chunk.choices[0].delta.content or ""
+                yield ChatResponseChunk(chunk_message, is_final=False)
 
-        yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk("", is_final=True)
+            
+        except APIConnectionError as e:
+            error_msg = "❌ **Помилка з'єднання з OpenAI API**\n\nПеревірте підключення до інтернету."
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
+        except APIError as e:
+            error_msg = f"❌ **Помилка OpenAI API**\n\n{str(e)}"
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
+        except Exception as e:
+            error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
 
 
 def load_plugin():

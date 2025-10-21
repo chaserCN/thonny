@@ -119,35 +119,46 @@ class GeminiAssistant(BaseAIAssistant):
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to Gemini API and stream response"""
         import google.generativeai as genai
-        from logging import getLogger
-        
-        logger = getLogger(__name__)
-        logger.info("🔵 SENDING REQUEST TO GEMINI (gemini-2.5-flash)")
+        from google.api_core import exceptions as google_exceptions
 
-        genai.configure(api_key=self._get_saved_api_key())
-        
-        # Create model with system instruction
-        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
-        
-        # Separate last message from history
-        if not messages:
+        try:
+            genai.configure(api_key=self._get_saved_api_key())
+            
+            # Create model with system instruction
+            model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
+            
+            # Separate last message from history
+            if not messages:
+                yield ChatResponseChunk("", is_final=True)
+                return
+            
+            chat_history = messages[:-1]  # All except last
+            last_message_parts = messages[-1]["parts"]  # Last message parts
+            
+            # Start chat with history
+            chat = model.start_chat(history=chat_history)
+            
+            # Stream response for last message
+            response = chat.send_message(last_message_parts, stream=True)
+            
+            for chunk in response:
+                if chunk.text:
+                    yield ChatResponseChunk(chunk.text, is_final=False)
+            
             yield ChatResponseChunk("", is_final=True)
-            return
-        
-        chat_history = messages[:-1]  # All except last
-        last_message_parts = messages[-1]["parts"]  # Last message parts
-        
-        # Start chat with history
-        chat = model.start_chat(history=chat_history)
-        
-        # Stream response for last message
-        response = chat.send_message(last_message_parts, stream=True)
-        
-        for chunk in response:
-            if chunk.text:
-                yield ChatResponseChunk(chunk.text, is_final=False)
-        
-        yield ChatResponseChunk("", is_final=True)
+            
+        except google_exceptions.ServiceUnavailable as e:
+            error_msg = "❌ **Помилка з'єднання з Gemini API**\n\nПеревірте підключення до інтернету."
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
+        except google_exceptions.GoogleAPIError as e:
+            error_msg = f"❌ **Помилка Gemini API**\n\n{str(e)}"
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
+        except Exception as e:
+            error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
 
 
 def load_plugin():

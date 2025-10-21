@@ -120,37 +120,49 @@ class ClaudeAssistant(BaseAIAssistant):
                     "text": formatted_content
                 })
                 
-                out_msgs.append({"role": msg.role.to_gemini(), "content": content})
+                out_msgs.append({"role": msg.role.to_claude(), "content": content})
             else:
                 # Regular text message
-                out_msgs.append({"role": msg.role.to_gemini(), "content": formatted_content})
+                out_msgs.append({"role": msg.role.to_claude(), "content": formatted_content})
         
         return out_msgs
     
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to Claude API and stream response"""
         import anthropic
-        from logging import getLogger
-        
-        logger = getLogger(__name__)
-        logger.info("🟣 SENDING REQUEST TO CLAUDE (claude-3-5-sonnet-20241022)")
+        from anthropic import APIConnectionError, APIError
 
-        client = anthropic.Anthropic(api_key=self._get_saved_api_key())
+        try:
+            client = anthropic.Anthropic(api_key=self._get_saved_api_key())
 
-        # Claude uses separate system parameter (not in messages)
-        # Note: messages should NOT include system messages
-        response = client.messages.stream(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=8192,
-            system=system_prompt,
-            messages=messages,
-        )
+            # Claude uses separate system parameter (not in messages)
+            # Note: messages should NOT include system messages
+            # Available models: claude-sonnet-4-5, claude-haiku-4-5
+            response = client.messages.stream(
+                model="claude-sonnet-4-5",
+                max_tokens=8192,
+                system=system_prompt,
+                messages=messages,
+            )
 
-        with response as stream:
-            for text in stream.text_stream:
-                yield ChatResponseChunk(text, is_final=False)
+            with response as stream:
+                for text in stream.text_stream:
+                    yield ChatResponseChunk(text, is_final=False)
 
-        yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk("", is_final=True)
+            
+        except APIConnectionError as e:
+            error_msg = "❌ **Помилка з'єднання з Claude API**\n\nПеревірте підключення до інтернету."
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
+        except APIError as e:
+            error_msg = f"❌ **Помилка Claude API**\n\n{str(e)}"
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
+        except Exception as e:
+            error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
+            yield ChatResponseChunk(error_msg, is_final=False)
+            yield ChatResponseChunk("", is_final=True)
 
 
 def load_plugin():

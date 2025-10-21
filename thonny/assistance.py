@@ -27,6 +27,10 @@ class ChatRole(Enum):
         """Convert to OpenAI API format"""
         return self.value
     
+    def to_claude(self) -> str:
+        """Convert to Claude API format (same as OpenAI)"""
+        return self.value
+    
     def to_gemini(self) -> str:
         """Convert to Gemini API format"""
         if self == ChatRole.ASSISTANT:
