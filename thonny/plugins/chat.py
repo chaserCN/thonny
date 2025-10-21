@@ -176,9 +176,11 @@ class ChatView(tktextext.TextFrame):
         
         # Use regular assistants by default (not debug versions)
         if saved_model == "gemini":
-            self._current_assistant: Assistant = get_workbench().assistants.get("Gemini", EchoAssistant())
+            self._current_assistant: Assistant = get_workbench().assistants.get("gemini", EchoAssistant())  # lowercase!
+        elif saved_model == "claude":
+            self._current_assistant: Assistant = get_workbench().assistants.get("claude", EchoAssistant())  # lowercase!
         else:
-            self._current_assistant: Assistant = get_workbench().assistants.get("OpenAI", EchoAssistant())
+            self._current_assistant: Assistant = get_workbench().assistants.get("openai", EchoAssistant())  # lowercase!
 
         get_workbench().bind("ToplevelResponse", self.handle_toplevel_response, True)
         get_workbench().bind(
@@ -456,17 +458,17 @@ class ChatView(tktextext.TextFrame):
         
         if new_model == "gpt":
             self._current_assistant = (
-                assistants.get("OpenAI")
+                assistants.get("openai")  # lowercase!
                 or EchoAssistant()
             )
         elif new_model == "gemini":
             self._current_assistant = (
-                assistants.get("Gemini")
+                assistants.get("gemini")  # lowercase!
                 or EchoAssistant()
             )
         elif new_model == "claude":
             self._current_assistant = (
-                assistants.get("Claude")
+                assistants.get("claude")  # lowercase!
                 or EchoAssistant()
             )
         

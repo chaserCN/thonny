@@ -464,9 +464,13 @@ class CodeView(tktextext.EnhancedTextFrame):
         
         assistants = get_workbench().assistants
         if model == "gpt":
-            assistant = assistants.get("OpenAI") or assistants.get("openai")
+            assistant = assistants.get("openai")  # lowercase!
+        elif model == "gemini":
+            assistant = assistants.get("gemini")  # lowercase!
+        elif model == "claude":
+            assistant = assistants.get("claude")  # lowercase!
         else:
-            assistant = assistants.get("Gemini") or assistants.get("gemini")
+            assistant = assistants.get("openai")  # default fallback
         
         if not assistant:
             messagebox.showerror("AI Error", "AI ассистент недоступен. Проверьте настройки API ключа.")
