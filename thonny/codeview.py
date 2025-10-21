@@ -454,10 +454,33 @@ class CodeView(tktextext.EnhancedTextFrame):
         from tkinter import messagebox
         import threading
         from thonny import rst_utils
+        from thonny import get_workbench
+        
+        # Get language preference
+        try:
+            lang = get_workbench().get_option("ai.language", "uk")
+        except:
+            lang = "uk"
+        
+        # Localized strings
+        if lang == "ru":
+            title_text = f"Строка {line_num}: Пояснение"
+            code_line_label = "Строка кода:"
+            explanation_label = "Пояснение:"
+            loading_text = "⏳ *Запрашиваю AI для пояснения...*"
+            close_text = "Закрыть"
+            error_label = "Ошибка:"
+        else:  # uk
+            title_text = f"Рядок {line_num}: Пояснення"
+            code_line_label = "Рядок коду:"
+            explanation_label = "Пояснення:"
+            loading_text = "⏳ *Запитую AI для пояснення...*"
+            close_text = "Закрити"
+            error_label = "Помилка:"
         
         # Create popup dialog
         popup = tk.Toplevel(self)
-        popup.title(f"Рядок {line_num}: Пояснення")
+        popup.title(title_text)
         popup.geometry("600x400")
         popup.transient(self.winfo_toplevel())
         
@@ -480,11 +503,11 @@ class CodeView(tktextext.EnhancedTextFrame):
         explanation_text.config(yscrollcommand=scrollbar.set)
         
         # Show loading message
-        loading_msg = f"**Рядок коду:**\n\n::\n\n    {line_content}\n\n⏳ *Запитую AI для пояснення...*\n"
+        loading_msg = f"**{code_line_label}**\n\n::\n\n    {line_content}\n\n{loading_text}\n"
         explanation_text.append_rst(loading_msg)
         
         # Close button
-        close_btn = ttk.Button(popup, text="Закрити", command=popup.destroy)
+        close_btn = ttk.Button(popup, text=close_text, command=popup.destroy)
         close_btn.pack(pady=(0, 10))
         
         # Get AI explanation in thread
@@ -498,8 +521,8 @@ class CodeView(tktextext.EnhancedTextFrame):
                     explanation_text.direct_delete("1.0", "end")
                     
                     # Format as RST
-                    rst_content = f"**Рядок коду:**\n\n::\n\n    {line_content}\n\n"
-                    rst_content += "**Пояснення:**\n\n"
+                    rst_content = f"**{code_line_label}**\n\n::\n\n    {line_content}\n\n"
+                    rst_content += f"**{explanation_label}**\n\n"
                     
                     # Convert markdown response to RST for rendering
                     # The AI response is in markdown, convert to RST
@@ -537,7 +560,7 @@ class CodeView(tktextext.EnhancedTextFrame):
             except Exception as e:
                 def show_error():
                     explanation_text.direct_delete("1.0", "end")
-                    explanation_text.append_rst(f"**Помилка:** {str(e)}")
+                    explanation_text.append_rst(f"**{error_label}** {str(e)}")
                 popup.after(0, show_error)
         
         threading.Thread(target=get_explanation, daemon=True).start()
