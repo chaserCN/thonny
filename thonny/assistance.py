@@ -61,6 +61,7 @@ class ChatMessage:
     attachments: List[Attachment]
     is_debug_related: bool = False
     debug_session_id: Optional[str] = None
+    image: Optional[Dict] = None  # {'base64': str, 'format': str} for image support
 
 
 @dataclass

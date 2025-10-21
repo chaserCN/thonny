@@ -74,7 +74,28 @@ class OpenAIAssistant(Assistant):
 
         out_msgs = [
             {"role": "system", "content": "You are a helpful programming coach."},
-        ] + [{"role": msg.role.to_openai(), "content": self.format_message(msg)} for msg in context.messages]
+        ]
+        
+        # Build messages with image support
+        for msg in context.messages:
+            formatted_content = self.format_message(msg)
+            
+            # If message has an image, use multimodal format
+            if msg.image:
+                content = [
+                    {"type": "text", "text": formatted_content}
+                ]
+                # Add image in OpenAI format
+                image_format = msg.image.get('format', 'jpeg')
+                image_url = f"data:image/{image_format};base64,{msg.image['base64']}"
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": image_url}
+                })
+                out_msgs.append({"role": msg.role.to_openai(), "content": content})
+            else:
+                # Regular text message
+                out_msgs.append({"role": msg.role.to_openai(), "content": formatted_content})
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",

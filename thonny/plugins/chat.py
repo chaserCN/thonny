@@ -286,10 +286,21 @@ class ChatView(tktextext.TextFrame):
         
         # Set focus to input field on startup
         self.query_text.focus_set()
+        
+        # Image attach button (left of submit button)
+        image_button_frame = create_custom_toolbutton_in_frame(
+            panel,
+            text=" 🖼️ ",  # Image icon
+            command=self._attach_image,
+            background=background,
+            borderwidth=1,
+            bordercolor=bordercolor,
+        )
+        image_button_frame.grid(row=2, column=2, sticky="e", padx=(0, pad//2), pady=(pad//2, pad))
 
         # Create container for submit button and loading indicator (same position)
         submit_container = tk.Frame(panel, background=background)
-        submit_container.grid(row=2, column=3, sticky="e", padx=(pad, pad), pady=(pad//2, pad))
+        submit_container.grid(row=2, column=3, sticky="e", padx=(pad//2, pad), pady=(pad//2, pad))
         
         # Submit button (shown by default)
         self.submit_button_frame = create_custom_toolbutton_in_frame(
@@ -437,6 +448,7 @@ class ChatView(tktextext.TextFrame):
         self._last_tagged_attachments.clear()
         self._current_chat_response_buffer = ""
         self._last_auto_explained_step = None
+        self._attached_image = None  # Store selected image (path and base64)
         
         # Cancel any ongoing completion
         self._cancel_completion()
@@ -668,6 +680,54 @@ class ChatView(tktextext.TextFrame):
         if isinstance(self.text, rst_utils.RstText):
             self.text.on_theme_changed()
 
+    def _attach_image(self) -> None:
+        """Open file dialog to select an image"""
+        from tkinter import filedialog
+        import base64
+        
+        filetypes = [
+            ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+            ("All files", "*.*")
+        ]
+        
+        filepath = filedialog.askopenfilename(
+            title="Select an image",
+            filetypes=filetypes
+        )
+        
+        if filepath:
+            try:
+                # Read and encode image to base64
+                with open(filepath, "rb") as image_file:
+                    image_data = base64.b64encode(image_file.read()).decode('utf-8')
+                
+                # Determine image format from extension
+                import os
+                ext = os.path.splitext(filepath)[1].lower().lstrip('.')
+                if ext == 'jpg':
+                    ext = 'jpeg'
+                
+                self._attached_image = {
+                    'path': filepath,
+                    'base64': image_data,
+                    'format': ext
+                }
+                
+                # Clear any previous image indicator
+                current_text = self.query_text.get("1.0", "end-1c")
+                if current_text.startswith("[🖼️"):
+                    # Remove old image indicator
+                    first_newline = current_text.find("\n")
+                    if first_newline != -1:
+                        self.query_text.delete("1.0", f"1.{first_newline+1}")
+                
+                # Show image indicator at the top
+                self.query_text.insert("1.0", f"[🖼️ {os.path.basename(filepath)}]\n")
+                
+            except Exception as e:
+                from tkinter import messagebox
+                messagebox.showerror("Error", f"Failed to load image: {e}")
+    
     def _on_click_submit(self) -> None:
         if self._current_assistant.get_ready():
             self.submit_user_chat_message(self.query_text.get("1.0", "end"))
@@ -707,6 +767,12 @@ class ChatView(tktextext.TextFrame):
         text_to_display = display_message if display_message else message
         self._append_text(text_to_display, tags=("user_message",))
         
+        # Show image indicator if image is attached
+        if self._attached_image:
+            import os
+            image_name = os.path.basename(self._attached_image['path'])
+            self._append_text(f" [🖼️ {image_name}]", tags=("user_message",))
+        
         if attachments:
             self._formatted_attachmets_per_message[self._active_chat_request_id] = (
                 self._current_assistant.format_attachments(attachments)
@@ -722,9 +788,21 @@ class ChatView(tktextext.TextFrame):
         for warning in warnings:
             self._append_text("WARNING: " + warning + "\n\n")
 
-        # Store full message (with context) for AI, not the display version
-        self._chat_messages.append(ChatMessage(ChatRole.USER, message, attachments, is_debug_related, debug_session_id))
+        # Store full message (with context) for AI, including image if attached
+        self._chat_messages.append(
+            ChatMessage(
+                ChatRole.USER, 
+                message, 
+                attachments, 
+                is_debug_related, 
+                debug_session_id,
+                self._attached_image  # Pass image to ChatMessage
+            )
+        )
         self.query_text.delete("1.0", "end")
+        
+        # Clear attached image after sending
+        self._attached_image = None
         
         # Return focus to input field after submitting
         self.query_text.focus_set()

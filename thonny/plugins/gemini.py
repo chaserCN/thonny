@@ -69,6 +69,7 @@ class GeminiAssistant(Assistant):
 
     def complete_chat(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         import google.generativeai as genai
+        import base64
 
         genai.configure(api_key=self._get_saved_api_key())
         
@@ -83,9 +84,19 @@ class GeminiAssistant(Assistant):
             # Convert messages to Gemini format
             for msg in context.messages[:-1]:  # All except the last one
                 role = msg.role.to_gemini()
+                parts = [self.format_message(msg)]
+                
+                # Add image if present
+                if msg.image:
+                    mime_type = f"image/{msg.image.get('format', 'jpeg')}"
+                    image_data = base64.b64decode(msg.image['base64'])
+                    # Use blob format for Gemini
+                    image_blob = {'mime_type': mime_type, 'data': image_data}
+                    parts.append(image_blob)
+                
                 history.append({
                     "role": role,
-                    "parts": [self.format_message(msg)]
+                    "parts": parts
                 })
         
         # Start chat with history
@@ -97,10 +108,18 @@ class GeminiAssistant(Assistant):
             yield ChatResponseChunk("", is_final=True)
             return
         
-        prompt = self.format_message(last_message)
+        # Build parts for the last message
+        parts = [self.format_message(last_message)]
+        
+        # Add image if present in last message
+        if last_message.image:
+            mime_type = f"image/{last_message.image.get('format', 'jpeg')}"
+            image_data = base64.b64decode(last_message.image['base64'])
+            image_blob = {'mime_type': mime_type, 'data': image_data}
+            parts.append(image_blob)
         
         # Stream response
-        response = chat.send_message(prompt, stream=True)
+        response = chat.send_message(parts, stream=True)
         
         for chunk in response:
             if chunk.text:
