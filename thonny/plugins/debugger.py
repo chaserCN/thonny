@@ -1437,7 +1437,7 @@ def load_plugin() -> None:
         caption=tr("Explain"),
         tester=lambda: _debugger_command_enabled("step_over"),
         default_sequence=None,
-        group=40,  # separate group for visual spacing
+        group=20,  # before step buttons (group 30)
         image="step-over",
         include_in_toolbar=True,
     )

@@ -980,4 +980,10 @@ class ChatView(tktextext.TextFrame):
 
 
 def load_plugin():
+    # Register AI options with defaults so they persist between sessions
+    get_workbench().set_default("ai.model", "gpt")
+    get_workbench().set_default("ai.language", "uk")
+    get_workbench().set_default("ai.summary_max_msgs", 25)
+    get_workbench().set_default("ai.summary_max_chars", 10000)
+    
     get_workbench().add_view(ChatView, tr("Chat"), "se", visible_by_default=False)
