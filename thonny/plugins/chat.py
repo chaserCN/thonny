@@ -347,6 +347,8 @@ class ChatView(tktextext.TextFrame):
 
     def _markdown_to_rst(self, markdown_text: str) -> str:
         """Convert markdown response to RST for rendering"""
+        import re
+        
         # Basic conversions
         rst_text = markdown_text.replace("```python", "::\n\n").replace("```", "")
         
@@ -355,8 +357,11 @@ class ChatView(tktextext.TextFrame):
         lines = rst_text.split('\n')
         converted_lines = []
         in_list = False
-        for line in lines:
+        in_var_block = False
+        
+        for i, line in enumerate(lines):
             stripped = line.lstrip()
+            
             # Check if this is a bullet point
             if stripped.startswith('- ') or stripped.startswith('* '):
                 if not in_list:
@@ -367,10 +372,38 @@ class ChatView(tktextext.TextFrame):
                 # Convert to RST bullet (always use *)
                 indent = len(line) - len(stripped)
                 converted_lines.append(' ' * indent + '* ' + stripped[2:])
+                in_var_block = False
+            # Check if this looks like variable assignment (for **Текущее состояние:**)
+            elif re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*.+$', stripped):
+                if not in_var_block:
+                    # Start variable block - add blank line and code block marker
+                    if converted_lines and converted_lines[-1].strip():
+                        converted_lines.append('')
+                    converted_lines.append('.. code-block:: text')
+                    converted_lines.append('')
+                    in_var_block = True
+                # Indent variable lines for code block
+                converted_lines.append('   ' + line)
+                in_list = False
+            # Check if line starts with "Сейчас выполнится:" or "Зараз виконається:"
+            elif re.match(r'^(Сейчас|Зараз)\s+(выполнится|виконається):', stripped):
+                if in_var_block:
+                    # Close variable block with blank line
+                    converted_lines.append('')
+                    in_var_block = False
+                converted_lines.append(line)
+                # Add blank line after "Сейчас выполнится: код" for better spacing
+                if i + 1 < len(lines) and lines[i + 1].strip():
+                    converted_lines.append('')
+                in_list = False
             else:
                 if in_list and stripped:
                     # List ended
                     in_list = False
+                if in_var_block and stripped and not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*.+$', stripped):
+                    # Variable block ended
+                    converted_lines.append('')
+                    in_var_block = False
                 converted_lines.append(line)
         
         return '\n'.join(converted_lines)
