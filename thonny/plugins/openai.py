@@ -120,6 +120,10 @@ class OpenAIAssistant(BaseAIAssistant):
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to OpenAI API and stream response"""
         from openai import OpenAI
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
+        logger.info("🟢 SENDING REQUEST TO OPENAI (gpt-4o-mini)")
 
         client = OpenAI(api_key=self._get_saved_api_key())
 

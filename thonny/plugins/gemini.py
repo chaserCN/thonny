@@ -119,6 +119,10 @@ class GeminiAssistant(BaseAIAssistant):
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to Gemini API and stream response"""
         import google.generativeai as genai
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
+        logger.info("🔵 SENDING REQUEST TO GEMINI (gemini-2.5-flash)")
 
         genai.configure(api_key=self._get_saved_api_key())
         

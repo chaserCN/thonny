@@ -307,6 +307,20 @@ Format:
 
     def complete_chat(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         """Main entry point - routes to normal or debug mode"""
+        from logging import getLogger
+        logger = getLogger(__name__)
+        
+        logger.info(f"=" * 80)
+        logger.info(f"COMPLETE_CHAT called for assistant: {self.__class__.__name__}")
+        logger.info(f"=" * 80)
+        
+        # Check API key is configured
+        if not self.get_ready():
+            # API key not configured, return error
+            yield ChatResponseChunk("API key not configured", is_final=False)
+            yield ChatResponseChunk("", is_final=True)
+            return
+        
         # Check if this is a debug step explanation request
         last_message = context.messages[-1] if context.messages else None
         is_debug_step = last_message and last_message.is_debug_related if last_message else False

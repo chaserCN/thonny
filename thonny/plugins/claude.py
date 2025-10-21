@@ -130,6 +130,10 @@ class ClaudeAssistant(BaseAIAssistant):
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to Claude API and stream response"""
         import anthropic
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
+        logger.info("🟣 SENDING REQUEST TO CLAUDE (claude-3-5-sonnet-20241022)")
 
         client = anthropic.Anthropic(api_key=self._get_saved_api_key())
 
