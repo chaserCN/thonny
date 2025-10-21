@@ -999,6 +999,10 @@ class EnhancedTextFrame(TextFrame):
         self.text.bind("<<CursorMove>>", self._cursor_moved, True)
 
         self._reload_gutter_theme_options()
+        
+        # Right info gutter (initially not created, will be added by CodeView)
+        self._right_gutter = None
+        self._right_gutter_is_gridded = False
 
     def set_gutter_visibility(self, value):
         if value and not self._gutter_is_gridded:
@@ -1205,6 +1209,51 @@ class EnhancedTextFrame(TextFrame):
         foreground = style.lookup("GUTTER", "foreground")
         if foreground:
             self._gutter.configure(foreground=foreground, selectforeground=foreground)
+    
+    def set_right_gutter_visibility(self, value):
+        """Show or hide the right info gutter"""
+        if value and not self._right_gutter_is_gridded and self._right_gutter:
+            self._right_gutter.grid(row=0, column=3, sticky=tk.NSEW)
+            self._right_gutter_is_gridded = True
+        elif not value and self._right_gutter_is_gridded and self._right_gutter:
+            self._right_gutter.grid_forget()
+            self._right_gutter_is_gridded = False
+    
+    def create_right_gutter(self, width=3, background="#f0f0f0", foreground="#666666"):
+        """Create right info gutter if it doesn't exist"""
+        if self._right_gutter is not None:
+            return self._right_gutter
+        
+        self._right_gutter = tk.Text(
+            self,
+            width=width,
+            padx=2,
+            pady=5,
+            highlightthickness=0,
+            bd=0,
+            takefocus=False,
+            font=self.text["font"],
+            background=background,
+            foreground=foreground,
+            cursor="arrow",
+            state="disabled",
+            undo=False,
+            wrap="none",
+        )
+        
+        if "height" in self.text.configure():
+            self._right_gutter.configure(height=self.text["height"])
+        
+        # Sync scrolling with main text
+        self._right_gutter["yscrollcommand"] = lambda *args: None  # Don't affect scrollbar
+        
+        # Bind to vertical scroll to keep in sync
+        def sync_right_gutter(*args):
+            if self._right_gutter:
+                self._right_gutter.yview_moveto(args[0])
+        self.text.bind("<<VerticalScroll>>", lambda e: self._right_gutter.yview_moveto(self.text.yview()[0]), "+")
+        
+        return self._right_gutter
 
 
 def get_text_font(text):

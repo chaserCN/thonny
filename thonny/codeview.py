@@ -7,7 +7,7 @@ import sys
 import time
 import tkinter as tk
 from logging import getLogger
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from typing import Dict, Union  # @UnusedImport
 
 from thonny import get_workbench, roughparse, tktextext, ui_utils
@@ -186,6 +186,20 @@ class CodeView(tktextext.EnhancedTextFrame):
         self._gutter.tag_configure("spacer", font=spacer_font)
         self._gutter.tag_configure("active", font="BoldEditorFont")
         self._gutter.tag_raise("spacer")
+        
+        # Create right info gutter
+        self.create_right_gutter(width=3)
+        self.set_right_gutter_visibility(True)
+        
+        # Configure clickable info buttons
+        self._right_gutter.tag_configure("info_button", foreground="#0066cc")
+        self._right_gutter.tag_bind("info_button", "<Button-1>", self._on_info_click)
+        self._right_gutter.tag_bind("info_button", "<Enter>", lambda e: self._right_gutter.config(cursor="hand2"))
+        self._right_gutter.tag_bind("info_button", "<Leave>", lambda e: self._right_gutter.config(cursor="arrow"))
+        
+        # Update right gutter when text changes
+        self.text.bind("<<TextChange>>", self._update_right_gutter, True)
+        self._update_right_gutter()
 
     def get_content(self, up_to_end=False):
         if not up_to_end:
@@ -400,6 +414,368 @@ class CodeView(tktextext.EnhancedTextFrame):
 
         if "breakpoint" in _syntax_options:
             self._gutter.tag_configure("breakpoint", _syntax_options["breakpoint"])
+    
+    def _update_right_gutter(self, event=None):
+        """Update right info gutter with ℹ buttons for each line"""
+        if not self._right_gutter:
+            return
+        
+        # Count lines in editor
+        line_count = int(self.text.index("end-1c").split(".")[0])
+        
+        # Update gutter content
+        self._right_gutter.config(state="normal")
+        self._right_gutter.delete("1.0", "end")
+        
+        for line_num in range(1, line_count + 1):
+            # Add info button with line number tag
+            self._right_gutter.insert("end", " ℹ\n", ("info_button", f"line_{line_num}"))
+        
+        self._right_gutter.config(state="disabled")
+    
+    def _on_info_click(self, event):
+        """Handle click on info button - show line explanation popup"""
+        # Get which line was clicked
+        index = self._right_gutter.index(f"@{event.x},{event.y}")
+        line_num = int(index.split(".")[0])
+        
+        # Get the line content
+        line_content = self.text.get(f"{line_num}.0", f"{line_num}.end")
+        
+        # Skip empty lines
+        if not line_content.strip():
+            return
+        
+        # Show explanation popup
+        self._show_line_explanation_popup(line_num, line_content)
+    
+    def _show_line_explanation_popup(self, line_num, line_content):
+        """Show popup with AI explanation of the code line"""
+        from tkinter import messagebox
+        import threading
+        from thonny import rst_utils
+        
+        # Create popup dialog
+        popup = tk.Toplevel(self)
+        popup.title(f"Рядок {line_num}: Пояснення")
+        popup.geometry("600x400")
+        popup.transient(self.winfo_toplevel())
+        
+        # Add RstText widget for beautiful formatting (like in chat)
+        text_frame = tk.Frame(popup)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Use RstText for markdown/rst formatting
+        explanation_text = rst_utils.RstText(
+            text_frame, 
+            wrap=tk.WORD, 
+            font="TkDefaultFont",
+            read_only=True,  # Read-only but allows selection and copying
+            background="white"
+        )
+        explanation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(text_frame, command=explanation_text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        explanation_text.config(yscrollcommand=scrollbar.set)
+        
+        # Show loading message
+        loading_msg = f"**Рядок коду:**\n\n::\n\n    {line_content}\n\n⏳ *Запитую AI для пояснення...*\n"
+        explanation_text.append_rst(loading_msg)
+        
+        # Close button
+        close_btn = ttk.Button(popup, text="Закрити", command=popup.destroy)
+        close_btn.pack(pady=(0, 10))
+        
+        # Get AI explanation in thread
+        def get_explanation():
+            try:
+                explanation = self._request_line_explanation(line_num, line_content)
+                
+                # Update UI in main thread
+                def update_ui():
+                    # Clear and show formatted explanation
+                    explanation_text.direct_delete("1.0", "end")
+                    
+                    # Format as RST
+                    rst_content = f"**Рядок коду:**\n\n::\n\n    {line_content}\n\n"
+                    rst_content += "**Пояснення:**\n\n"
+                    
+                    # Convert markdown response to RST for rendering
+                    # The AI response is in markdown, convert to RST
+                    explanation_rst = explanation.replace("```python", "::\n\n").replace("```", "")
+                    
+                    # Convert bullet lists: markdown uses "- " or "* ", RST uses "* "
+                    # Also need blank line before list
+                    lines = explanation_rst.split('\n')
+                    converted_lines = []
+                    in_list = False
+                    for i, line in enumerate(lines):
+                        stripped = line.lstrip()
+                        # Check if this is a bullet point
+                        if stripped.startswith('- ') or stripped.startswith('* '):
+                            if not in_list:
+                                # Add blank line before list starts
+                                if converted_lines and converted_lines[-1].strip():
+                                    converted_lines.append('')
+                                in_list = True
+                            # Convert to RST bullet (always use *)
+                            indent = len(line) - len(stripped)
+                            converted_lines.append(' ' * indent + '* ' + stripped[2:])
+                        else:
+                            if in_list and stripped:
+                                # List ended
+                                in_list = False
+                            converted_lines.append(line)
+                    
+                    explanation_rst = '\n'.join(converted_lines)
+                    rst_content += explanation_rst
+                    
+                    explanation_text.append_rst(rst_content)
+                
+                popup.after(0, update_ui)
+            except Exception as e:
+                def show_error():
+                    explanation_text.direct_delete("1.0", "end")
+                    explanation_text.append_rst(f"**Помилка:** {str(e)}")
+                popup.after(0, show_error)
+        
+        threading.Thread(target=get_explanation, daemon=True).start()
+    
+    def _request_line_explanation(self, line_num, line_content):
+        """Request AI explanation for a line of code with full context"""
+        from thonny import get_workbench
+        from thonny.assistance import ChatRole
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Get current AI model choice
+        try:
+            model = get_workbench().get_option("ai.model", "gpt")
+        except:
+            model = "gpt"
+        
+        # Get base assistant (not debug version)
+        assistants = get_workbench().assistants
+        if model == "gpt":
+            assistant = assistants.get("OpenAI") or assistants.get("openai")
+        else:
+            assistant = assistants.get("Gemini") or assistants.get("gemini")
+        
+        if not assistant:
+            return "AI ассистент недоступен. Проверьте настройки API ключа."
+        
+        if not assistant.get_ready():
+            return "AI ассистент не готов. Проверьте API ключ в Tools → Manage plug-ins."
+        
+        # Get language preference
+        try:
+            lang = get_workbench().get_option("ai.language", "uk")
+        except:
+            lang = "uk"
+        
+        # Get full program code for context
+        full_code = self.get_content()
+        
+        # Check if we're in debug mode and get variables
+        debug_vars = None
+        try:
+            from thonny.plugins.debugger import get_current_debugger
+            debugger = get_current_debugger()
+            if debugger and debugger._last_progress_message:
+                msg = debugger._last_progress_message
+                if msg.stack:
+                    frame = msg.stack[-1]
+                    # Combine globals and locals
+                    all_vars = {}
+                    if frame.globals:
+                        all_vars.update(frame.globals)
+                    if frame.locals:
+                        all_vars.update(frame.locals)
+                    # Filter out internal variables
+                    debug_vars = {k: v for k, v in all_vars.items() if not k.startswith('__')}
+        except:
+            pass
+        
+        # Create system prompt
+        if lang == "ru":
+            system_prompt = """Ты — помощник для детей. Объясни строку кода КРАТКО и ПРОСТО.
+
+Формат (максимум 5-6 предложений):
+1. **Что делает:** одна фраза общего смысла
+2. **Как работает:** 2-3 коротких пункта о порядке выполнения
+3. **Пример:** один простой пример
+
+ПРАВИЛА:
+- Пиши КОРОТКО для детей 10-12 лет
+- БЕЗ сложных терминов (индекс → номер, оператор → команда)
+- НЕ используй местоимения (он, его, этот и т.д.) - ВСЕГДА показывай код в обратных кавычках
+- Будь конкретным - указывай что именно получается
+- Последний пункт "Как работает" начинай с "Таким образом..."
+- Пиши на РУССКОМ языке
+
+Пример ХОРОШЕГО формата для mas1=[mas[0]]:
+**Как работает:**
+- `mas[0]` берет первое число из списка mas
+- `[mas[0]]` создает новый список из этого числа (например, из 10 делает [10])
+- Таким образом mas1 получает список с одним элементом - первым числом из mas
+
+Пример ХОРОШЕГО для input().split():
+**Как работает:**
+- `input()` читает введенную строку (например, "5 10 15")
+- `.split()` делит строку на список строк по пробелам (получается ["5", "10", "15"])
+- `map(int, ...)` превращает каждую строку "5", "10", "15" в числа 5, 10, 15
+- Таким образом получается список чисел [5, 10, 15]
+
+ВАЖНО - ВСЕГДА:
+- Указывай ЧТО получается и КАКОГО ТИПА (строка, число, список строк, список чисел)
+- Показывай примеры промежуточных результатов в скобках
+- НЕ используй "такой", "такую часть", "это" - пиши конкретно что именно"""
+        else:  # uk
+            system_prompt = """Ти — помічник для дітей. Поясни рядок коду КОРОТКО і ПРОСТО.
+
+Формат (максимум 5-6 речень):
+1. **Що робить:** одна фраза загального змісту
+2. **Як працює:** 2-3 короткі пункти про порядок виконання
+3. **Приклад:** один простий приклад
+
+ПРАВИЛА:
+- Пиши КОРОТКО для дітей 10-12 років
+- БЕЗ складних термінів (індекс → номер, оператор → команда)
+- НЕ використовуй займенники (він, його, цей тощо) - ЗАВЖДИ показуй код у зворотних лапках
+- Будь конкретним - вказуй що саме виходить
+- Останній пункт "Як працює" починай з "Таким чином..."
+- Пиши УКРАЇНСЬКОЮ мовою
+
+Приклад ХОРОШОГО формату для mas1=[mas[0]]:
+**Як працює:**
+- `mas[0]` бере перше число зі списку mas
+- `[mas[0]]` створює новий список з цього числа (наприклад, з 10 робить [10])
+- Таким чином mas1 отримує список з одним елементом - першим числом зі списку mas
+
+Приклад ХОРОШОГО для input().split():
+**Як працює:**
+- `input()` читає введений рядок (наприклад, "5 10 15")
+- `.split()` ділить рядок на список рядків за пробілами (виходить ["5", "10", "15"])
+- `map(int, ...)` перетворює кожен рядок "5", "10", "15" на числа 5, 10, 15
+- Таким чином виходить список чисел [5, 10, 15]
+
+ВАЖЛИВО - ЗАВЖДИ:
+- Вказуй ЩО виходить і ЯКОГО ТИПУ (рядок, число, список рядків, список чисел)
+- Показуй приклади проміжних результатів у дужках
+- НЕ використовуй "такий", "таку частину", "це" - пиши конкретно що саме"""
+        
+        # Log system prompt
+        logger.info("=" * 80)
+        logger.info("SYSTEM PROMPT для пояснення рядка:")
+        logger.info("-" * 80)
+        logger.info(system_prompt)
+        logger.info("=" * 80)
+        
+        # Create user prompt with full context
+        if lang == "ru":
+            user_prompt = f"""**Полная программа:**
+```python
+{full_code}
+```
+
+**Строка для разбора: {line_num}**
+```python
+{line_content}
+```
+"""
+            if debug_vars:
+                user_prompt += f"\n**Текущие переменные (во время отладки):**\n"
+                for var_name, var_info in debug_vars.items():
+                    var_repr = var_info.repr if hasattr(var_info, 'repr') else str(var_info)
+                    user_prompt += f"  {var_name} = {var_repr}\n"
+                user_prompt += "\n"
+            
+            user_prompt += f"Объясни подробно строку {line_num} используя контекст всей программы."
+        else:  # uk
+            user_prompt = f"""**Повна програма:**
+```python
+{full_code}
+```
+
+**Рядок для розбору: {line_num}**
+```python
+{line_content}
+```
+"""
+            if debug_vars:
+                user_prompt += f"\n**Поточні змінні (під час налагодження):**\n"
+                for var_name, var_info in debug_vars.items():
+                    var_repr = var_info.repr if hasattr(var_info, 'repr') else str(var_info)
+                    user_prompt += f"  {var_name} = {var_repr}\n"
+                user_prompt += "\n"
+            
+            user_prompt += f"Поясни детально рядок {line_num} використовуючи контекст всієї програми."
+        
+        # Log user prompt
+        logger.info("USER PROMPT для пояснення рядка:")
+        logger.info("-" * 80)
+        logger.info(user_prompt)
+        logger.info("=" * 80)
+        
+        # Make direct API call with custom system prompt
+        response_parts = []
+        try:
+            if model == "gpt":
+                # Direct OpenAI API call
+                import openai
+                from thonny.plugins.openai import API_KEY_SECRET_KEY as OPENAI_KEY
+                
+                api_key = get_workbench().get_secret(OPENAI_KEY, None)
+                if not api_key:
+                    return "API ключ OpenAI не настроен"
+                
+                client = openai.OpenAI(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    stream=True
+                )
+                
+                for chunk in response:
+                    if chunk.choices[0].delta.content:
+                        response_parts.append(chunk.choices[0].delta.content)
+            else:  # gemini
+                # Direct Gemini API call
+                import google.generativeai as genai
+                from thonny.plugins.gemini import API_KEY_SECRET_KEY as GEMINI_KEY
+                
+                api_key = get_workbench().get_secret(GEMINI_KEY, None)
+                if not api_key:
+                    return "API ключ Gemini не настроен"
+                
+                genai.configure(api_key=api_key)
+                model_obj = genai.GenerativeModel('gemini-2.5-flash')
+                
+                # Combine system prompt and user prompt for Gemini
+                full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                response = model_obj.generate_content(full_prompt, stream=True)
+                
+                for chunk in response:
+                    if chunk.text:
+                        response_parts.append(chunk.text)
+        except Exception as e:
+            logger.exception("Ошибка при запросе объяснения строки")
+            return f"Помилка при запиті до AI: {str(e)}"
+        
+        result = "".join(response_parts) if response_parts else "Немає відповіді від AI"
+        
+        # Log response
+        logger.info("AI RESPONSE для пояснення рядка:")
+        logger.info("-" * 80)
+        logger.info(result)
+        logger.info("=" * 80)
+        
+        return result
 
 
 def set_syntax_options(syntax_options):

@@ -345,6 +345,36 @@ class ChatView(tktextext.TextFrame):
             self._update_suggestions()
             self.text.see("end")
 
+    def _markdown_to_rst(self, markdown_text: str) -> str:
+        """Convert markdown response to RST for rendering"""
+        # Basic conversions
+        rst_text = markdown_text.replace("```python", "::\n\n").replace("```", "")
+        
+        # Convert bullet lists: markdown uses "- " or "* ", RST uses "* "
+        # Also need blank line before list
+        lines = rst_text.split('\n')
+        converted_lines = []
+        in_list = False
+        for line in lines:
+            stripped = line.lstrip()
+            # Check if this is a bullet point
+            if stripped.startswith('- ') or stripped.startswith('* '):
+                if not in_list:
+                    # Add blank line before list starts
+                    if converted_lines and converted_lines[-1].strip():
+                        converted_lines.append('')
+                    in_list = True
+                # Convert to RST bullet (always use *)
+                indent = len(line) - len(stripped)
+                converted_lines.append(' ' * indent + '* ' + stripped[2:])
+            else:
+                if in_list and stripped:
+                    # List ended
+                    in_list = False
+                converted_lines.append(line)
+        
+        return '\n'.join(converted_lines)
+
     def _toggle_lang(self) -> None:
         try:
             current = get_workbench().get_option("ai.language", "uk")
