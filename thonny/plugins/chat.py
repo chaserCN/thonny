@@ -108,10 +108,23 @@ class ChatView(tktextext.TextFrame):
             "user_message",
             lmargin1=user_margin,
             lmargin2=user_margin,
+            rmargin=ems_to_pixels(0.5),  # Правый отступ внутри фона
+            spacing1=4,  # Отступ сверху
+            spacing3=4,  # Отступ снизу
             # font=italic_font,
             lmargincolor="white",
-            # background="#eeeeee",
-            foreground="navy",
+            background="#E3F2FD",  # Светло-голубой фон
+            foreground="#1565C0",  # Тёмно-синий текст
+        )
+        
+        # Avatar styles
+        self.text.tag_configure(
+            "user_avatar",
+            foreground="#4A90E2",  # Blue for user
+        )
+        self.text.tag_configure(
+            "bot_avatar",
+            foreground="#50C878",  # Green for bot
         )
 
         # self.text.tag_configure("user_message_first_line", spacing1=ems_to_pixels(0.3))
@@ -318,6 +331,10 @@ class ChatView(tktextext.TextFrame):
         if isinstance(self.text, rst_utils.RstText):
             if not fragment.is_final:
                 # Just accumulate the content
+                # Add bot avatar before first fragment
+                if not self._current_chat_response_buffer:
+                    self._append_text("🤖 ", tags=("bot_avatar",))
+                
                 self._current_chat_response_buffer += fragment.content
                 # Show a placeholder or progress indicator
                 if not self._current_chat_response_buffer.strip():
@@ -683,6 +700,9 @@ class ChatView(tktextext.TextFrame):
         self._show_loading_indicator()
         self._append_text("\n")
         
+        # Add user avatar before message (with same background as message)
+        self._append_text("👤 ", tags=("user_avatar", "user_message"))
+        
         # Show display_message in UI if provided, otherwise show full message
         text_to_display = display_message if display_message else message
         self._append_text(text_to_display, tags=("user_message",))
@@ -695,7 +715,7 @@ class ChatView(tktextext.TextFrame):
                 " 📎",
                 tags=("attachments_link", f"att_{self._active_chat_request_id}", "user_message"),
             )
-        self._append_text("\n", tags=("user_message",))
+        self._append_text("\n", tags=("user_message",))  # Include newline in background
 
         self._append_text("\n")
 
