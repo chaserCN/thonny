@@ -155,68 +155,11 @@ class ChatView(tktextext.TextFrame):
         bordercolor = "#aaaaaa"  # TODO
 
         panel = tk.Frame(self, background=background)
-        panel.rowconfigure(1, weight=0)  # suggestions
-        panel.rowconfigure(2, weight=0)  # lang button
-        panel.rowconfigure(3, weight=1)  # input
+        panel.rowconfigure(1, weight=0)  # lang button
+        panel.rowconfigure(2, weight=1)  # input
         panel.columnconfigure(1, weight=1)
 
         pad = ems_to_pixels(1)
-
-        self.suggestions_text = TweakableText(
-            panel,
-            read_only=True,
-            suppress_events=True,
-            height=1,
-            background=background,
-            borderwidth=0,
-            highlightthickness=0,
-            font="TkDefaultFont",
-            cursor="arrow",
-            insertwidth=0,
-            wrap="word",
-        )
-        self.suggestions_text.grid(
-            row=1, column=1, columnspan=2, sticky="nsew", padx=pad, pady=(pad, 0)
-        )
-
-        suggestion_pad = ems_to_pixels(0.2)
-        self.suggestions_text.tag_configure(
-            "suggestion",
-            foreground="navy",
-            # spacing1=suggestion_pad,
-            # spacing3=suggestion_pad,
-        )
-
-        self.suggestions_text.tag_configure(
-            "active",
-            # borderwidth=2,
-            # relief="raised",
-            underline=True,
-            # background="gray"
-        )
-
-        def get_active_range(event):
-            mouse_index = self.suggestions_text.index("@%d,%d" % (event.x, event.y))
-            return self.suggestions_text.tag_prevrange("suggestion", mouse_index + "+1c")
-
-        def dir_tag_motion(event):
-            self.suggestions_text.tag_remove("active", "1.0", "end")
-            active_range = get_active_range(event)
-            if active_range:
-                range_start, range_end = active_range
-                self.suggestions_text.tag_add("active", range_start, range_end)
-
-        def dir_tag_leave(event):
-            self.suggestions_text.tag_remove("active", "1.0", "end")
-
-        def dir_tag_click(event):
-            active_range = get_active_range(event)
-            suggestion = self.suggestions_text.get(active_range[0], active_range[1])
-            self.submit_user_chat_message(suggestion)
-
-        self.suggestions_text.tag_bind("suggestion", "<1>", dir_tag_click)
-        self.suggestions_text.tag_bind("suggestion", "<Leave>", dir_tag_leave)
-        self.suggestions_text.tag_bind("suggestion", "<Motion>", dir_tag_motion)
 
         # Language toggle button (UA/RU) above the input
         def _current_lang() -> str:
@@ -240,10 +183,10 @@ class ChatView(tktextext.TextFrame):
             padx=4,
             pady=2,
         )
-        self.lang_button.grid(row=2, column=1, sticky="w", padx=pad, pady=(pad//2, 0))
+        self.lang_button.grid(row=1, column=1, sticky="w", padx=pad, pady=(pad, 0))
 
         border_frame = tk.Frame(panel, background="#cccccc")
-        border_frame.grid(row=3, column=1, sticky="nsew", padx=pad, pady=(pad//2, pad))
+        border_frame.grid(row=2, column=1, sticky="nsew", padx=pad, pady=(pad//2, pad))
         border_frame.rowconfigure(0, weight=1)
         border_frame.columnconfigure(0, weight=1)
 
@@ -276,7 +219,7 @@ class ChatView(tktextext.TextFrame):
             borderwidth=1,
             bordercolor=bordercolor,
         )
-        submit_button_frame.grid(row=3, column=2, sticky="e", padx=(0, pad), pady=(pad//2, pad))
+        submit_button_frame.grid(row=2, column=2, sticky="e", padx=(0, pad), pady=(pad//2, pad))
 
         return panel
 
@@ -497,8 +440,8 @@ class ChatView(tktextext.TextFrame):
             elif line.startswith('### '):
                 line = '**' + line[4:] + '**'
 
-            # Handle "Поточний стан" as literal block for preserving newlines
-            if stripped.startswith('**Поточний стан:**'):
+            # Handle "Поточний стан" / "Текущее состояние" as literal block for preserving newlines
+            if stripped.startswith('**Поточний стан:**') or stripped.startswith('**Текущее состояние:**'):
                 rst_lines.append(line)
                 i += 1
 
@@ -522,10 +465,18 @@ class ChatView(tktextext.TextFrame):
                     rst_lines.append("")
                 continue
 
-            # Bullet list handling: ensure a blank line before first bullet
-            if stripped.startswith('- ') or stripped.startswith('* '):
+            # List handling (bullet and numbered): ensure a blank line before first item
+            # Numbered list: 1), 2), etc.
+            # Bullet list: -, *, etc.
+            is_list_item = (stripped.startswith('- ') or stripped.startswith('* ') or
+                           re.match(r'^\d+\)', stripped))
+            
+            if is_list_item:
                 if len(rst_lines) > 0 and rst_lines[-1].strip() != "" and not previous_was_bullet:
                     rst_lines.append("")
+                
+                # For numbered lists, RST needs format: "1. " not "1)"
+                # But we keep the original format and just ensure proper spacing
                 rst_lines.append(line)
                 previous_was_bullet = True
                 i += 1
@@ -836,10 +787,12 @@ class ChatView(tktextext.TextFrame):
                 show_dialog(dlg, master=get_workbench())
 
     def _remove_suggestions(self) -> None:
-        self.suggestions_text.direct_delete("1.0", "end")
+        # Suggestions panel removed - do nothing
         self._current_suggestions = []
 
     def _update_suggestions(self) -> None:
+        # Suggestions panel removed - do nothing
+        return
         logger.debug("Updating suggestions")
         new_suggestions = []
 
@@ -872,11 +825,12 @@ class ChatView(tktextext.TextFrame):
             self._update_suggestions_box()
 
     def _append_suggestion(self, text: str, first: bool) -> None:
-        if not first:
-            self.suggestions_text.direct_insert("end", "  •  ")
-        self.suggestions_text.direct_insert("end", text, tags=("suggestion",))
+        # Suggestions panel removed - do nothing
+        pass
 
     def _update_suggestions_box(self):
+        # Suggestions panel removed - do nothing
+        return
         update_text_height(self.suggestions_text, min_lines=1, max_lines=5)
 
 
