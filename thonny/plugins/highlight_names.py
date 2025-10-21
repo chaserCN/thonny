@@ -80,6 +80,10 @@ class OccurrencesHighlighter:
         if uri is None:
             return
 
+        # Check if language server is initialized before making request
+        if not ls_proxy.is_initialized():
+            return
+
         ls_proxy.request_document_highlight(
             DocumentHighlightParams(textDocument=TextDocumentIdentifier(uri=uri), position=pos),
             self._handle_response,
