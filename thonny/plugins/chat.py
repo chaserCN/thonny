@@ -3,6 +3,7 @@ import os.path
 import re
 import threading
 import tkinter as tk
+from tkinter import ttk
 import uuid
 from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
@@ -232,7 +233,7 @@ class ChatView(tktextext.TextFrame):
         )
         self.lang_button.pack(side="left", padx=(0, 4))
         
-        # Model toggle button (GPT/Gemini) next to language button
+        # Model selection dropdown (GPT/Gemini/Claude) next to language button
         def _current_model() -> str:
             try:
                 return get_workbench().get_option("ai.model", "gpt")
@@ -240,21 +241,18 @@ class ChatView(tktextext.TextFrame):
                 return "gpt"
         
         def _model_label_from(model: str) -> str:
-            return "GPT" if model == "gpt" else "Gemini"
+            return {"gpt": "GPT", "gemini": "Gemini", "claude": "Claude"}.get(model, "GPT")
         
-        self.model_button = tk.Button(
+        self.model_var = tk.StringVar(value=_model_label_from(_current_model()))
+        self.model_combobox = ttk.Combobox(
             left_buttons_frame,
-            text=_model_label_from(_current_model()),
-            command=self._toggle_model,
-            background=background,
-            activebackground=background,
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0,
-            padx=4,
-            pady=2,
+            textvariable=self.model_var,
+            values=["GPT", "Gemini", "Claude"],
+            state="readonly",
+            width=8,
         )
-        self.model_button.pack(side="left")
+        self.model_combobox.pack(side="left", padx=(0, 5))
+        self.model_combobox.bind("<<ComboboxSelected>>", lambda e: self._on_model_selected())
         
         # Clear chat button (right side) - same style as submit button
         clear_button_frame = create_custom_toolbutton_in_frame(
@@ -432,22 +430,17 @@ class ChatView(tktextext.TextFrame):
         self.lang_button.config(text=("УК" if new_lang == "uk" else "РУ"))
         self._update_suggestions()
     
-    def _toggle_model(self) -> None:
-        """Toggle between GPT and Gemini models, preserving chat history"""
-        try:
-            current = get_workbench().get_option("ai.model", "gpt")
-        except Exception:
-            current = "gpt"
-        
-        new_model = "gemini" if current == "gpt" else "gpt"
+    def _on_model_selected(self) -> None:
+        """Handle model selection change (GPT/Gemini/Claude), preserving chat history"""
+        # Map display name to internal value
+        label_to_model = {"GPT": "gpt", "Gemini": "gemini", "Claude": "claude"}
+        selected_label = self.model_var.get()
+        new_model = label_to_model.get(selected_label, "gpt")
         
         try:
             get_workbench().set_option("ai.model", new_model)
         except Exception:
             pass
-        
-        # Update button text
-        self.model_button.config(text=("GPT" if new_model == "gpt" else "Gemini"))
         
         # Switch assistant while preserving history (case-insensitive keys)
         # Switch to regular assistants (not debug versions)
@@ -457,9 +450,14 @@ class ChatView(tktextext.TextFrame):
                 assistants.get("OpenAI")
                 or EchoAssistant()
             )
-        else:  # gemini
+        elif new_model == "gemini":
             self._current_assistant = (
                 assistants.get("Gemini")
+                or EchoAssistant()
+            )
+        elif new_model == "claude":
+            self._current_assistant = (
+                assistants.get("Claude")
                 or EchoAssistant()
             )
         
@@ -549,7 +547,7 @@ class ChatView(tktextext.TextFrame):
         if not last_cmd or last_cmd.name not in ['step_over', 'step_into']:
             return
         
-        # Определяем, какую модель использовать (GPT или Gemini)
+        # Определяем, какую модель использовать (GPT/Gemini/Claude)
         # и получаем соответствующий Debug assistant для авто-объяснений
         try:
             current_model = get_workbench().get_option("ai.model", "gpt")
@@ -561,8 +559,10 @@ class ChatView(tktextext.TextFrame):
         debug_assistant = None
         if current_model == "gpt":
             debug_assistant = assistants.get("debugai")  # lowercase!
-        else:
+        elif current_model == "gemini":
             debug_assistant = assistants.get("debuggemini")  # lowercase!
+        elif current_model == "claude":
+            debug_assistant = assistants.get("debugclaude")  # lowercase!
         
         if not debug_assistant:
             logger.warning(f"Debug assistant not found for model {current_model}")
