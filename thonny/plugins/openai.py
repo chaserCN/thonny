@@ -1,83 +1,101 @@
+import tkinter as tk
 from tkinter import ttk
 from typing import Iterator, List, Optional
 
 from thonny import get_workbench
-from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole
-from thonny.ui_utils import create_url_label, show_dialog
-from thonny.workdlg import WorkDialog
-
-API_KEY_SECRET_KEY = "openai_api_key"
+from thonny.assistance import ChatContext, ChatMessage, ChatResponseChunk
+from thonny.plugins.base_assistant import BaseAIAssistant
+from thonny.ui_utils import create_url_label
 
 
-class OpenAIApiKeyDialog(WorkDialog):
+API_KEY_SECRET_KEY = "OpenAI.api_key"
+
+
+class OpenAIApiKeyDialog(tk.Toplevel):
     def __init__(self, master):
-        self.api_key: Optional[str] = None
         super().__init__(master)
+        self.title("OpenAI API Key")
+        self.transient(master)
+        self.grab_set()
 
-    def init_main_frame(self):
-        super().init_main_frame()
-        url_label = create_url_label(self.main_frame, url="https://platform.openai.com/api-keys")
-        url_label.grid(row=1, column=1, columnspan=3)
+        main_frame = ttk.Frame(self)
+        main_frame.grid(row=0, column=0, sticky="nsew", padx=15, pady=15)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
 
-        key_label = ttk.Label(self.main_frame, text="API key")
-        key_label.grid(row=2, column=1)
+        intro_label = ttk.Label(
+            main_frame,
+            text="This assistant requires an OpenAI API key.\nYou can get it from:",
+        )
+        intro_label.grid(row=0, column=0, sticky="w", pady=(0, 5))
 
-        self.key_entry = ttk.Entry(self.main_frame, width=50)
-        self.key_entry.grid(row=2, column=2)
+        url_label = create_url_label(main_frame, "https://platform.openai.com/api-keys")
+        url_label.grid(row=1, column=0, sticky="w", pady=(0, 15))
 
-        paste_button = ttk.Button(self.main_frame, text="Paste", command=self._paste_from_clipboard)
-        paste_button.grid(row=2, column=3)
+        key_label = ttk.Label(main_frame, text="API Key:")
+        key_label.grid(row=2, column=0, sticky="w", pady=(0, 5))
 
-    def _paste_from_clipboard(self):
-        self.key_entry.delete("0", "end")
-        self.key_entry.insert(0, get_workbench().clipboard_get())
+        self.key_entry = ttk.Entry(main_frame, width=60, show="*")
+        self.key_entry.grid(row=3, column=0, sticky="ew", pady=(0, 15))
+        self.key_entry.focus_set()
 
-    def get_instructions(self) -> Optional[str]:
-        return """Чтобы использовать AI-ассистента для отладки:
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=4, column=0, sticky="e")
 
-1. Получите бесплатный API ключ на platform.openai.com/api-keys
-2. Скопируйте ключ
-3. Нажмите кнопку 'Paste' ниже или вставьте вручную
-4. Нажмите 'OK'
+        ok_button = ttk.Button(button_frame, text="OK", command=self._ok, default="active")
+        ok_button.grid(row=0, column=0, padx=(0, 5))
 
-После этого вы сможете задавать вопросы AI во время отладки!"""
+        cancel_button = ttk.Button(button_frame, text="Cancel", command=self._cancel)
+        cancel_button.grid(row=0, column=1)
 
-    def is_ready_for_work(self):
-        return len(self.key_entry.get().strip()) > 0
+        self.bind("<Return>", lambda e: self._ok(), True)
+        self.bind("<Escape>", lambda e: self._cancel(), True)
 
-    def on_click_ok_button(self):
-        self.api_key = self.key_entry.get().strip() or None
-        if self.api_key is not None:
-            self.close()
+        self.api_key = None
+
+    def _ok(self):
+        key = self.key_entry.get().strip()
+        if not key:
+            # Don't close if empty
+            self.key_entry.focus_set()
+            return
+        self.api_key = key
+        self.destroy()
+
+    def _cancel(self):
+        self.api_key = None
+        self.destroy()
 
 
-class OpenAIAssistant(Assistant):
-
+class OpenAIAssistant(BaseAIAssistant):
+    """OpenAI assistant implementation"""
+    
     def _get_saved_api_key(self) -> Optional[str]:
-        return get_workbench().get_secret(API_KEY_SECRET_KEY, None)
+        return get_workbench().get_secret(API_KEY_SECRET_KEY)
 
-    def _request_new_api_key(self):
-        dlg = OpenAIApiKeyDialog(get_workbench())
-        show_dialog(dlg, get_workbench())
-        get_workbench().set_secret(API_KEY_SECRET_KEY, dlg.api_key)
-
-    def get_ready(self) -> bool:
-        if self._get_saved_api_key() is None:
-            self._request_new_api_key()
-
-        return self._get_saved_api_key() is not None
-
-    def complete_chat(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=self._get_saved_api_key())
-
-        out_msgs = [
-            {"role": "system", "content": "You are a helpful programming coach."},
-        ]
+    def _request_new_api_key(self) -> None:
+        from logging import getLogger
+        logger = getLogger(__name__)
         
-        # Build messages with image support
-        for msg in context.messages:
+        dlg = OpenAIApiKeyDialog(get_workbench())
+        dlg.wait_window()  # Wait for dialog to close
+        
+        if dlg.api_key:
+            logger.info(f"Saving OpenAI API key (length: {len(dlg.api_key)})")
+            get_workbench().set_secret(API_KEY_SECRET_KEY, dlg.api_key)
+            logger.info(f"OpenAI API key saved to: {get_workbench()._get_secrets_path()}")
+        else:
+            logger.info("OpenAI API key dialog cancelled or empty")
+    
+    def _get_summary_role(self) -> str:
+        """OpenAI uses 'system' role for summary"""
+        return "system"
+    
+    def _prepare_messages(self, messages: List[ChatMessage]) -> List[dict]:
+        """Convert ChatMessage list to OpenAI API format with image support"""
+        out_msgs = []
+        
+        for msg in messages:
             formatted_content = self.format_message(msg)
             
             # If message has an image, use multimodal format
@@ -96,10 +114,21 @@ class OpenAIAssistant(Assistant):
             else:
                 # Regular text message
                 out_msgs.append({"role": msg.role.to_openai(), "content": formatted_content})
+        
+        return out_msgs
+    
+    def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
+        """Send request to OpenAI API and stream response"""
+        from openai import OpenAI
+
+        client = OpenAI(api_key=self._get_saved_api_key())
+
+        # Combine system message with history
+        all_messages = [{"role": "system", "content": system_prompt}] + messages
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=out_msgs,
+            messages=all_messages,
             stream=True,
         )
 
@@ -109,9 +138,8 @@ class OpenAIAssistant(Assistant):
 
         yield ChatResponseChunk("", is_final=True)
 
-    def cancel_completion(self) -> None:
-        pass
-
 
 def load_plugin():
     get_workbench().add_assistant("OpenAI", OpenAIAssistant())
+    # Debug mode is the same assistant, just routes to _complete_debug_step
+    get_workbench().add_assistant("DebugAI", OpenAIAssistant())

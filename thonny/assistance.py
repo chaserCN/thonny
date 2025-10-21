@@ -84,6 +84,7 @@ class ChatContext:
     active_file_selection: Optional[str] = None
     file_contents_by_path: Dict[str, str] = dataclasses.field(default=dict)
     execution_io: Optional[str] = None
+    system_prompt_override: Optional[str] = None  # Custom system prompt for special cases (e.g., line explanation popup)
 
 
 class Assistant(ABC):

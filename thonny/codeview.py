@@ -456,6 +456,26 @@ class CodeView(tktextext.EnhancedTextFrame):
         from thonny import rst_utils
         from thonny import get_workbench
         
+        # Check assistant readiness BEFORE creating popup/thread (must be in main thread!)
+        try:
+            model = get_workbench().get_option("ai.model", "gpt")
+        except:
+            model = "gpt"
+        
+        assistants = get_workbench().assistants
+        if model == "gpt":
+            assistant = assistants.get("OpenAI") or assistants.get("openai")
+        else:
+            assistant = assistants.get("Gemini") or assistants.get("gemini")
+        
+        if not assistant:
+            messagebox.showerror("AI Error", "AI ассистент недоступен. Проверьте настройки API ключа.")
+            return
+        
+        if not assistant.get_ready():
+            # User cancelled API key dialog
+            return
+        
         # Get language preference
         try:
             lang = get_workbench().get_option("ai.language", "uk")
@@ -563,7 +583,7 @@ class CodeView(tktextext.EnhancedTextFrame):
         # Get AI explanation in thread
         def get_explanation():
             try:
-                explanation = self._request_line_explanation(line_num, line_content)
+                explanation = self._request_line_explanation(assistant, line_num, line_content, lang)
                 
                 # Update UI in main thread
                 def update_ui():
@@ -589,38 +609,12 @@ class CodeView(tktextext.EnhancedTextFrame):
         
         threading.Thread(target=get_explanation, daemon=True).start()
     
-    def _request_line_explanation(self, line_num, line_content):
-        """Request AI explanation for a line of code with full context"""
+    def _request_line_explanation(self, assistant, line_num, line_content, lang):
+        """Request AI explanation for a line of code with full context
+        
+        Note: assistant.get_ready() must be called BEFORE this method in the main thread!
+        """
         from thonny import get_workbench
-        from thonny.assistance import ChatRole
-        import logging
-        
-        logger = logging.getLogger(__name__)
-        
-        # Get current AI model choice
-        try:
-            model = get_workbench().get_option("ai.model", "gpt")
-        except:
-            model = "gpt"
-        
-        # Get base assistant (not debug version)
-        assistants = get_workbench().assistants
-        if model == "gpt":
-            assistant = assistants.get("OpenAI") or assistants.get("openai")
-        else:
-            assistant = assistants.get("Gemini") or assistants.get("gemini")
-        
-        if not assistant:
-            return "AI ассистент недоступен. Проверьте настройки API ключа."
-        
-        if not assistant.get_ready():
-            return "AI ассистент не готов. Проверьте API ключ в Tools → Manage plug-ins."
-        
-        # Get language preference
-        try:
-            lang = get_workbench().get_option("ai.language", "uk")
-        except:
-            lang = "uk"
         
         # Get full program code for context
         full_code = self.get_content()
@@ -645,198 +639,8 @@ class CodeView(tktextext.EnhancedTextFrame):
         except:
             pass
         
-        # Create system prompt
-        if lang == "ru":
-            system_prompt = """Ты — помощник для детей. Объясни строку кода КРАТКО и ПРОСТО.
-
-Формат (максимум 5-6 предложений):
-1. **Что делает:** одна фраза общего смысла
-2. **Как работает:** 2-3 коротких пункта о порядке выполнения
-3. **Пример:** один простой пример
-
-ПРАВИЛА:
-- Пиши КОРОТКО для детей 10-12 лет
-- БЕЗ сложных терминов (индекс → номер, оператор → команда)
-- НЕ используй местоимения (он, его, этот и т.д.) - ВСЕГДА показывай код в обратных кавычках
-- Будь конкретным - указывай что именно получается
-- Последний пункт "Как работает" начинай с "Таким образом..."
-- Пиши на РУССКОМ языке
-
-Пример ХОРОШЕГО формата для mas1=[mas[0]]:
-**Как работает:**
-- Создается новая переменная mas1
-- `mas[0]` берет первое число из списка mas (например, из списка [15, 20, 25] берется число 15)
-- `[mas[0]]` создает новый список из этого числа (получается список чисел [15])
-- Таким образом mas1 получает список чисел [15] с одним элементом - первым числом из mas
-
-Пример ХОРОШЕГО для mas=list(map(int,input().split())):
-**Как работает:**
-- `input()` читает введенную строку (например, строку "5 10 15")
-- `.split()` делит строку на список строк по пробелам (получается список строк ["5", "10", "15"])
-- `map(int, ...)` превращает каждую строку "5", "10", "15" в число
-- `list(...)` собирает все числа в один список (получается список чисел [5, 10, 15])
-- Таким образом mas получает список чисел [5, 10, 15]
-
-ВАЖНО - ВСЕГДА:
-- Указывай ТИП И ЗНАЧЕНИЕ в формате: тип + значение (например, "число 10", "список чисел [5, 10]")
-- НЕ пиши "10 – это число" или "[10] – это список", пиши "число 10" или "список чисел [10]"
-- Если создается новая переменная - ПЕРВЫМ пунктом напиши "Создается новая переменная имя_переменной"
-- ИСПОЛЬЗУЙ реальные значения переменных из контекста программы в примерах (если переменная mas = [15, 20, 25], пиши конкретно "из списка [15, 20, 25]", а не "например из списка [10, 20, 30]")
-- Показывай примеры промежуточных результатов в скобках
-- НЕ используй "такой", "такую часть", "это" - пиши конкретно что именно
-- Каждая операция/функция - отдельный пункт списка
-- "Таким образом..." ТОЛЬКО в последнем пункте, который объясняет итоговый результат"""
-        else:  # uk
-            system_prompt = """Ти — помічник для дітей. Поясни рядок коду КОРОТКО і ПРОСТО.
-
-Формат (максимум 5-6 речень):
-1. **Що робить:** одна фраза загального змісту
-2. **Як працює:** 2-3 короткі пункти про порядок виконання
-3. **Приклад:** один простий приклад
-
-ПРАВИЛА:
-- Пиши КОРОТКО для дітей 10-12 років
-- БЕЗ складних термінів (індекс → номер, оператор → команда)
-- НЕ використовуй займенники (він, його, цей тощо) - ЗАВЖДИ показуй код у зворотних лапках
-- Будь конкретним - вказуй що саме виходить
-- Останній пункт "Як працює" починай з "Таким чином..."
-- Пиши УКРАЇНСЬКОЮ мовою
-
-Приклад ХОРОШОГО формату для mas1=[mas[0]]:
-**Як працює:**
-- Створюється нова змінна mas1
-- `mas[0]` бере перше число зі списку mas (наприклад, зі списку [15, 20, 25] береться число 15)
-- `[mas[0]]` створює новий список з цього числа (виходить список чисел [15])
-- Таким чином mas1 отримує список чисел [15] з одним елементом - першим числом зі списку mas
-
-Приклад ХОРОШОГО для mas=list(map(int,input().split())):
-**Як працює:**
-- `input()` читає введену строку (наприклад, строку "5 10 15")
-- `.split()` ділить строку на список строк за пробілами (виходить список строк ["5", "10", "15"])
-- `map(int, ...)` перетворює кожну строку "5", "10", "15" на число
-- `list(...)` збирає всі числа в один список (виходить список чисел [5, 10, 15])
-- Таким чином mas отримує список чисел [5, 10, 15]
-
-ВАЖЛИВО - ЗАВЖДИ:
-- Вказуй ТИП І ЗНАЧЕННЯ у форматі: тип + значення (наприклад, "число 10", "список чисел [5, 10]")
-- НЕ пиши "10 – це число" або "[10] – це список", пиши "число 10" або "список чисел [10]"
-- Якщо створюється нова змінна - ПЕРШИМ пунктом напиши "Створюється нова змінна імя_змінної"
-- ВИКОРИСТОВУЙ реальні значення змінних з контексту програми в прикладах (якщо змінна mas = [15, 20, 25], пиши конкретно "зі списку [15, 20, 25]", а не "наприклад зі списку [10, 20, 30]")
-- Показуй приклади проміжних результатів у дужках
-- НЕ використовуй "такий", "таку частину", "це" - пиши конкретно що саме
-- Кожна операція/функція - окремий пункт списку
-- "Таким чином..." ТІЛЬКИ в останньому пункті, який пояснює підсумковий результат"""
-        
-        # Log system prompt
-        logger.info("=" * 80)
-        logger.info("SYSTEM PROMPT для пояснення рядка:")
-        logger.info("-" * 80)
-        logger.info(system_prompt)
-        logger.info("=" * 80)
-        
-        # Create user prompt with full context
-        if lang == "ru":
-            user_prompt = f"""**Полная программа:**
-```python
-{full_code}
-```
-
-**Строка для разбора: {line_num}**
-```python
-{line_content}
-```
-"""
-            if debug_vars:
-                user_prompt += f"\n**Текущие переменные (во время отладки):**\n"
-                for var_name, var_info in debug_vars.items():
-                    var_repr = var_info.repr if hasattr(var_info, 'repr') else str(var_info)
-                    user_prompt += f"  {var_name} = {var_repr}\n"
-                user_prompt += "\n"
-            
-            user_prompt += f"Объясни подробно строку {line_num} используя контекст всей программы."
-        else:  # uk
-            user_prompt = f"""**Повна програма:**
-```python
-{full_code}
-```
-
-**Рядок для розбору: {line_num}**
-```python
-{line_content}
-```
-"""
-            if debug_vars:
-                user_prompt += f"\n**Поточні змінні (під час налагодження):**\n"
-                for var_name, var_info in debug_vars.items():
-                    var_repr = var_info.repr if hasattr(var_info, 'repr') else str(var_info)
-                    user_prompt += f"  {var_name} = {var_repr}\n"
-                user_prompt += "\n"
-            
-            user_prompt += f"Поясни детально рядок {line_num} використовуючи контекст всієї програми."
-        
-        # Log user prompt
-        logger.info("USER PROMPT для пояснення рядка:")
-        logger.info("-" * 80)
-        logger.info(user_prompt)
-        logger.info("=" * 80)
-        
-        # Make direct API call with custom system prompt
-        response_parts = []
-        try:
-            if model == "gpt":
-                # Direct OpenAI API call
-                import openai
-                from thonny.plugins.openai import API_KEY_SECRET_KEY as OPENAI_KEY
-                
-                api_key = get_workbench().get_secret(OPENAI_KEY, None)
-                if not api_key:
-                    return "API ключ OpenAI не настроен"
-                
-                client = openai.OpenAI(api_key=api_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    stream=True
-                )
-                
-                for chunk in response:
-                    if chunk.choices[0].delta.content:
-                        response_parts.append(chunk.choices[0].delta.content)
-            else:  # gemini
-                # Direct Gemini API call
-                import google.generativeai as genai
-                from thonny.plugins.gemini import API_KEY_SECRET_KEY as GEMINI_KEY
-                
-                api_key = get_workbench().get_secret(GEMINI_KEY, None)
-                if not api_key:
-                    return "API ключ Gemini не настроен"
-                
-                genai.configure(api_key=api_key)
-                model_obj = genai.GenerativeModel('gemini-2.5-flash')
-                
-                # Combine system prompt and user prompt for Gemini
-                full_prompt = f"{system_prompt}\n\n{user_prompt}"
-                response = model_obj.generate_content(full_prompt, stream=True)
-                
-                for chunk in response:
-                    if chunk.text:
-                        response_parts.append(chunk.text)
-        except Exception as e:
-            logger.exception("Ошибка при запросе объяснения строки")
-            return f"Помилка при запиті до AI: {str(e)}"
-        
-        result = "".join(response_parts) if response_parts else "Немає відповіді від AI"
-        
-        # Log response
-        logger.info("AI RESPONSE для пояснення рядка:")
-        logger.info("-" * 80)
-        logger.info(result)
-        logger.info("=" * 80)
-        
-        return result
+        # Call assistant's explain_line method (all AI logic is there)
+        return assistant.explain_line(line_num, line_content, full_code, debug_vars, lang)
 
 
 def set_syntax_options(syntax_options):

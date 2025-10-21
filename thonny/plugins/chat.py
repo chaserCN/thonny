@@ -70,6 +70,10 @@ class ChatView(tktextext.TextFrame):
         self._last_auto_explained_step = None  # Track last auto-explained step to avoid duplicates
         self._current_debug_session_id: Optional[str] = None  # Current debug session ID
         self._loading_animation_step = 0  # For loading indicator animation
+        self._attached_image: Optional[dict] = None  # Store selected image (path and base64)
+        self._bot_avatar_added = False  # Track if bot avatar was added for current response
+        self._typing_animation_id = None  # For typing indicator animation
+        self._typing_animation_step = 0  # Current animation frame
 
         main_font = tk.font.nametofont("TkDefaultFont")
 
@@ -126,6 +130,10 @@ class ChatView(tktextext.TextFrame):
             "bot_avatar",
             foreground="#50C878",  # Green for bot
         )
+        self.text.tag_configure(
+            "typing_indicator",
+            foreground="#999999",  # Gray for typing indicator
+        )
 
         # self.text.tag_configure("user_message_first_line", spacing1=ems_to_pixels(0.3))
         # self.text.tag_configure("user_message_last_line", spacing1=ems_to_pixels(0.3))
@@ -165,10 +173,11 @@ class ChatView(tktextext.TextFrame):
         except Exception:
             saved_model = "gpt"
         
+        # Use regular assistants by default (not debug versions)
         if saved_model == "gemini":
-            self._current_assistant: Assistant = get_workbench().assistants.get("debuggemini", EchoAssistant())
+            self._current_assistant: Assistant = get_workbench().assistants.get("Gemini", EchoAssistant())
         else:
-            self._current_assistant: Assistant = get_workbench().assistants.get("debugai", EchoAssistant())
+            self._current_assistant: Assistant = get_workbench().assistants.get("OpenAI", EchoAssistant())
 
         get_workbench().bind("ToplevelResponse", self.handle_toplevel_response, True)
         get_workbench().bind(
@@ -342,15 +351,28 @@ class ChatView(tktextext.TextFrame):
         if isinstance(self.text, rst_utils.RstText):
             if not fragment.is_final:
                 # Just accumulate the content
-                # Add bot avatar before first fragment
-                if not self._current_chat_response_buffer:
+                # Add bot avatar + typing indicator before first fragment
+                if not self._bot_avatar_added:
                     self._append_text("🤖 ", tags=("bot_avatar",))
+                    # Add typing indicator that will be animated
+                    typing_start = self.text.index("end-1c")
+                    self._append_text("·", tags=("typing_indicator",))
+                    self._bot_avatar_added = True
+                    # Store position to update typing indicator
+                    self._typing_indicator_start = typing_start
+                    # Start animation
+                    self._start_typing_animation()
                 
                 self._current_chat_response_buffer += fragment.content
-                # Show a placeholder or progress indicator
-                if not self._current_chat_response_buffer.strip():
-                    return
             else:
+                # Stop animation and remove typing indicator
+                self._stop_typing_animation()
+                if hasattr(self, '_typing_indicator_start'):
+                    try:
+                        self.text.direct_delete(self._typing_indicator_start, "end")
+                    except:
+                        pass
+                
                 # Render accumulated content at the end
                 try:
                     # Use markdown renderer for all messages
@@ -362,6 +384,7 @@ class ChatView(tktextext.TextFrame):
                     self.text.direct_insert("end", self._current_chat_response_buffer)
                 self.text.direct_insert("end", "\n")
                 self._current_chat_response_buffer = ""  # Clear buffer
+                self._bot_avatar_added = False  # Reset for next response
         else:
             # For regular text, use streaming
             self._append_text(fragment.content, source="chat")
@@ -382,6 +405,17 @@ class ChatView(tktextext.TextFrame):
             self._hide_loading_indicator()
             self._update_suggestions()
             self.text.see("end")
+            
+            # Remove image from history after AI has processed it
+            # Find the last user message with an image and clear it
+            for i in range(len(self._chat_messages) - 1, -1, -1):
+                msg = self._chat_messages[i]
+                if msg.role == ChatRole.USER and msg.image is not None:
+                    # Replace message with version without image
+                    self._chat_messages[i] = replace(msg, image=None)
+                    logger.info(f"Removed image from message in history to save tokens")
+                    break
+            
             # Return focus to input field
             self.query_text.focus_set()
 
@@ -416,17 +450,16 @@ class ChatView(tktextext.TextFrame):
         self.model_button.config(text=("GPT" if new_model == "gpt" else "Gemini"))
         
         # Switch assistant while preserving history (case-insensitive keys)
+        # Switch to regular assistants (not debug versions)
         assistants = get_workbench().assistants
         if new_model == "gpt":
             self._current_assistant = (
-                assistants.get("debugai")
-                or assistants.get("DebugAI")
+                assistants.get("OpenAI")
                 or EchoAssistant()
             )
         else:  # gemini
             self._current_assistant = (
-                assistants.get("debuggemini")
-                or assistants.get("DebugGemini")
+                assistants.get("Gemini")
                 or EchoAssistant()
             )
         
@@ -449,6 +482,10 @@ class ChatView(tktextext.TextFrame):
         self._current_chat_response_buffer = ""
         self._last_auto_explained_step = None
         self._attached_image = None  # Store selected image (path and base64)
+        self._bot_avatar_added = False
+        
+        # Stop typing animation
+        self._stop_typing_animation()
         
         # Cancel any ongoing completion
         self._cancel_completion()
@@ -492,8 +529,15 @@ class ChatView(tktextext.TextFrame):
         
         debugger = get_current_debugger()
         if not debugger:
-            # Debug session ended - clear debug session ID
-            self._current_debug_session_id = None
+            # Debug session ended - clear debug session ID and remove debug messages from history
+            if self._current_debug_session_id is not None:
+                logger.info(f"Debug session {self._current_debug_session_id} ended, cleaning up debug messages")
+                # Remove all debug-related messages from history
+                self._chat_messages = [
+                    msg for msg in self._chat_messages
+                    if not msg.is_debug_related
+                ]
+                self._current_debug_session_id = None
             return
         
         # Start new debug session if needed
@@ -505,9 +549,23 @@ class ChatView(tktextext.TextFrame):
         if not last_cmd or last_cmd.name not in ['step_over', 'step_into']:
             return
         
-        # Проверяем что используется DebugAI или DebugGemini ассистент (по имени класса)
-        assistant_cls_name = type(self._current_assistant).__name__
-        if assistant_cls_name not in ("DebugAIAssistant", "DebugGeminiAssistant"):
+        # Определяем, какую модель использовать (GPT или Gemini)
+        # и получаем соответствующий Debug assistant для авто-объяснений
+        try:
+            current_model = get_workbench().get_option("ai.model", "gpt")
+        except Exception:
+            current_model = "gpt"
+        
+        assistants = get_workbench().assistants
+        
+        debug_assistant = None
+        if current_model == "gpt":
+            debug_assistant = assistants.get("debugai")  # lowercase!
+        else:
+            debug_assistant = assistants.get("debuggemini")  # lowercase!
+        
+        if not debug_assistant:
+            logger.warning(f"Debug assistant not found for model {current_model}")
             return
         
         # Избегаем повторной генерации для того же шага
@@ -531,8 +589,8 @@ class ChatView(tktextext.TextFrame):
         except Exception:
             pass
 
-        # Проверяем готовность ассистента (API ключ и т.д.)
-        if not self._current_assistant.get_ready():
+        # Проверяем готовность debug ассистента (API ключ и т.д.)
+        if not debug_assistant.get_ready():
             return
         
         # Автоматично генеруємо пояснення (локалізовано)
@@ -580,13 +638,21 @@ class ChatView(tktextext.TextFrame):
         if debug_ctx:
             full_prompt = f"{full_prompt}\n\n{debug_ctx}"
         
-        # Отправляем: полный промпт для AI, короткий для отображения
-        self.submit_user_chat_message(
-            full_prompt, 
-            is_debug_related=True, 
-            debug_session_id=self._current_debug_session_id,
-            display_message=display_prompt
-        )
+        # Временно подменяем assistant на debug версию для этого запроса
+        original_assistant = self._current_assistant
+        self._current_assistant = debug_assistant
+        
+        try:
+            # Отправляем: полный промпт для AI, короткий для отображения
+            self.submit_user_chat_message(
+                full_prompt, 
+                is_debug_related=True, 
+                debug_session_id=self._current_debug_session_id,
+                display_message=display_prompt
+            )
+        finally:
+            # Восстанавливаем оригинальный assistant
+            self._current_assistant = original_assistant
 
     def _on_configure(self, event: tk.Event) -> None:
         self._update_suggestions_box()
@@ -646,6 +712,43 @@ class ChatView(tktextext.TextFrame):
                 wp.cancel_analysis()
             self._analyzer_instances = []
 
+    def _start_typing_animation(self):
+        """Start animated typing indicator (·, ··, ···)"""
+        self._typing_animation_step = 0
+        self._update_typing_animation()
+    
+    def _stop_typing_animation(self):
+        """Stop typing indicator animation"""
+        if self._typing_animation_id is not None:
+            try:
+                self.after_cancel(self._typing_animation_id)
+            except:
+                pass
+            self._typing_animation_id = None
+    
+    def _update_typing_animation(self):
+        """Update typing indicator animation frame"""
+        if not hasattr(self, '_typing_indicator_start') or not self._bot_avatar_added:
+            return
+        
+        try:
+            # Cycle through ·, ··, ···
+            dots = ["·", "··", "···"]
+            current_dots = dots[self._typing_animation_step % 3]
+            
+            # Update the text
+            self.text.direct_delete(self._typing_indicator_start, "end")
+            self.text.direct_insert(self._typing_indicator_start, current_dots, ("typing_indicator",))
+            
+            # Next frame
+            self._typing_animation_step += 1
+            
+            # Schedule next update (500ms)
+            self._typing_animation_id = self.after(500, self._update_typing_animation)
+        except:
+            # If something fails, stop animation
+            self._stop_typing_animation()
+    
     def _cancel_completion(self):
         if self._current_assistant is None:
             return
@@ -653,9 +756,11 @@ class ChatView(tktextext.TextFrame):
         if self._chat_completion_in_progress():
             self._active_chat_request_id = None
             self._hide_loading_indicator()
+            self._stop_typing_animation()  # Stop animation on cancel
             self._append_text("... [cancelled]", source="chat")
             # Clear RST streaming buffer if any
             self._current_chat_response_buffer = ""
+            self._bot_avatar_added = False  # Reset avatar flag
 
             self._current_assistant.cancel_completion()
 
@@ -937,10 +1042,52 @@ class ChatView(tktextext.TextFrame):
 
     def _complete_chat_in_thread(self, assistant: Assistant, request_id: str):
         try:
-            # TODO: pass editor contents from UI thread
+            # Check if this is a debug-related auto-generated request
+            # For debug requests, we don't need file/selection info (already in debug context)
+            last_message = self._chat_messages[-1] if self._chat_messages else None
+            is_debug_request = last_message and last_message.is_debug_related if last_message else False
+            
+            active_file_path = None
+            active_file_selection = None
+            file_contents = {}
+            execution_io = None
+            
+            # For non-debug requests, get editor context
+            if not is_debug_request:
+                editor = get_workbench().get_editor_notebook().get_current_editor()
+                if editor:
+                    # Get full file content (but not path - not needed)
+                    file_content = editor.get_content()
+                    # Use generic key instead of file path
+                    file_contents['current_file'] = file_content
+                    
+                    # Get selected text if any
+                    text_widget = editor.get_text_widget()
+                    try:
+                        if text_widget.tag_ranges("sel"):
+                            active_file_selection = text_widget.get("sel.first", "sel.last")
+                    except tk.TclError:
+                        # No selection
+                        pass
+            
+            # Check if debugger is active and add debug context
+            from thonny.plugins.debugger import get_current_debugger
+            debugger = get_current_debugger()
+            if debugger:
+                # Debugger is active - add current execution state
+                from thonny.plugins.debug_common import get_debug_context
+                debug_ctx = get_debug_context()
+                if debug_ctx:
+                    # Store debug context in execution_io field
+                    execution_io = debug_ctx
+            
             # snapshot messages to avoid races during parallel requests
             context = ChatContext(
                 messages=list(self._chat_messages),
+                active_file_path=active_file_path,
+                active_file_selection=active_file_selection,
+                file_contents_by_path=file_contents,
+                execution_io=execution_io,  # Debug context if debugger is active
             )
             for fragment in assistant.complete_chat(context):
                 get_workbench().queue_event(
