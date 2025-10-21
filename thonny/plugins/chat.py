@@ -166,11 +166,17 @@ class ChatView(tktextext.TextFrame):
         bordercolor = "#aaaaaa"  # TODO
 
         panel = tk.Frame(self, background=background)
-        panel.rowconfigure(1, weight=0)  # lang button
+        panel.rowconfigure(1, weight=0)  # buttons row
         panel.rowconfigure(2, weight=1)  # input
-        panel.columnconfigure(1, weight=1)
+        panel.columnconfigure(1, weight=0)  # left buttons
+        panel.columnconfigure(2, weight=1)  # loading indicator (expanding)
+        panel.columnconfigure(3, weight=0)  # right buttons
 
         pad = ems_to_pixels(1)
+
+        # Left frame for language and model buttons
+        left_buttons_frame = tk.Frame(panel, background=background)
+        left_buttons_frame.grid(row=1, column=1, sticky="w", padx=(pad, 0), pady=(pad, 0))
 
         # Language toggle button (UA/RU) above the input
         def _current_lang() -> str:
@@ -184,7 +190,7 @@ class ChatView(tktextext.TextFrame):
 
         # Language toggle button (UA/RU)
         self.lang_button = tk.Button(
-            panel,
+            left_buttons_frame,
             text=_lang_label_from(_current_lang()),
             command=self._toggle_lang,
             background=background,
@@ -195,7 +201,7 @@ class ChatView(tktextext.TextFrame):
             padx=4,
             pady=2,
         )
-        self.lang_button.grid(row=1, column=1, sticky="w", padx=pad, pady=(pad, 0))
+        self.lang_button.pack(side="left", padx=(0, 4))
         
         # Model toggle button (GPT/Gemini) next to language button
         def _current_model() -> str:
@@ -208,7 +214,7 @@ class ChatView(tktextext.TextFrame):
             return "GPT" if model == "gpt" else "Gemini"
         
         self.model_button = tk.Button(
-            panel,
+            left_buttons_frame,
             text=_model_label_from(_current_model()),
             command=self._toggle_model,
             background=background,
@@ -219,20 +225,21 @@ class ChatView(tktextext.TextFrame):
             padx=4,
             pady=2,
         )
-        self.model_button.grid(row=1, column=1, sticky="e", padx=pad, pady=(pad, 0))
+        self.model_button.pack(side="left")
         
-        # Loading indicator (initially hidden)
-        self.loading_label = tk.Label(
+        # Clear chat button (right side) - same style as submit button
+        clear_button_frame = create_custom_toolbutton_in_frame(
             panel,
-            text="",
+            text=" 🗑 ",  # Trash icon with padding
+            command=self._clear_chat,
             background=background,
-            font="TkDefaultFont",
-            foreground="#666666",
+            borderwidth=1,
+            bordercolor=bordercolor,
         )
-        self.loading_label.grid(row=1, column=2, sticky="w", padx=(0, pad), pady=(pad, 0))
+        clear_button_frame.grid(row=1, column=3, sticky="e", padx=(0, pad), pady=(pad, 0))
 
         border_frame = tk.Frame(panel, background="#cccccc")
-        border_frame.grid(row=2, column=1, sticky="nsew", padx=pad, pady=(pad//2, pad))
+        border_frame.grid(row=2, column=1, columnspan=2, sticky="nsew", padx=(pad, 0), pady=(pad//2, pad))
         border_frame.rowconfigure(0, weight=1)
         border_frame.columnconfigure(0, weight=1)
 
@@ -257,15 +264,34 @@ class ChatView(tktextext.TextFrame):
 
         self.query_text.grid(row=0, column=0, sticky="nsew", padx=3, pady=3)
 
-        submit_button_frame = create_custom_toolbutton_in_frame(
-            panel,
+        # Create container for submit button and loading indicator (same position)
+        submit_container = tk.Frame(panel, background=background)
+        submit_container.grid(row=2, column=3, sticky="e", padx=(pad, pad), pady=(pad//2, pad))
+        
+        # Submit button (shown by default)
+        self.submit_button_frame = create_custom_toolbutton_in_frame(
+            submit_container,
             text=" ⏎ ",
             command=self._on_click_submit,
             background=background,
             borderwidth=1,
             bordercolor=bordercolor,
         )
-        submit_button_frame.grid(row=2, column=2, sticky="e", padx=(0, pad), pady=(pad//2, pad))
+        self.submit_button_frame.pack()
+        
+        # Loading indicator (hidden by default) - same size as submit button
+        import tkinter.font as tkfont
+        spinner_font = tkfont.Font(family="TkDefaultFont", size=14, weight="normal")
+        
+        self.loading_label = tk.Label(
+            submit_container,
+            text="",
+            background=background,
+            font=spinner_font,
+            foreground="#666666",
+            width=2,  # Same width as submit button
+        )
+        # Don't pack yet - will be shown when loading starts
 
         return panel
 
@@ -365,6 +391,26 @@ class ChatView(tktextext.TextFrame):
             )
         
         # History is preserved in self._chat_messages - no need to clear it
+    
+    def _clear_chat(self) -> None:
+        """Clear chat display and message history"""
+        # Clear the displayed chat text
+        self.text.direct_delete("1.0", "end")
+        
+        # Clear message history
+        self._chat_messages.clear()
+        
+        # Clear debug session
+        self._current_debug_session_id = None
+        
+        # Clear other state
+        self._formatted_attachmets_per_message.clear()
+        self._last_tagged_attachments.clear()
+        self._current_chat_response_buffer = ""
+        self._last_auto_explained_step = None
+        
+        # Cancel any ongoing completion
+        self._cancel_completion()
 
     def handle_toplevel_response(self, msg: ToplevelResponse) -> None:
         from thonny.plugins.cpython_frontend import LocalCPythonProxy
@@ -453,11 +499,53 @@ class ChatView(tktextext.TextFrame):
             lang = get_workbench().get_option("ai.language", "uk")
         except Exception:
             lang = "uk"
+        
+        # Получаем номер текущей строки для более точного промпта
+        current_line = None
+        if hasattr(msg, 'stack') and msg.stack:
+            current_frame = msg.stack[-1]
+            current_line = current_frame.lineno
+        
+        # IMPORTANT: Захватываем debug контекст СЕЙЧАС, а не позже в thread!
+        # Иначе если пользователь быстро нажмет step снова, контекст будет неправильный
+        from thonny.plugins.debug_common import get_debug_context_from_msg
+        debug_ctx = get_debug_context_from_msg(msg)
+        
+        # Короткое сообщение для отображения в UI (что видит ребенок)
         if lang == "ru":
-            auto_prompt = "[auto] Что выполнено на предыдущем шаге? Что произойдёт на текущей строке?"
+            if current_line:
+                display_prompt = f"[auto] Что выполнится на строке {current_line}?"
+            else:
+                display_prompt = "[auto] Что дальше?"
         else:
-            auto_prompt = "[auto] Що виконалось на попередньому кроці? Що станеться коли виконається поточний рядок?"
-        self.submit_user_chat_message(auto_prompt, is_debug_related=True, debug_session_id=self._current_debug_session_id)
+            if current_line:
+                display_prompt = f"[auto] Що виконається на рядку {current_line}?"
+            else:
+                display_prompt = "[auto] Що далі?"
+        
+        # Полный промпт для AI с инструкциями и контекстом
+        if lang == "ru":
+            if current_line:
+                full_prompt = f"Поясни что произошло на последнем шаге и что выполнится на строке {current_line}"
+            else:
+                full_prompt = "Поясни что произошло на последнем шаге и что выполнится дальше"
+        else:
+            if current_line:
+                full_prompt = f"Поясни що сталося на останньому кроці та що виконається на рядку {current_line}"
+            else:
+                full_prompt = "Поясни що сталося на останньому кроці та що виконається далі"
+        
+        # Добавляем debug контекст к полному промпту
+        if debug_ctx:
+            full_prompt = f"{full_prompt}\n\n{debug_ctx}"
+        
+        # Отправляем: полный промпт для AI, короткий для отображения
+        self.submit_user_chat_message(
+            full_prompt, 
+            is_debug_related=True, 
+            debug_session_id=self._current_debug_session_id,
+            display_message=display_prompt
+        )
 
     def _on_configure(self, event: tk.Event) -> None:
         self._update_suggestions_box()
@@ -674,7 +762,13 @@ class ChatView(tktextext.TextFrame):
 
         return "break"
 
-    def submit_user_chat_message(self, message: str, is_debug_related: bool = False, debug_session_id: Optional[str] = None):
+    def submit_user_chat_message(
+        self, 
+        message: str, 
+        is_debug_related: bool = False, 
+        debug_session_id: Optional[str] = None,
+        display_message: Optional[str] = None  # What to show in UI (if different from full message)
+    ):
         self._remove_suggestions()
         message = message.rstrip()
         attachments, warnings = self.compile_attachments(message)
@@ -683,7 +777,11 @@ class ChatView(tktextext.TextFrame):
         self._active_chat_request_id = str(uuid.uuid4())
         self._show_loading_indicator()
         self._append_text("\n")
-        self._append_text(message, tags=("user_message",))
+        
+        # Show display_message in UI if provided, otherwise show full message
+        text_to_display = display_message if display_message else message
+        self._append_text(text_to_display, tags=("user_message",))
+        
         if attachments:
             self._formatted_attachmets_per_message[self._active_chat_request_id] = (
                 self._current_assistant.format_attachments(attachments)
@@ -699,6 +797,7 @@ class ChatView(tktextext.TextFrame):
         for warning in warnings:
             self._append_text("WARNING: " + warning + "\n\n")
 
+        # Store full message (with context) for AI, not the display version
         self._chat_messages.append(ChatMessage(ChatRole.USER, message, attachments, is_debug_related, debug_session_id))
         self.query_text.delete("1.0", "end")
 
@@ -951,18 +1050,32 @@ class ChatView(tktextext.TextFrame):
         update_text_height(self.suggestions_text, min_lines=1, max_lines=5)
     
     def _show_loading_indicator(self):
-        """Show animated loading indicator"""
+        """Show animated loading indicator and hide submit button"""
+        # Hide submit button
+        self.submit_button_frame.pack_forget()
+        
+        # Show loading indicator
+        self.loading_label.pack()
+        
+        # Start animation
         self._loading_animation_step = 0
         self._animate_loading()
     
     def _hide_loading_indicator(self):
-        """Hide loading indicator"""
+        """Hide loading indicator and show submit button"""
+        # Stop animation
         self.loading_label.config(text="")
         if hasattr(self, '_loading_after_id'):
             try:
                 self.after_cancel(self._loading_after_id)
             except Exception:
                 pass
+        
+        # Hide loading indicator
+        self.loading_label.pack_forget()
+        
+        # Show submit button
+        self.submit_button_frame.pack()
     
     def _animate_loading(self):
         """Animate loading spinner"""

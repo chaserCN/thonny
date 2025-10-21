@@ -6,13 +6,15 @@ from thonny import get_workbench
 from thonny.plugins.debugger import get_current_debugger
 
 
-def get_debug_context() -> Optional[str]:
-    """Get current debugging context: variables, current line, stack"""
-    debugger = get_current_debugger()
-    if not debugger or not debugger._last_progress_message:
+def get_debug_context_from_msg(msg) -> Optional[str]:
+    """Get debugging context from a specific DebuggerResponse message
+    
+    This function should be used to capture context at a specific moment,
+    avoiding race conditions when debugger state changes.
+    """
+    if not msg or not hasattr(msg, 'stack'):
         return None
         
-    msg = debugger._last_progress_message
     if not msg.stack:
         return None
         
@@ -33,10 +35,17 @@ def get_debug_context() -> Optional[str]:
         file_label = "Файл"  # Localized label for both uk/ru
         context_parts.append(f"{file_label}: {frame.filename}")
         
+        # Show both previous and current line info
+        prev_line = frame.lineno - 1 if frame.lineno > 1 else None
+        
         if lang == "uk":
-            context_parts.append(f"**Поточний рядок (який виконається ЗАРАЗ): {frame.lineno}** (помічено → нижче)")
+            if prev_line:
+                context_parts.append(f"**Попередній рядок (щойно виконаний): {prev_line}**")
+            context_parts.append(f"**ПОТОЧНИЙ рядок (виконається ЗАРАЗ): {frame.lineno}** ← помічено → нижче")
         else: # ru
-            context_parts.append(f"**Текущая строка (которая выполнится СЕЙЧАС): {frame.lineno}** (помечена → ниже)")
+            if prev_line:
+                context_parts.append(f"**Предыдущая строка (только что выполнена): {prev_line}**")
+            context_parts.append(f"**ТЕКУЩАЯ строка (выполнится СЕЙЧАС): {frame.lineno}** ← помечена → ниже")
         
         context_parts.append(f"```python")
         
@@ -317,4 +326,18 @@ mas = [10, 15, 3, 8, 20]
 
 Приклад ПОГАНОЇ відповіді (один масив тексту):
 """
+
+
+def get_debug_context() -> Optional[str]:
+    """Get current debugging context from debugger's last message
+    
+    DEPRECATED: This reads from debugger._last_progress_message which may
+    change during execution. Prefer get_debug_context_from_msg() for
+    capturing context at a specific moment.
+    """
+    debugger = get_current_debugger()
+    if not debugger or not debugger._last_progress_message:
+        return None
+    
+    return get_debug_context_from_msg(debugger._last_progress_message)
 
