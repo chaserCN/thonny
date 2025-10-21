@@ -526,17 +526,18 @@ class CodeView(tktextext.EnhancedTextFrame):
         popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
         popup.deiconify()  # Show the window
         
-        # Add RstText widget for beautiful formatting (like in chat)
+        # Add Text widget with markdown formatting
         text_frame = tk.Frame(popup)
         text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Use RstText for markdown/rst formatting
-        explanation_text = rst_utils.RstText(
+        # Use regular Text widget with markdown rendering
+        explanation_text = tk.Text(
             text_frame, 
             wrap=tk.WORD, 
             font="TkDefaultFont",
-            read_only=True,  # Read-only but allows selection and copying
-            background="white"
+            background="white",
+            foreground="black",
+            state="normal"  # Allow selection for copying
         )
         explanation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
@@ -544,9 +545,16 @@ class CodeView(tktextext.EnhancedTextFrame):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         explanation_text.config(yscrollcommand=scrollbar.set)
         
+        # Enable copy shortcuts
+        explanation_text.bind("<Control-c>", lambda e: explanation_text.event_generate("<<Copy>>"))
+        explanation_text.bind("<Command-c>", lambda e: explanation_text.event_generate("<<Copy>>"))  # Mac
+        explanation_text.bind("<Control-a>", lambda e: explanation_text.tag_add("sel", "1.0", "end"))
+        explanation_text.bind("<Command-a>", lambda e: explanation_text.tag_add("sel", "1.0", "end"))  # Mac
+        
         # Show loading message
-        loading_msg = f"**{code_line_label}**\n\n::\n\n    {line_content}\n\n{loading_text}\n"
-        explanation_text.append_rst(loading_msg)
+        from thonny.markdown_utils import render_markdown
+        loading_msg = f"**{code_line_label}**\n\n{line_content}\n\n{loading_text}\n"
+        render_markdown(explanation_text, loading_msg)
         
         # Close button
         close_btn = ttk.Button(popup, text=close_text, command=popup.destroy)
@@ -559,50 +567,24 @@ class CodeView(tktextext.EnhancedTextFrame):
                 
                 # Update UI in main thread
                 def update_ui():
+                    from thonny.markdown_utils import render_markdown
                     # Clear and show formatted explanation
-                    explanation_text.direct_delete("1.0", "end")
+                    explanation_text.delete("1.0", "end")
                     
-                    # Format as RST
-                    rst_content = f"**{code_line_label}**\n\n::\n\n    {line_content}\n\n"
-                    rst_content += f"**{explanation_label}**\n\n"
+                    # Format as markdown
+                    md_content = f"**{code_line_label}**\n\n{line_content}\n\n"
+                    md_content += f"**{explanation_label}**\n\n"
+                    md_content += explanation
                     
-                    # Convert markdown response to RST for rendering
-                    # The AI response is in markdown, convert to RST
-                    explanation_rst = explanation.replace("```python", "::\n\n").replace("```", "")
-                    
-                    # Convert bullet lists: markdown uses "- " or "* ", RST uses "* "
-                    # Also need blank line before list
-                    lines = explanation_rst.split('\n')
-                    converted_lines = []
-                    in_list = False
-                    for i, line in enumerate(lines):
-                        stripped = line.lstrip()
-                        # Check if this is a bullet point
-                        if stripped.startswith('- ') or stripped.startswith('* '):
-                            if not in_list:
-                                # Add blank line before list starts
-                                if converted_lines and converted_lines[-1].strip():
-                                    converted_lines.append('')
-                                in_list = True
-                            # Convert to RST bullet (always use *)
-                            indent = len(line) - len(stripped)
-                            converted_lines.append(' ' * indent + '* ' + stripped[2:])
-                        else:
-                            if in_list and stripped:
-                                # List ended
-                                in_list = False
-                            converted_lines.append(line)
-                    
-                    explanation_rst = '\n'.join(converted_lines)
-                    rst_content += explanation_rst
-                    
-                    explanation_text.append_rst(rst_content)
+                    render_markdown(explanation_text, md_content)
                 
                 popup.after(0, update_ui)
             except Exception as e:
                 def show_error():
-                    explanation_text.direct_delete("1.0", "end")
-                    explanation_text.append_rst(f"**{error_label}** {str(e)}")
+                    from thonny.markdown_utils import render_markdown
+                    explanation_text.delete("1.0", "end")
+                    error_md = f"**{error_label}**\n\n{str(e)}"
+                    render_markdown(explanation_text, error_md)
                 popup.after(0, show_error)
         
         threading.Thread(target=get_explanation, daemon=True).start()
@@ -682,20 +664,24 @@ class CodeView(tktextext.EnhancedTextFrame):
 
 Пример ХОРОШЕГО формата для mas1=[mas[0]]:
 **Как работает:**
-- `mas[0]` берет первое число из списка mas
-- `[mas[0]]` создает новый список из этого числа (например, из 10 делает [10])
-- Таким образом mas1 получает список с одним элементом - первым числом из mas
+- Создается новая переменная mas1
+- `mas[0]` берет первое число из списка mas (например, из списка [15, 20, 25] берется число 15)
+- `[mas[0]]` создает новый список из этого числа (получается список чисел [15])
+- Таким образом mas1 получает список чисел [15] с одним элементом - первым числом из mas
 
 Пример ХОРОШЕГО для mas=list(map(int,input().split())):
 **Как работает:**
-- `input()` читает введенную строку (например, "5 10 15")
-- `.split()` делит строку на список строк по пробелам (получается ["5", "10", "15"])
+- `input()` читает введенную строку (например, строку "5 10 15")
+- `.split()` делит строку на список строк по пробелам (получается список строк ["5", "10", "15"])
 - `map(int, ...)` превращает каждую строку "5", "10", "15" в число
-- `list(...)` собирает все числа в один список чисел (получается [5, 10, 15])
+- `list(...)` собирает все числа в один список (получается список чисел [5, 10, 15])
 - Таким образом mas получает список чисел [5, 10, 15]
 
 ВАЖНО - ВСЕГДА:
-- Указывай ЧТО получается и КАКОГО ТИПА (строка, число, список строк, список чисел)
+- Указывай ТИП И ЗНАЧЕНИЕ в формате: тип + значение (например, "число 10", "список чисел [5, 10]")
+- НЕ пиши "10 – это число" или "[10] – это список", пиши "число 10" или "список чисел [10]"
+- Если создается новая переменная - ПЕРВЫМ пунктом напиши "Создается новая переменная имя_переменной"
+- ИСПОЛЬЗУЙ реальные значения переменных из контекста программы в примерах (если переменная mas = [15, 20, 25], пиши конкретно "из списка [15, 20, 25]", а не "например из списка [10, 20, 30]")
 - Показывай примеры промежуточных результатов в скобках
 - НЕ используй "такой", "такую часть", "это" - пиши конкретно что именно
 - Каждая операция/функция - отдельный пункт списка
@@ -718,20 +704,24 @@ class CodeView(tktextext.EnhancedTextFrame):
 
 Приклад ХОРОШОГО формату для mas1=[mas[0]]:
 **Як працює:**
-- `mas[0]` бере перше число зі списку mas
-- `[mas[0]]` створює новий список з цього числа (наприклад, з 10 робить [10])
-- Таким чином mas1 отримує список з одним елементом - першим числом зі списку mas
+- Створюється нова змінна mas1
+- `mas[0]` бере перше число зі списку mas (наприклад, зі списку [15, 20, 25] береться число 15)
+- `[mas[0]]` створює новий список з цього числа (виходить список чисел [15])
+- Таким чином mas1 отримує список чисел [15] з одним елементом - першим числом зі списку mas
 
 Приклад ХОРОШОГО для mas=list(map(int,input().split())):
 **Як працює:**
-- `input()` читає введений рядок (наприклад, "5 10 15")
-- `.split()` ділить рядок на список рядків за пробілами (виходить ["5", "10", "15"])
-- `map(int, ...)` перетворює кожен рядок "5", "10", "15" на число
-- `list(...)` збирає всі числа в один список чисел (виходить [5, 10, 15])
+- `input()` читає введену строку (наприклад, строку "5 10 15")
+- `.split()` ділить строку на список строк за пробілами (виходить список строк ["5", "10", "15"])
+- `map(int, ...)` перетворює кожну строку "5", "10", "15" на число
+- `list(...)` збирає всі числа в один список (виходить список чисел [5, 10, 15])
 - Таким чином mas отримує список чисел [5, 10, 15]
 
 ВАЖЛИВО - ЗАВЖДИ:
-- Вказуй ЩО виходить і ЯКОГО ТИПУ (рядок, число, список рядків, список чисел)
+- Вказуй ТИП І ЗНАЧЕННЯ у форматі: тип + значення (наприклад, "число 10", "список чисел [5, 10]")
+- НЕ пиши "10 – це число" або "[10] – це список", пиши "число 10" або "список чисел [10]"
+- Якщо створюється нова змінна - ПЕРШИМ пунктом напиши "Створюється нова змінна імя_змінної"
+- ВИКОРИСТОВУЙ реальні значення змінних з контексту програми в прикладах (якщо змінна mas = [15, 20, 25], пиши конкретно "зі списку [15, 20, 25]", а не "наприклад зі списку [10, 20, 30]")
 - Показуй приклади проміжних результатів у дужках
 - НЕ використовуй "такий", "таку частину", "це" - пиши конкретно що саме
 - Кожна операція/функція - окремий пункт списку

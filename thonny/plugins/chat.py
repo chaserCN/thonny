@@ -118,6 +118,13 @@ class ChatView(tktextext.TextFrame):
         # self.text.tag_configure("user_message_last_line", spacing1=ems_to_pixels(0.3))
 
         self.text.bind("<Motion>", self._on_mouse_move_in_text, True)
+        
+        # Enable copy shortcuts even in read-only mode
+        self.text.bind("<Control-c>", lambda e: self.text.event_generate("<<Copy>>"))
+        self.text.bind("<Command-c>", lambda e: self.text.event_generate("<<Copy>>"))  # Mac
+        self.text.bind("<Control-a>", lambda e: self.text.tag_add("sel", "1.0", "end"))
+        self.text.bind("<Command-a>", lambda e: self.text.tag_add("sel", "1.0", "end"))  # Mac
+        
         self.text.tag_configure("feedback_link", justify="right", font=italic_underline_font)
         self.text.tag_configure("python_errors_link", justify="right", font=italic_underline_font)
         self.text.tag_bind(
@@ -263,6 +270,9 @@ class ChatView(tktextext.TextFrame):
         self.query_text.bind("<Key>", self._on_change_query_text, True)
 
         self.query_text.grid(row=0, column=0, sticky="nsew", padx=3, pady=3)
+        
+        # Set focus to input field on startup
+        self.query_text.focus_set()
 
         # Create container for submit button and loading indicator (same position)
         submit_container = tk.Frame(panel, background=background)
@@ -313,14 +323,14 @@ class ChatView(tktextext.TextFrame):
                 if not self._current_chat_response_buffer.strip():
                     return
             else:
-                # Render accumulated RST at the end
+                # Render accumulated content at the end
                 try:
-                    # Convert Markdown to RST before rendering
-                    rst_content = self._markdown_to_rst(self._current_chat_response_buffer)
-                    self.text.append_rst(rst_content)
+                    # Use markdown renderer for all messages
+                    from thonny.markdown_utils import render_markdown
+                    render_markdown(self.text, self._current_chat_response_buffer)
                 except Exception as e:
-                    # Fallback to plain text if RST parsing fails
-                    logger.warning(f"RST/Markdown parsing failed: {e}")
+                    # Fallback to plain text if formatting fails
+                    logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
                     self.text.direct_insert("end", self._current_chat_response_buffer)
                 self.text.direct_insert("end", "\n")
                 self._current_chat_response_buffer = ""  # Clear buffer
@@ -344,69 +354,8 @@ class ChatView(tktextext.TextFrame):
             self._hide_loading_indicator()
             self._update_suggestions()
             self.text.see("end")
-
-    def _markdown_to_rst(self, markdown_text: str) -> str:
-        """Convert markdown response to RST for rendering"""
-        import re
-        
-        # Basic conversions
-        rst_text = markdown_text.replace("```python", "::\n\n").replace("```", "")
-        
-        # Convert bullet lists: markdown uses "- " or "* ", RST uses "* "
-        # Also need blank line before list
-        lines = rst_text.split('\n')
-        converted_lines = []
-        in_list = False
-        in_var_block = False
-        
-        for i, line in enumerate(lines):
-            stripped = line.lstrip()
-            
-            # Check if this is a bullet point
-            if stripped.startswith('- ') or stripped.startswith('* '):
-                if not in_list:
-                    # Add blank line before list starts
-                    if converted_lines and converted_lines[-1].strip():
-                        converted_lines.append('')
-                    in_list = True
-                # Convert to RST bullet (always use *)
-                indent = len(line) - len(stripped)
-                converted_lines.append(' ' * indent + '* ' + stripped[2:])
-                in_var_block = False
-            # Check if this looks like variable assignment (for **Текущее состояние:**)
-            elif re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*.+$', stripped):
-                if not in_var_block:
-                    # Start variable block - add blank line and code block marker
-                    if converted_lines and converted_lines[-1].strip():
-                        converted_lines.append('')
-                    converted_lines.append('.. code-block:: text')
-                    converted_lines.append('')
-                    in_var_block = True
-                # Indent variable lines for code block
-                converted_lines.append('   ' + line)
-                in_list = False
-            # Check if line starts with "Сейчас выполнится:" or "Зараз виконається:"
-            elif re.match(r'^(Сейчас|Зараз)\s+(выполнится|виконається):', stripped):
-                if in_var_block:
-                    # Close variable block with blank line
-                    converted_lines.append('')
-                    in_var_block = False
-                converted_lines.append(line)
-                # Add blank line after "Сейчас выполнится: код" for better spacing
-                if i + 1 < len(lines) and lines[i + 1].strip():
-                    converted_lines.append('')
-                in_list = False
-            else:
-                if in_list and stripped:
-                    # List ended
-                    in_list = False
-                if in_var_block and stripped and not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*.+$', stripped):
-                    # Variable block ended
-                    converted_lines.append('')
-                    in_var_block = False
-                converted_lines.append(line)
-        
-        return '\n'.join(converted_lines)
+            # Return focus to input field
+            self.query_text.focus_set()
 
     def _toggle_lang(self) -> None:
         try:
@@ -636,113 +585,6 @@ class ChatView(tktextext.TextFrame):
                 self._format_file_url(error_info),
             )
 
-    def _markdown_to_rst(self, markdown_text: str) -> str:
-        """Convert limited Markdown to RST for ChatView.
-
-        Rules:
-        - Keep headings like **Що сталось:**, **Поточний стан:**, **Що далі:** as-is (bold).
-        - Preserve code fences (``` ... ```) as literal blocks (:: + indented lines).
-        - For the "**Поточний стан:**" section, render following non-empty lines
-          as a literal block to preserve line breaks (indented, monospace).
-        - Convert inline `code` → ``code``.
-        """
-        import re
-
-        lines = markdown_text.split("\n")
-        rst_lines: list[str] = []
-
-        in_fenced_code = False
-        fenced_code_lines: list[str] = []
-        previous_was_bullet = False
-
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            stripped = line.strip()
-
-            # Handle fenced code blocks
-            if stripped.startswith("```"):
-                if not in_fenced_code:
-                    in_fenced_code = True
-                    fenced_code_lines = []
-                else:
-                    # close fenced block → RST literal block
-                    in_fenced_code = False
-                    rst_lines.append("")
-                    rst_lines.append("::")
-                    rst_lines.append("")
-                    for cl in fenced_code_lines:
-                        rst_lines.append("    " + cl)
-                    rst_lines.append("")
-                i += 1
-                continue
-
-            if in_fenced_code:
-                fenced_code_lines.append(line)
-                i += 1
-                continue
-
-            # Convert inline code
-            line = re.sub(r"`([^`]+)`", r"``\1``", line)
-
-            # Simple Markdown headings (# → bold)
-            if line.startswith('# '):
-                line = '**' + line[2:] + '**'
-            elif line.startswith('## '):
-                line = '**' + line[3:] + '**'
-            elif line.startswith('### '):
-                line = '**' + line[4:] + '**'
-
-            # Handle "Поточний стан" / "Текущее состояние" as literal block for preserving newlines
-            if stripped.startswith('**Поточний стан:**') or stripped.startswith('**Текущее состояние:**'):
-                rst_lines.append(line)
-                i += 1
-
-                # Collect subsequent non-empty, non-heading lines
-                var_lines: list[str] = []
-                while i < len(lines):
-                    nxt = lines[i]
-                    nxs = nxt.strip()
-                    if nxs.startswith('**') or nxs.startswith('```') or nxs.startswith('# '):
-                        break
-                    if nxs != "":
-                        var_lines.append(nxt.rstrip())
-                    i += 1
-
-                if var_lines:
-                    rst_lines.append("")
-                    rst_lines.append("::")
-                    rst_lines.append("")
-                    for vl in var_lines:
-                        rst_lines.append("    " + vl)
-                    rst_lines.append("")
-                continue
-
-            # List handling (bullet and numbered): ensure a blank line before first item
-            # Numbered list: 1), 2), etc.
-            # Bullet list: -, *, etc.
-            is_list_item = (stripped.startswith('- ') or stripped.startswith('* ') or
-                           re.match(r'^\d+\)', stripped))
-            
-            if is_list_item:
-                if len(rst_lines) > 0 and rst_lines[-1].strip() != "" and not previous_was_bullet:
-                    rst_lines.append("")
-                
-                # For numbered lists, RST needs format: "1. " not "1)"
-                # But we keep the original format and just ensure proper spacing
-                rst_lines.append(line)
-                previous_was_bullet = True
-                i += 1
-                continue
-
-            previous_was_bullet = False
-
-            # Default: keep line as-is (RST will wrap normal paragraphs)
-            rst_lines.append(line)
-            i += 1
-
-        return "\n".join(rst_lines)
-    
     def _append_text(self, chars, tags=(), source="analysis"):
         # Just insert text directly (RST handled separately in streaming handler)
         self.text.direct_insert("end", chars, tags=tags)
@@ -863,6 +705,9 @@ class ChatView(tktextext.TextFrame):
         # Store full message (with context) for AI, not the display version
         self._chat_messages.append(ChatMessage(ChatRole.USER, message, attachments, is_debug_related, debug_session_id))
         self.query_text.delete("1.0", "end")
+        
+        # Return focus to input field after submitting
+        self.query_text.focus_set()
 
         for assistant in self.select_assistants_for_user_message(message):
             threading.Thread(

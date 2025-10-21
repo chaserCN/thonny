@@ -82,14 +82,15 @@ class RstText(TweakableText):
         )
         
         # Отдельный стиль для блоков кода с отступами
+        # spacing1=0 to minimize vertical gap above (e.g., after "Текущее состояние:")
         self.tag_configure(
             "code_block",
             font="TkFixedFont",
             background="#f5f5f5",
             lmargin1=20,
             lmargin2=20,
-            spacing1=5,
-            spacing3=5,
+            spacing1=0,
+            spacing3=3,
         )
         
         # if ui_utils.get_tk_version_info() >= (8,6,6):
@@ -356,12 +357,14 @@ class RstText(TweakableText):
                     self._pop_tag(cls)
 
             def visit_literal_block(self, node):
-                self._append_text("\n")  # Пустая строка перед блоком
-                self._add_tag("code_block")  # Используем стиль с отступами
+                # Reduce vertical spacing: don't force extra blank line before block
+                # The converter ensures correct paragraph separation already
+                self._add_tag("code_block")  # Use indented style
 
             def depart_literal_block(self, node):
                 self._pop_tag("code_block")
-                self._append_text("\n\n")
+                # Single newline after block is enough; avoid excessive spacing
+                self._append_text("\n")
 
             def visit_bullet_list(self, node):
                 self.active_lists.append(node.attributes["bullet"])
