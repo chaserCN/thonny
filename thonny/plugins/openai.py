@@ -2,7 +2,7 @@ from tkinter import ttk
 from typing import Iterator, List, Optional
 
 from thonny import get_workbench
-from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk
+from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole
 from thonny.ui_utils import create_url_label, show_dialog
 from thonny.workdlg import WorkDialog
 
@@ -74,7 +74,7 @@ class OpenAIAssistant(Assistant):
 
         out_msgs = [
             {"role": "system", "content": "You are a helpful programming coach."},
-        ] + [{"role": msg.role, "content": self.format_message(msg)} for msg in context.messages]
+        ] + [{"role": msg.role.to_openai(), "content": self.format_message(msg)} for msg in context.messages]
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",

@@ -1,6 +1,6 @@
 from typing import Iterator, List
 
-from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk
+from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole
 
 
 class OllamaAssistant(Assistant):
@@ -10,7 +10,7 @@ class OllamaAssistant(Assistant):
     def complete_chat(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         import ollama
 
-        api_messages = [{"role": msg.role, "content": msg.content} for msg in context.messages]
+        api_messages = [{"role": msg.role.value, "content": msg.content} for msg in context.messages]
         stream = ollama.chat(
             model="codellama:7b-instruct",
             messages=api_messages,

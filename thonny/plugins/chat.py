@@ -15,6 +15,7 @@ from thonny.assistance import (
     ChatMessage,
     ChatResponseChunk,
     ChatResponseFragmentWithRequestId,
+    ChatRole,
     EchoAssistant,
     format_file_url,
     logger,
@@ -67,6 +68,8 @@ class ChatView(tktextext.TextFrame):
 
         self._accepted_warning_sets = []
         self._last_auto_explained_step = None  # Track last auto-explained step to avoid duplicates
+        self._current_debug_session_id: Optional[str] = None  # Current debug session ID
+        self._loading_animation_step = 0  # For loading indicator animation
 
         main_font = tk.font.nametofont("TkDefaultFont")
 
@@ -217,6 +220,16 @@ class ChatView(tktextext.TextFrame):
             pady=2,
         )
         self.model_button.grid(row=1, column=1, sticky="e", padx=pad, pady=(pad, 0))
+        
+        # Loading indicator (initially hidden)
+        self.loading_label = tk.Label(
+            panel,
+            text="",
+            background=background,
+            font="TkDefaultFont",
+            foreground="#666666",
+        )
+        self.loading_label.grid(row=1, column=2, sticky="w", padx=(0, pad), pady=(pad, 0))
 
         border_frame = tk.Frame(panel, background="#cccccc")
         border_frame.grid(row=2, column=1, sticky="nsew", padx=pad, pady=(pad//2, pad))
@@ -290,9 +303,10 @@ class ChatView(tktextext.TextFrame):
             self._append_text(fragment.content, source="chat")
         
         last_msg = self._chat_messages.pop()
-        if last_msg.role == "user":
+        if last_msg.role == ChatRole.USER:
             self._chat_messages.append(last_msg)
-            current_msg = ChatMessage("assistant", "", [])
+            # Inherit debug-related status from user message
+            current_msg = ChatMessage(ChatRole.ASSISTANT, "", [], last_msg.is_debug_related, last_msg.debug_session_id)
         else:
             current_msg = last_msg
 
@@ -301,6 +315,7 @@ class ChatView(tktextext.TextFrame):
         
         if fragment.is_final:
             self._active_chat_request_id = None
+            self._hide_loading_indicator()
             self._update_suggestions()
             self.text.see("end")
 
@@ -334,11 +349,20 @@ class ChatView(tktextext.TextFrame):
         # Update button text
         self.model_button.config(text=("GPT" if new_model == "gpt" else "Gemini"))
         
-        # Switch assistant while preserving history
+        # Switch assistant while preserving history (case-insensitive keys)
+        assistants = get_workbench().assistants
         if new_model == "gpt":
-            self._current_assistant = get_workbench().assistants.get("debugai", EchoAssistant())
+            self._current_assistant = (
+                assistants.get("debugai")
+                or assistants.get("DebugAI")
+                or EchoAssistant()
+            )
         else:  # gemini
-            self._current_assistant = get_workbench().assistants.get("debuggemini", EchoAssistant())
+            self._current_assistant = (
+                assistants.get("debuggemini")
+                or assistants.get("DebugGemini")
+                or EchoAssistant()
+            )
         
         # History is preserved in self._chat_messages - no need to clear it
 
@@ -378,19 +402,25 @@ class ChatView(tktextext.TextFrame):
     def _handle_debugger_step(self, msg) -> None:
         """Автоматически объясняет каждый шаг отладки"""
         from thonny.plugins.debugger import get_current_debugger
-        from thonny.plugins.debug_assistant import DebugAIAssistant
         
         debugger = get_current_debugger()
         if not debugger:
+            # Debug session ended - clear debug session ID
+            self._current_debug_session_id = None
             return
+        
+        # Start new debug session if needed
+        if self._current_debug_session_id is None:
+            self._current_debug_session_id = str(uuid.uuid4())
         
         # Проверяем что была команда step_over или step_into
         last_cmd = getattr(debugger, '_last_debugger_command', None)
         if not last_cmd or last_cmd.name not in ['step_over', 'step_into']:
             return
         
-        # Проверяем что используется DebugAI ассистент
-        if not isinstance(self._current_assistant, DebugAIAssistant):
+        # Проверяем что используется DebugAI или DebugGemini ассистент (по имени класса)
+        assistant_cls_name = type(self._current_assistant).__name__
+        if assistant_cls_name not in ("DebugAIAssistant", "DebugGeminiAssistant"):
             return
         
         # Избегаем повторной генерации для того же шага
@@ -404,16 +434,30 @@ class ChatView(tktextext.TextFrame):
             
             self._last_auto_explained_step = step_id
         
+        # Проверяем одноразовый флаг "объяснить следующий шаг"
+        explain_next = bool(getattr(debugger, '_explain_next_step', False))
+        if not explain_next:
+            return
+        # Сбрасываем флаг, чтобы объяснение было одноразовым
+        try:
+            setattr(debugger, '_explain_next_step', False)
+        except Exception:
+            pass
+
+        # Проверяем готовность ассистента (API ключ и т.д.)
+        if not self._current_assistant.get_ready():
+            return
+        
         # Автоматично генеруємо пояснення (локалізовано)
         try:
             lang = get_workbench().get_option("ai.language", "uk")
         except Exception:
             lang = "uk"
         if lang == "ru":
-            auto_prompt = "Что выполнено на предыдущем шаге? Что произойдёт на текущей строке?"
+            auto_prompt = "[auto] Что выполнено на предыдущем шаге? Что произойдёт на текущей строке?"
         else:
-            auto_prompt = "Що виконалось на попередньому кроці? Що станеться коли виконається поточний рядок?"
-        self.submit_user_chat_message(auto_prompt)
+            auto_prompt = "[auto] Що виконалось на попередньому кроці? Що станеться коли виконається поточний рядок?"
+        self.submit_user_chat_message(auto_prompt, is_debug_related=True, debug_session_id=self._current_debug_session_id)
 
     def _on_configure(self, event: tk.Event) -> None:
         self._update_suggestions_box()
@@ -586,7 +630,10 @@ class ChatView(tktextext.TextFrame):
 
         if self._chat_completion_in_progress():
             self._active_chat_request_id = None
+            self._hide_loading_indicator()
             self._append_text("... [cancelled]", source="chat")
+            # Clear RST streaming buffer if any
+            self._current_chat_response_buffer = ""
 
             self._current_assistant.cancel_completion()
 
@@ -627,13 +674,14 @@ class ChatView(tktextext.TextFrame):
 
         return "break"
 
-    def submit_user_chat_message(self, message: str):
+    def submit_user_chat_message(self, message: str, is_debug_related: bool = False, debug_session_id: Optional[str] = None):
         self._remove_suggestions()
         message = message.rstrip()
         attachments, warnings = self.compile_attachments(message)
         self._prepare_new_completion()
 
         self._active_chat_request_id = str(uuid.uuid4())
+        self._show_loading_indicator()
         self._append_text("\n")
         self._append_text(message, tags=("user_message",))
         if attachments:
@@ -651,7 +699,7 @@ class ChatView(tktextext.TextFrame):
         for warning in warnings:
             self._append_text("WARNING: " + warning + "\n\n")
 
-        self._chat_messages.append(ChatMessage("user", message, attachments))
+        self._chat_messages.append(ChatMessage(ChatRole.USER, message, attachments, is_debug_related, debug_session_id))
         self.query_text.delete("1.0", "end")
 
         for assistant in self.select_assistants_for_user_message(message):
@@ -779,27 +827,15 @@ class ChatView(tktextext.TextFrame):
         return Attachment(description, tag, text.get(sel_start_index, sel_end_index))
 
     def select_assistants_for_user_message(self, message: str) -> List[Assistant]:
-        names = re.findall(r"@(\w+)", message)
-        if not names:
-            return [self._current_assistant]
-
-        unique_norm_names = list(set(map(lambda s: s.lower(), names)))
-        result = []
-        for name in unique_norm_names:
-            if name in get_workbench().assistants:
-                result.append(get_workbench().assistants[name])
-
-            else:
-                # TODO:
-                self._append_text(f"No assistant named {name}")
-
-        return result
+        # Single active assistant only (model toggle controls which one)
+        return [self._current_assistant]
 
     def _complete_chat_in_thread(self, assistant: Assistant, request_id: str):
         try:
             # TODO: pass editor contents from UI thread
+            # snapshot messages to avoid races during parallel requests
             context = ChatContext(
-                messages=self._chat_messages,
+                messages=list(self._chat_messages),
             )
             for fragment in assistant.complete_chat(context):
                 get_workbench().queue_event(
@@ -813,12 +849,35 @@ class ChatView(tktextext.TextFrame):
         except Exception as e:
             logger.exception("Error when completing chat in thread")
 
+            # Format error message for user
+            import traceback
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            # Shorten very long error messages
+            if len(error_msg) > 500:
+                error_msg = error_msg[:500] + "..."
+            
+            user_message = f"❌ **Помилка / Ошибка ({error_type}):**\n\n{error_msg}\n\n"
+            
+            # Add hints for common errors
+            if "NotFound" in error_type or "404" in error_msg:
+                user_message += "_Підказка: Перевірте назву моделі або доступність API._\n"
+                user_message += "_Hint: Check model name or API availability._"
+            elif "Unauthorized" in error_type or "401" in error_msg or "API" in error_msg and "key" in error_msg.lower():
+                user_message += "_Підказка: Перевірте API ключ в Tools → Manage plug-ins._\n"
+                user_message += "_Hint: Check API key in Tools → Manage plug-ins._"
+            elif "RateLimitError" in error_type or "429" in error_msg:
+                user_message += "_Підказка: Перевищено ліміт запитів. Спробуйте пізніше._\n"
+                user_message += "_Hint: Rate limit exceeded. Try again later._"
+
             get_workbench().queue_event(
                 "AiChatResponseFragment",
                 ChatResponseFragmentWithRequestId(
                     ChatResponseChunk(
-                        content=f"INTERNAL ERROR: {e}. See frontend.log for more details.",
+                        content=user_message,
                         is_final=True,
+                        is_interal_error=True,
                     ),
                     request_id=request_id,
                 ),
@@ -890,6 +949,34 @@ class ChatView(tktextext.TextFrame):
         # Suggestions panel removed - do nothing
         return
         update_text_height(self.suggestions_text, min_lines=1, max_lines=5)
+    
+    def _show_loading_indicator(self):
+        """Show animated loading indicator"""
+        self._loading_animation_step = 0
+        self._animate_loading()
+    
+    def _hide_loading_indicator(self):
+        """Hide loading indicator"""
+        self.loading_label.config(text="")
+        if hasattr(self, '_loading_after_id'):
+            try:
+                self.after_cancel(self._loading_after_id)
+            except Exception:
+                pass
+    
+    def _animate_loading(self):
+        """Animate loading spinner"""
+        if not self._chat_completion_in_progress():
+            self._hide_loading_indicator()
+            return
+        
+        # Simple spinner animation
+        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        char = spinner_chars[self._loading_animation_step % len(spinner_chars)]
+        self.loading_label.config(text=char)
+        
+        self._loading_animation_step += 1
+        self._loading_after_id = self.after(100, self._animate_loading)
 
 
 def load_plugin():

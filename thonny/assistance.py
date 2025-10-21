@@ -4,6 +4,7 @@ import os.path
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from dataclasses import dataclass
+from enum import Enum
 from logging import getLogger
 from typing import Dict, Iterator, List, Optional
 
@@ -16,6 +17,36 @@ logger = getLogger(__name__)
 Suggestion = namedtuple("Suggestion", ["symbol", "title", "body", "relevance"])
 
 
+class ChatRole(Enum):
+    """Unified chat roles for different AI providers"""
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+    
+    def to_openai(self) -> str:
+        """Convert to OpenAI API format"""
+        return self.value
+    
+    def to_gemini(self) -> str:
+        """Convert to Gemini API format"""
+        if self == ChatRole.ASSISTANT:
+            return "model"
+        elif self == ChatRole.SYSTEM:
+            return "user"  # Gemini doesn't have system role
+        return self.value
+    
+    @classmethod
+    def from_string(cls, role_str: str) -> "ChatRole":
+        """Create ChatRole from string, handling both formats"""
+        role_lower = role_str.lower()
+        if role_lower == "model":
+            return cls.ASSISTANT
+        for role in cls:
+            if role.value == role_lower:
+                return role
+        raise ValueError(f"Unknown role: {role_str}")
+
+
 @dataclass
 class Attachment:
     description: str
@@ -25,9 +56,11 @@ class Attachment:
 
 @dataclass
 class ChatMessage:
-    role: str
+    role: ChatRole
     content: str
     attachments: List[Attachment]
+    is_debug_related: bool = False
+    debug_session_id: Optional[str] = None
 
 
 @dataclass

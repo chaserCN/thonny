@@ -60,7 +60,7 @@ def get_debug_context() -> Optional[str]:
         context_parts.append(f"(Could not read source code: {e})")
     
     # Variables
-    if msg.globals or msg.locals:
+    if frame.globals or frame.locals:
         lang = get_workbench().get_option("ai.language", "uk")
         if lang == "uk":
             context_parts.append(f"\n**Поточні змінні (стан ПЕРЕД виконанням рядка {frame.lineno}):**")
@@ -69,19 +69,57 @@ def get_debug_context() -> Optional[str]:
         
         # Combine globals and locals
         all_vars = {}
-        if msg.globals:
-            all_vars.update(msg.globals)
-        if msg.locals:
-            all_vars.update(msg.locals)
+        if frame.globals:
+            all_vars.update(frame.globals)
+        if frame.locals:
+            all_vars.update(frame.locals)
         
         # Filter out internal Python variables
         display_vars = {
             k: v for k, v in all_vars.items() 
             if not k.startswith('__')
         }
-        
+
+        # Determine order of appearance in source up to current line
+        ordered_names: list[str] = []
+        try:
+            import io
+            import tokenize as _tokenize
+
+            # Read source again (already loaded above). Use only lines before current line
+            lines_before_current = []
+            try:
+                import tokenize
+                with tokenize.open(frame.filename) as fp:
+                    all_lines = fp.readlines()
+                lines_before_current = all_lines[: max(0, frame.lineno - 1)]
+            except Exception:
+                lines_before_current = []
+
+            seen = set()
+            if lines_before_current and display_vars:
+                names_set = set(display_vars.keys())
+                src = "".join(lines_before_current)
+                for tok in _tokenize.generate_tokens(io.StringIO(src).readline):
+                    if tok.type == _tokenize.NAME:
+                        name = tok.string
+                        if name in names_set and name not in seen:
+                            ordered_names.append(name)
+                            seen.add(name)
+                        # small optimization: break if all found
+                        if len(seen) == len(names_set):
+                            break
+        except Exception:
+            # Fallback to no ordering info on error
+            ordered_names = []
+
         if display_vars:
-            for var_name, var_info in sorted(display_vars.items()):
+            # Names seen in source first, then the rest in insertion order
+            remaining_names = [n for n in display_vars.keys() if n not in set(ordered_names)]
+            final_names = ordered_names + remaining_names
+
+            for var_name in final_names:
+                var_info = display_vars[var_name]
                 # Extract repr from ValueInfo or dict
                 if hasattr(var_info, 'repr'):
                     var_repr = var_info.repr
@@ -89,7 +127,6 @@ def get_debug_context() -> Optional[str]:
                     var_repr = var_info['repr']
                 else:
                     var_repr = str(var_info)
-                
                 context_parts.append(f"  {var_name} = {var_repr}")
         else:
             if lang == "uk":

@@ -1419,6 +1419,29 @@ def load_plugin() -> None:
         group=30,
     )
 
+    # Step with explanation: set one-time flag on debugger and step over
+    def _step_over_with_explanation():
+        dbg = get_current_debugger()
+        if dbg is not None:
+            try:
+                setattr(dbg, "_explain_next_step", True)
+            except Exception:
+                pass
+        _issue_debugger_command("step_over")
+
+    get_workbench().add_command(
+        "step_over_explain",
+        "run",
+        tr("Step with explanation"),
+        _step_over_with_explanation,
+        caption=tr("Explain"),
+        tester=lambda: _debugger_command_enabled("step_over"),
+        default_sequence=None,
+        group=40,  # separate group for visual spacing
+        image="step-over",
+        include_in_toolbar=True,
+    )
+
     get_workbench().add_view(StackView, tr("Stack"), "se")
     get_workbench().add_view(ExceptionView, tr("Exception"), "s")
     get_workbench().bind("DebuggerResponse", _handle_debugger_progress, True)

@@ -2,7 +2,7 @@ from tkinter import ttk
 from typing import Iterator, List, Optional
 
 from thonny import get_workbench
-from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk
+from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole
 from thonny.ui_utils import create_url_label, show_dialog
 from thonny.workdlg import WorkDialog
 
@@ -72,8 +72,8 @@ class GeminiAssistant(Assistant):
 
         genai.configure(api_key=self._get_saved_api_key())
         
-        # Use gemini-1.5-flash for fast responses
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use gemini-2.5-flash for fast responses
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         # Build chat history (system message + previous messages)
         history = []
@@ -82,7 +82,7 @@ class GeminiAssistant(Assistant):
         if context.messages:
             # Convert messages to Gemini format
             for msg in context.messages[:-1]:  # All except the last one
-                role = "user" if msg.role == "user" else "model"
+                role = msg.role.to_gemini()
                 history.append({
                     "role": role,
                     "parts": [self.format_message(msg)]

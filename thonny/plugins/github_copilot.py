@@ -11,7 +11,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from thonny import get_workbench
-from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk
+from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole
 from thonny.languages import tr
 from thonny.misc_utils import get_and_parse_json, post_and_parse_json, post_and_return_stream
 from thonny.ui_utils import create_url_label, show_dialog
@@ -201,7 +201,7 @@ class GitHubCopilotAssistant(Assistant):
     def complete_chat(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         self._prepare_for_api_call()
 
-        api_messages = [{"role": msg.role, "content": msg.content} for msg in context.messages]
+        api_messages = [{"role": msg.role.value, "content": msg.content} for msg in context.messages]
         body = {
             "intent": True,
             "model": "gpt-4",
