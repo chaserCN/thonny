@@ -136,8 +136,16 @@ class ChatView(tktextext.TextFrame):
 
         from thonny.plugins.openai import OpenAIAssistant
 
-        # Try to use DebugAI if available, fallback to Echo
-        self._current_assistant: Assistant = get_workbench().assistants.get("debugai", EchoAssistant())
+        # Try to use DebugAI or DebugGemini based on saved preference, fallback to Echo
+        try:
+            saved_model = get_workbench().get_option("ai.model", "gpt")
+        except Exception:
+            saved_model = "gpt"
+        
+        if saved_model == "gemini":
+            self._current_assistant: Assistant = get_workbench().assistants.get("debuggemini", EchoAssistant())
+        else:
+            self._current_assistant: Assistant = get_workbench().assistants.get("debugai", EchoAssistant())
 
         get_workbench().bind("ToplevelResponse", self.handle_toplevel_response, True)
         get_workbench().bind(
@@ -171,6 +179,7 @@ class ChatView(tktextext.TextFrame):
         def _lang_label_from(code: str) -> str:
             return "УК" if code == "uk" else "РУ"
 
+        # Language toggle button (UA/RU)
         self.lang_button = tk.Button(
             panel,
             text=_lang_label_from(_current_lang()),
@@ -184,6 +193,30 @@ class ChatView(tktextext.TextFrame):
             pady=2,
         )
         self.lang_button.grid(row=1, column=1, sticky="w", padx=pad, pady=(pad, 0))
+        
+        # Model toggle button (GPT/Gemini) next to language button
+        def _current_model() -> str:
+            try:
+                return get_workbench().get_option("ai.model", "gpt")
+            except Exception:
+                return "gpt"
+        
+        def _model_label_from(model: str) -> str:
+            return "GPT" if model == "gpt" else "Gemini"
+        
+        self.model_button = tk.Button(
+            panel,
+            text=_model_label_from(_current_model()),
+            command=self._toggle_model,
+            background=background,
+            activebackground=background,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+            padx=4,
+            pady=2,
+        )
+        self.model_button.grid(row=1, column=1, sticky="e", padx=pad, pady=(pad, 0))
 
         border_frame = tk.Frame(panel, background="#cccccc")
         border_frame.grid(row=2, column=1, sticky="nsew", padx=pad, pady=(pad//2, pad))
@@ -283,6 +316,31 @@ class ChatView(tktextext.TextFrame):
             pass
         self.lang_button.config(text=("УК" if new_lang == "uk" else "РУ"))
         self._update_suggestions()
+    
+    def _toggle_model(self) -> None:
+        """Toggle between GPT and Gemini models, preserving chat history"""
+        try:
+            current = get_workbench().get_option("ai.model", "gpt")
+        except Exception:
+            current = "gpt"
+        
+        new_model = "gemini" if current == "gpt" else "gpt"
+        
+        try:
+            get_workbench().set_option("ai.model", new_model)
+        except Exception:
+            pass
+        
+        # Update button text
+        self.model_button.config(text=("GPT" if new_model == "gpt" else "Gemini"))
+        
+        # Switch assistant while preserving history
+        if new_model == "gpt":
+            self._current_assistant = get_workbench().assistants.get("debugai", EchoAssistant())
+        else:  # gemini
+            self._current_assistant = get_workbench().assistants.get("debuggemini", EchoAssistant())
+        
+        # History is preserved in self._chat_messages - no need to clear it
 
     def handle_toplevel_response(self, msg: ToplevelResponse) -> None:
         from thonny.plugins.cpython_frontend import LocalCPythonProxy
