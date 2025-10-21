@@ -446,10 +446,10 @@ class CodeView(tktextext.EnhancedTextFrame):
         if not line_content.strip():
             return
         
-        # Show explanation popup
-        self._show_line_explanation_popup(line_num, line_content)
+        # Show explanation popup positioned relative to the clicked button
+        self._show_line_explanation_popup(line_num, line_content, event)
     
-    def _show_line_explanation_popup(self, line_num, line_content):
+    def _show_line_explanation_popup(self, line_num, line_content, event):
         """Show popup with AI explanation of the code line"""
         from tkinter import messagebox
         import threading
@@ -481,8 +481,50 @@ class CodeView(tktextext.EnhancedTextFrame):
         # Create popup dialog
         popup = tk.Toplevel(self)
         popup.title(title_text)
-        popup.geometry("600x400")
+        popup.withdraw()  # Hide initially to position it first
         popup.transient(self.winfo_toplevel())
+        
+        # Set size
+        popup_width = 600
+        popup_height = 400
+        popup.geometry(f"{popup_width}x{popup_height}")
+        
+        # Calculate position relative to the info button
+        # Get button's screen coordinates
+        button_x = event.widget.winfo_rootx() + event.x
+        button_y = event.widget.winfo_rooty() + event.y
+        
+        # Calculate popup position: center horizontally with button
+        popup_x = button_x - (popup_width // 2)
+        
+        # Get screen dimensions
+        screen_width = popup.winfo_screenwidth()
+        screen_height = popup.winfo_screenheight()
+        
+        # Try to place below the button first
+        popup_y_below = button_y + 10  # 10px offset below button
+        popup_y_above = button_y - popup_height - 10  # 10px offset above button
+        
+        # Check if popup fits below the button
+        if popup_y_below + popup_height <= screen_height:
+            popup_y = popup_y_below
+        else:
+            # Place above the button
+            popup_y = popup_y_above
+        
+        # Ensure popup doesn't go off-screen horizontally
+        if popup_x < 0:
+            popup_x = 0
+        elif popup_x + popup_width > screen_width:
+            popup_x = screen_width - popup_width
+        
+        # Ensure popup doesn't go off-screen vertically (if above also doesn't fit)
+        if popup_y < 0:
+            popup_y = 0
+        
+        # Set position and show
+        popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
+        popup.deiconify()  # Show the window
         
         # Add RstText widget for beautiful formatting (like in chat)
         text_frame = tk.Frame(popup)
