@@ -77,6 +77,7 @@ class ChatView(tktextext.TextFrame):
         self._bot_avatar_added = False  # Track if bot avatar was added for current response
         self._typing_animation_id = None  # For typing indicator animation
         self._typing_animation_step = 0  # Current animation frame
+        self._last_query_text_height = 3  # Cache last height to avoid unnecessary updates
 
         main_font = tk.font.nametofont("TkDefaultFont")
 
@@ -211,7 +212,7 @@ class ChatView(tktextext.TextFrame):
         left_buttons_frame = tk.Frame(panel, background=background)
         left_buttons_frame.grid(row=1, column=1, columnspan=2, sticky="w", padx=(pad, 0), pady=(pad, 0))
 
-        # Language toggle button (UA/RU) above the input
+        # Language selection dropdown (УК/РУ) above the input
         def _current_lang() -> str:
             try:
                 return get_workbench().get_option("ai.language", "uk")
@@ -221,20 +222,17 @@ class ChatView(tktextext.TextFrame):
         def _lang_label_from(code: str) -> str:
             return "УК" if code == "uk" else "РУ"
 
-        # Language toggle button (UA/RU)
-        self.lang_button = tk.Button(
+        # Language dropdown (УК/РУ)
+        self.lang_var = tk.StringVar(value=_lang_label_from(_current_lang()))
+        self.lang_combobox = ttk.Combobox(
             left_buttons_frame,
-            text=_lang_label_from(_current_lang()),
-            command=self._toggle_lang,
-            background=background,
-            activebackground=background,
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0,
-            padx=4,
-            pady=2,
+            textvariable=self.lang_var,
+            values=["УК", "РУ"],
+            state="readonly",
+            width=4,
         )
-        self.lang_button.pack(side="left", padx=(0, 4))
+        self.lang_combobox.pack(side="left", padx=(0, 5))
+        self.lang_combobox.bind("<<ComboboxSelected>>", lambda e: self._on_lang_selected())
         
         # Model selection dropdown (GPT/Gemini/Claude) next to language button
         def _current_model() -> str:
@@ -280,34 +278,37 @@ class ChatView(tktextext.TextFrame):
         image_button_frame.grid(row=2, column=1, sticky="s", padx=(pad, pad//2), pady=(pad//2, pad))
 
         # Input field (center, expanding)
-        border_frame = tk.Frame(panel, background="#cccccc")
-        border_frame.grid(row=2, column=2, sticky="nsew", padx=0, pady=(pad//2, pad))
-        border_frame.rowconfigure(0, weight=1)
-        border_frame.columnconfigure(0, weight=1)
-
-        inside_frame = tk.Frame(border_frame, background="white")
-        inside_frame.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
-        inside_frame.rowconfigure(0, weight=1)
-        inside_frame.columnconfigure(0, weight=1)
-
+        # White background container to prevent gray flash when resizing
+        # sticky="sew" makes it grow upward (bottom-anchored like Cursor)
+        white_container = tk.Frame(panel, background="white")
+        white_container.grid(row=2, column=2, sticky="sew", padx=0, pady=(pad//2, pad))
+        white_container.rowconfigure(0, weight=1)
+        white_container.columnconfigure(0, weight=1)
+        
+        # Simple Text widget without visible border
         self.query_text = tk.Text(
-            inside_frame,
-            height=1,
+            white_container,
+            height=3,
             font="TkDefaultFont",
             borderwidth=0,
+            relief="flat",
             highlightthickness=0,
-            relief="groove",
             wrap="word",
             insertwidth=2,  # Ширина курсора
             insertbackground="black",  # Цвет курсора
+            padx=4,
+            pady=4,
         )
         self.query_text.bind("<Return>", self._on_press_enter_in_chat_entry, True)
-        self.query_text.bind("<Key>", self._on_change_query_text, True)
+        # Use <<Modified>> event to catch ALL text changes (including Shift+Enter)
+        self.query_text.bind("<<Modified>>", self._on_query_text_modified, True)
         # Bind Ctrl+V / Cmd+V for pasting images from clipboard
         self.query_text.bind("<Control-v>", self._on_paste_in_query, True)
         self.query_text.bind("<Command-v>", self._on_paste_in_query, True)  # Mac
 
-        self.query_text.grid(row=0, column=0, sticky="nsew", padx=3, pady=3)
+        # sticky="sew" (south-east-west) makes it grow UPWARD like Cursor
+        # Bottom edge stays in place, top edge expands
+        self.query_text.grid(row=0, column=0, sticky="sew")
 
         # Set focus to input field on startup
         self.query_text.focus_set()
@@ -467,17 +468,18 @@ class ChatView(tktextext.TextFrame):
             # Return focus to input field
             self.query_text.focus_set()
 
-    def _toggle_lang(self) -> None:
-        try:
-            current = get_workbench().get_option("ai.language", "uk")
-        except Exception:
-            current = "uk"
-        new_lang = "ru" if current == "uk" else "uk"
+    def _on_lang_selected(self) -> None:
+        """Handle language selection change (УК/РУ)"""
+        # Map display name to internal value
+        display_to_code = {"УК": "uk", "РУ": "ru"}
+        selected = self.lang_var.get()
+        new_lang = display_to_code.get(selected, "uk")
+        
         try:
             get_workbench().set_option("ai.language", new_lang)
         except Exception:
             pass
-        self.lang_button.config(text=("УК" if new_lang == "uk" else "РУ"))
+        
         self._update_suggestions()
     
     def _on_model_selected(self) -> None:
@@ -758,6 +760,8 @@ class ChatView(tktextext.TextFrame):
     def _prepare_new_completion(self):
         self._cancel_analysis()
         self._cancel_completion()
+        # Reset bot avatar flag for new request
+        self._bot_avatar_added = False
 
     def _cancel_analysis(self):
         if self._analysis_in_progress():
@@ -891,6 +895,7 @@ class ChatView(tktextext.TextFrame):
             logger.debug(f"Failed to paste image from clipboard: {e}")
         
         # If no image in clipboard or error, allow default text paste
+        # Height will be updated automatically by <<Modified>> event
         return None
     
     def _load_image_from_file(self, filepath: str) -> None:
@@ -1088,8 +1093,29 @@ class ChatView(tktextext.TextFrame):
         if self._current_assistant.get_ready():
             self.submit_user_chat_message(self.query_text.get("1.0", "end"))
 
-    def _on_change_query_text(self, event: tk.Event):
-        update_text_height(self.query_text, 1, max_lines=10)
+    def _on_query_text_modified(self, event: tk.Event):
+        # <<Modified>> event fires after ANY text change (including Shift+Enter)
+        # Must reset the modified flag to prevent infinite loop
+        if self.query_text.edit_modified():
+            self.query_text.edit_modified(False)
+            # Update height immediately after modification
+            self._update_query_text_height()
+    
+    def _update_query_text_height(self):
+        """Update query text height to fit content (instant)"""
+        # Calculate required height
+        if self.query_text.winfo_width() < 10:
+            return
+        
+        required_height = self.query_text.tk.call(
+            (self.query_text, "count", "-update", "-displaylines", "1.0", "end")
+        )
+        new_height = min(max(required_height, 3), 10)
+        
+        # Only update if height actually changed
+        if new_height != self._last_query_text_height:
+            self.query_text.configure(height=new_height)
+            self._last_query_text_height = new_height
 
     def _on_press_enter_in_chat_entry(self, event: tk.Event):
         if shift_is_pressed(event):
@@ -1164,7 +1190,21 @@ class ChatView(tktextext.TextFrame):
         # Save pending message to add to history after AI response
         self._current_pending_message = new_user_message
         
+        # Show bot avatar and typing indicator immediately (before AI response starts)
+        self._append_text("🤖 ", tags=("bot_avatar",))
+        typing_start = self.text.index("end-1c")
+        self._append_text("·", tags=("typing_indicator",))
+        self._bot_avatar_added = True
+        # Store position to update typing indicator (just the dots, not avatar)
+        self._typing_indicator_start = typing_start
+        # Start animation
+        self._start_typing_animation()
+        
         self.query_text.delete("1.0", "end")
+        
+        # Reset query text height to initial size (instant, since text is cleared)
+        self.query_text.configure(height=3)
+        self._last_query_text_height = 3
         
         # Clear attached image and preview after sending
         self._clear_attached_image()
