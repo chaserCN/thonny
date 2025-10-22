@@ -87,10 +87,6 @@ class OpenAIAssistant(BaseAIAssistant):
         else:
             logger.info("OpenAI API key dialog cancelled or empty")
     
-    def _get_summary_role(self) -> str:
-        """OpenAI uses 'system' role for summary"""
-        return "system"
-    
     def _prepare_messages(self, messages: List[ChatMessage]) -> List[dict]:
         """Convert ChatMessage list to OpenAI API format with image support"""
         out_msgs = []

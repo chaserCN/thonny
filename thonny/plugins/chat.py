@@ -57,10 +57,12 @@ class ChatView(tktextext.TextFrame):
 
         self._analyzer_instances = []
 
-        self._chat_messages: List[ChatMessage] = []
+        self._chat_messages: List[ChatMessage] = []  # Full history for UI display
+        self._ai_messages: List[ChatMessage] = []  # Compressed history for AI API (without debug after session ends)
         self._formatted_attachmets_per_message: Dict[str, str] = {}
         self._last_tagged_attachments: Dict[str, Attachment] = {}
         self._active_chat_request_id: Optional[str] = None
+        self._current_pending_message: Optional[ChatMessage] = None  # User message pending AI response
         self._current_chat_response_buffer: str = ""  # Buffer for streaming RST
 
         self._snapshots_per_main_file = {}
@@ -409,16 +411,42 @@ class ChatView(tktextext.TextFrame):
             # For regular text, use streaming
             self._append_text(fragment.content, source="chat")
         
-        last_msg = self._chat_messages.pop()
-        if last_msg.role == ChatRole.USER:
-            self._chat_messages.append(last_msg)
-            # Inherit debug-related status from user message
-            current_msg = ChatMessage(ChatRole.ASSISTANT, "", [], last_msg.is_debug_related, last_msg.debug_session_id)
+        # Add pending user message to both histories on first fragment
+        if self._current_pending_message:
+            # Add to UI history (always)
+            self._chat_messages.append(self._current_pending_message)
+            
+            # Add to AI history (always, will be cleaned later if debug)
+            self._ai_messages.append(self._current_pending_message)
+            
+            # Create new assistant message
+            current_msg = ChatMessage(
+                ChatRole.ASSISTANT, 
+                fragment.content, 
+                [], 
+                self._current_pending_message.is_debug_related, 
+                self._current_pending_message.debug_session_id
+            )
+            
+            # Add to both histories
+            self._chat_messages.append(current_msg)
+            self._ai_messages.append(current_msg)
+            
+            # Clear pending message (only add once)
+            self._current_pending_message = None
         else:
-            current_msg = last_msg
-
-        current_msg = replace(current_msg, content=current_msg.content + fragment.content)
-        self._chat_messages.append(current_msg)
+            # Update existing assistant message in both histories
+            if self._chat_messages and self._chat_messages[-1].role == ChatRole.ASSISTANT:
+                # Update UI history
+                last_msg = self._chat_messages.pop()
+                current_msg = replace(last_msg, content=last_msg.content + fragment.content)
+                self._chat_messages.append(current_msg)
+                
+                # Update AI history
+                if self._ai_messages and self._ai_messages[-1].role == ChatRole.ASSISTANT:
+                    last_ai_msg = self._ai_messages.pop()
+                    current_ai_msg = replace(last_ai_msg, content=last_ai_msg.content + fragment.content)
+                    self._ai_messages.append(current_ai_msg)
         
         if fragment.is_final:
             self._active_chat_request_id = None
@@ -491,8 +519,10 @@ class ChatView(tktextext.TextFrame):
         # Clear the displayed chat text
         self.text.direct_delete("1.0", "end")
         
-        # Clear message history
-        self._chat_messages.clear()
+        # Clear both histories
+        self._chat_messages.clear()  # UI history
+        self._ai_messages.clear()  # AI history
+        self._current_pending_message = None
         
         # Clear debug session
         self._current_debug_session_id = None
@@ -550,14 +580,15 @@ class ChatView(tktextext.TextFrame):
         
         debugger = get_current_debugger()
         if not debugger:
-            # Debug session ended - clear debug session ID and remove debug messages from history
+            # Debug session ended - remove debug messages from AI history (keep in UI history for display)
             if self._current_debug_session_id is not None:
-                logger.info(f"Debug session {self._current_debug_session_id} ended, cleaning up debug messages")
-                # Remove all debug-related messages from history
-                self._chat_messages = [
-                    msg for msg in self._chat_messages
+                logger.info(f"Debug session {self._current_debug_session_id} ended, cleaning up AI history")
+                # Remove debug messages from AI history only
+                self._ai_messages = [
+                    msg for msg in self._ai_messages
                     if not msg.is_debug_related
                 ]
+                # Keep debug messages in UI history (self._chat_messages) for display
                 self._current_debug_session_id = None
             return
         
@@ -778,6 +809,7 @@ class ChatView(tktextext.TextFrame):
 
         if self._chat_completion_in_progress():
             self._active_chat_request_id = None
+            self._current_pending_message = None  # Clear pending message
             self._hide_loading_indicator()
             self._stop_typing_animation()  # Stop animation on cancel
             self._append_text("... [cancelled]", source="chat")
@@ -1119,17 +1151,19 @@ class ChatView(tktextext.TextFrame):
         for warning in warnings:
             self._append_text("WARNING: " + warning + "\n\n")
 
-        # Store full message (with context) for AI, including image if attached
-        self._chat_messages.append(
-            ChatMessage(
-                ChatRole.USER, 
-                message, 
-                attachments, 
-                is_debug_related, 
-                debug_session_id,
-                self._attached_image  # Pass image to ChatMessage
-            )
+        # Create new user message (don't add to history yet - will be added after AI response)
+        new_user_message = ChatMessage(
+            ChatRole.USER, 
+            message, 
+            attachments, 
+            is_debug_related, 
+            debug_session_id,
+            self._attached_image  # Pass image to ChatMessage
         )
+        
+        # Save pending message to add to history after AI response
+        self._current_pending_message = new_user_message
+        
         self.query_text.delete("1.0", "end")
         
         # Clear attached image and preview after sending
@@ -1145,6 +1179,7 @@ class ChatView(tktextext.TextFrame):
                 args=(
                     assistant,
                     self._active_chat_request_id,
+                    new_user_message,  # Pass new message to thread
                 ),
             ).start()
 
@@ -1265,27 +1300,73 @@ class ChatView(tktextext.TextFrame):
     def select_assistants_for_user_message(self, message: str) -> List[Assistant]:
         # Single active assistant only (model toggle controls which one)
             return [self._current_assistant]
+    
+    def _summarize_ai_history_if_needed(self) -> None:
+        """Compress AI history using AI summarization (keeps UI history full)"""
+        try:
+            SUMMARY_MAX_MSGS = int(get_workbench().get_option("ai.summary_max_msgs", 25))
+        except Exception:
+            SUMMARY_MAX_MSGS = 25
+        try:
+            SUMMARY_MAX_CHARS = int(get_workbench().get_option("ai.summary_max_chars", 10000))
+        except Exception:
+            SUMMARY_MAX_CHARS = 10000
+        
+        # Calculate total size
+        total_chars = sum(len(msg.content) for msg in self._ai_messages)
+        
+        # Check if summarization is needed
+        if len(self._ai_messages) <= SUMMARY_MAX_MSGS and total_chars <= SUMMARY_MAX_CHARS:
+            return  # No summarization needed
+        
+        logger.info(f"Summarizing AI history: {len(self._ai_messages)} messages, {total_chars} chars")
+        
+        # Request summary from AI (synchronous, blocking - but happens rarely)
+        try:
+            # Get summary from AI for all messages except last 5
+            summary_text = self._current_assistant.get_history_summary(self._ai_messages[:-5])
+            
+            # Create summary message
+            summary_message = ChatMessage(
+                ChatRole.ASSISTANT,
+                f"[Резюме беседы]\n{summary_text}",
+                []
+            )
+            
+            # Replace old messages with summary + keep last 5 messages
+            self._ai_messages = [summary_message] + self._ai_messages[-5:]
+            
+            logger.info(f"After AI summarization: {len(self._ai_messages)} messages")
+        except Exception as e:
+            logger.warning(f"AI summarization failed, using simple truncation: {e}")
+            # Fallback: just keep last 10 messages
+            self._ai_messages = self._ai_messages[-10:]
+            logger.info(f"After fallback summarization: {len(self._ai_messages)} messages")
 
-    def _complete_chat_in_thread(self, assistant: Assistant, request_id: str):
+    def _complete_chat_in_thread(self, assistant: Assistant, request_id: str, current_message: ChatMessage):
         try:
             # Check if this is a debug-related auto-generated request
             # For debug requests, we don't need file/selection info (already in debug context)
-            last_message = self._chat_messages[-1] if self._chat_messages else None
-            is_debug_request = last_message and last_message.is_debug_related if last_message else False
+            is_debug_request = current_message.is_debug_related
             
             active_file_path = None
             active_file_selection = None
-            file_contents = {}
-            execution_io = None
+            program_context = None
+            
+            # Check if debugger is active first
+            from thonny.plugins.debug_common import get_debug_context, format_code_context
+            program_context = get_debug_context()
             
             # For non-debug requests, get editor context
             if not is_debug_request:
                 editor = get_workbench().get_editor_notebook().get_current_editor()
                 if editor:
-                    # Get full file content (but not path - not needed)
-                    file_content = editor.get_content()
-                    # Use generic key instead of file path
-                    file_contents['current_file'] = file_content
+                    active_file_path = editor.get_filename()
+                    
+                    # Format code context if not in debug mode
+                    if not program_context:
+                        file_content = editor.get_content()
+                        program_context = format_code_context(file_content, active_file_path or "program.py")
                     
                     # Get selected text if any
                     text_widget = editor.get_text_widget()
@@ -1296,24 +1377,16 @@ class ChatView(tktextext.TextFrame):
                         # No selection
                         pass
             
-            # Check if debugger is active and add debug context
-            from thonny.plugins.debugger import get_current_debugger
-            debugger = get_current_debugger()
-            if debugger:
-                # Debugger is active - add current execution state
-                from thonny.plugins.debug_common import get_debug_context
-                debug_ctx = get_debug_context()
-                if debug_ctx:
-                    # Store debug context in execution_io field
-                    execution_io = debug_ctx
+            # Apply summarization to AI history if needed
+            self._summarize_ai_history_if_needed()
             
-            # snapshot messages to avoid races during parallel requests
+            # Create context with AI history + current message
             context = ChatContext(
-                messages=list(self._chat_messages),
+                messages=list(self._ai_messages),  # AI history (compressed, no debug after session ends)
+                current_message=current_message,  # New message (will be added to both histories after response)
                 active_file_path=active_file_path,
                 active_file_selection=active_file_selection,
-                file_contents_by_path=file_contents,
-                execution_io=execution_io,  # Debug context if debugger is active
+                program_context=program_context,  # Either debug context or formatted code
             )
             for fragment in assistant.complete_chat(context):
                 get_workbench().queue_event(

@@ -145,6 +145,32 @@ def get_debug_context_from_msg(msg) -> Optional[str]:
     
     return "\n".join(context_parts)
 
+def format_code_context(full_code: str, filename: str = "program.py") -> str:
+    """Format code context for non-debug mode
+    
+    Args:
+        full_code: The full program code
+        filename: Optional filename for display
+        
+    Returns:
+        Formatted code context similar to debug context but without execution state
+    """
+    context_parts = []
+    
+    context_parts.append(f"**Full Program Code:**")
+    context_parts.append(f"Файл: {filename}")
+    context_parts.append(f"```python")
+    
+    # Add line numbers to code
+    lines = full_code.split('\n')
+    for i, line in enumerate(lines, 1):
+        context_parts.append(f"  {i:4d} | {line}")
+    
+    context_parts.append("```")
+    
+    return "\n".join(context_parts)
+
+
 def get_debug_context() -> Optional[str]:
     """Get current debugging context from debugger's last message
     

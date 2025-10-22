@@ -87,10 +87,6 @@ class GeminiAssistant(BaseAIAssistant):
         else:
             logger.info("Gemini API key dialog cancelled or empty")
     
-    def _get_summary_role(self) -> str:
-        """Gemini uses 'user' role for summary"""
-        return "user"
-    
     def _prepare_messages(self, messages: List[ChatMessage]) -> List[dict]:
         """Convert ChatMessage list to Gemini API format with image support"""
         import base64

@@ -138,8 +138,13 @@ class CodeiumAssistant(Assistant):
         self._prepare_for_ls_call()
 
         proto_msgs = []
+        
+        # Build messages list (history + current message)
+        all_messages = list(context.messages)
+        if context.current_message:
+            all_messages.append(context.current_message)
 
-        for message in context.messages:
+        for message in all_messages:
 
             if message.role == "user":
                 source = ChatMessageSource.CHAT_MESSAGE_SOURCE_USER

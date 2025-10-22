@@ -87,10 +87,6 @@ class ClaudeAssistant(BaseAIAssistant):
         else:
             logger.info("Claude API key dialog cancelled or empty")
     
-    def _get_summary_role(self) -> str:
-        """Claude doesn't have a special summary role, use 'user'"""
-        return "user"
-    
     def _prepare_messages(self, messages: List[ChatMessage]) -> List[dict]:
         """Convert ChatMessage list to Claude API format with image support"""
         out_msgs = []

@@ -10,7 +10,12 @@ class OllamaAssistant(Assistant):
     def complete_chat(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         import ollama
 
-        api_messages = [{"role": msg.role.value, "content": msg.content} for msg in context.messages]
+        # Build messages list (history + current message)
+        all_messages = list(context.messages)
+        if context.current_message:
+            all_messages.append(context.current_message)
+        
+        api_messages = [{"role": msg.role.value, "content": msg.content} for msg in all_messages]
         stream = ollama.chat(
             model="codellama:7b-instruct",
             messages=api_messages,

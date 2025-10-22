@@ -83,12 +83,29 @@ class ChatResponseFragmentWithRequestId:
 
 @dataclass
 class ChatContext:
-    messages: List[ChatMessage]
+    messages: List[ChatMessage]  # History (previous messages)
+    current_message: Optional[ChatMessage] = None  # New message (not yet in history)
     active_file_path: Optional[str] = None
     active_file_selection: Optional[str] = None
-    file_contents_by_path: Dict[str, str] = dataclasses.field(default=dict)
-    execution_io: Optional[str] = None
-    system_prompt_override: Optional[str] = None  # Custom system prompt for special cases (e.g., line explanation popup)
+    program_context: Optional[str] = None  # Contains either debug context or formatted code
+    
+    def has_image_in_last_message(self) -> bool:
+        """Check if the last user message contains an image"""
+        # Check current message first, then history
+        if self.current_message and self.current_message.role == ChatRole.USER:
+            return self.current_message.image is not None
+        if not self.messages:
+            return False
+        last_msg = self.messages[-1]
+        return last_msg.role == ChatRole.USER and last_msg.image is not None
+
+
+@dataclass
+class CodeViewContext:
+    """Context for line explanation requests from code view"""
+    line_num: int
+    line_content: str
+    program_context: str  # Always contains either debug context or formatted code
 
 
 class Assistant(ABC):

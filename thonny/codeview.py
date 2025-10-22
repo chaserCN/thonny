@@ -587,7 +587,7 @@ class CodeView(tktextext.EnhancedTextFrame):
         # Get AI explanation in thread
         def get_explanation():
             try:
-                explanation = self._request_line_explanation(assistant, line_num, line_content, lang)
+                explanation = self._request_line_explanation(assistant, line_num, line_content)
                 
                 # Update UI in main thread
                 def update_ui():
@@ -604,37 +604,48 @@ class CodeView(tktextext.EnhancedTextFrame):
                 
                 popup.after(0, update_ui)
             except Exception as e:
-                def show_error():
+                def show_error(err_label=error_label, error=e):
                     from thonny.markdown_utils import render_markdown
                     explanation_text.delete("1.0", "end")
-                    error_md = f"**{error_label}**\n\n{str(e)}"
+                    error_md = f"**{err_label}**\n\n{str(error)}"
                     render_markdown(explanation_text, error_md)
                 popup.after(0, show_error)
         
         threading.Thread(target=get_explanation, daemon=True).start()
     
-    def _request_line_explanation(self, assistant, line_num, line_content, lang):
+    def _request_line_explanation(self, assistant, line_num, line_content):
         """Request AI explanation for a line of code with full context
         
         Note: assistant.get_ready() must be called BEFORE this method in the main thread!
         """
-        from thonny import get_workbench
+        from thonny.assistance import CodeViewContext
+        from thonny.plugins.debug_common import get_debug_context, format_code_context
         
-        # Get full program code for context
-        full_code = self.get_content()
-        
-        # Check if we're in debug mode and get debugger message
-        debugger_msg = None
+        # Get code context (debug if active, or formatted code otherwise)
+        program_context = None
         try:
-            from thonny.plugins.debugger import get_current_debugger
-            debugger = get_current_debugger()
-            if debugger and debugger._last_progress_message:
-                debugger_msg = debugger._last_progress_message
+            # Try to get debug context first
+            program_context = get_debug_context()
         except:
             pass
         
+        # If not in debug mode, format the code
+        if not program_context:
+            try:
+                filename = self.master.get_filename() if hasattr(self.master, 'get_filename') else "program.py"
+                program_context = format_code_context(self.get_content(), filename or "program.py")
+            except:
+                program_context = format_code_context(self.get_content())
+        
+        # Create context with line info and code context
+        context = CodeViewContext(
+            line_num=line_num,
+            line_content=line_content,
+            program_context=program_context
+        )
+        
         # Call assistant's explain_line method (all AI logic is there)
-        return assistant.explain_line(line_num, line_content, full_code, debugger_msg, lang)
+        return assistant.explain_line(context)
 
 
 def set_syntax_options(syntax_options):

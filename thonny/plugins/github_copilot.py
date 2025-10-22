@@ -201,7 +201,12 @@ class GitHubCopilotAssistant(Assistant):
     def complete_chat(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         self._prepare_for_api_call()
 
-        api_messages = [{"role": msg.role.value, "content": msg.content} for msg in context.messages]
+        # Build messages list (history + current message)
+        all_messages = list(context.messages)
+        if context.current_message:
+            all_messages.append(context.current_message)
+        
+        api_messages = [{"role": msg.role.value, "content": msg.content} for msg in all_messages]
         body = {
             "intent": True,
             "model": "gpt-4",
