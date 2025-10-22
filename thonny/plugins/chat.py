@@ -1031,9 +1031,6 @@ class ChatView(tktextext.TextFrame):
                 self.text._image_references = []
             self.text._image_references.append(photo)
             
-            # Insert newline before image
-            self._append_text("\n", tags=("user_message",))
-            
             # Get current position and insert image with proper alignment
             # Use direct_insert for RstText, insert for regular Text
             insert_method = getattr(self.text, 'direct_insert', self.text.insert)
@@ -1045,7 +1042,7 @@ class ChatView(tktextext.TextFrame):
             
             # Calculate how many spaces we need for alignment
             # Avatar (👤) + 2 spaces for padding to align with text
-            num_spaces = 4  # Avatar width + padding
+            num_spaces = 0  # Avatar width + padding
             spaces = " " * num_spaces
             
             # Insert spaces before image (with user_message tag for background)
@@ -1060,15 +1057,12 @@ class ChatView(tktextext.TextFrame):
             image_end = self.text.index(f"{image_pos}+1c")
             self.text.tag_add("user_message", image_pos, image_end)
             
-            # Add newline after image with user_message tag to continue background
-            #insert_method(self.text.index("end-1c"), "\n", "user_message")
-            
         except Exception as e:
             logger.error(f"Failed to insert image preview in chat: {e}")
             # Fallback to text indicator
             import os
             image_name = os.path.basename(image_data['path'])
-            self._append_text(f"\n[🖼️ {image_name}]", tags=("user_message",))
+            self._append_text(f"[🖼️ {image_name}]", tags=("user_message",))
 
     def _insert_user_bubble(self, display_text: str, image_data: Optional[dict]) -> None:
         """Insert a user message using simple text with tags (like bot messages)."""
@@ -1081,6 +1075,7 @@ class ChatView(tktextext.TextFrame):
         if image_data:
             self._append_text("\n")
             self._append_image_preview_in_chat(image_data)
+            self._append_text("\n")
         
         # Add separator line after user message using Frame
         self._append_text("\n")
