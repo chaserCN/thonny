@@ -284,6 +284,63 @@ class ShellView(tk.PanedWindow):
 
     def clear_shell(self):
         self.text._clear_shell()
+    
+    def get_last_error(self) -> Optional[str]:
+        """Get the last error text (stderr output) from shell"""
+        try:
+            # Find all ranges with 'stderr' tag
+            stderr_ranges = self.text.tag_ranges("stderr")
+            if not stderr_ranges:
+                return None
+            
+            # Get the last stderr range (last error)
+            # stderr_ranges is a list of pairs: (start1, end1, start2, end2, ...)
+            if len(stderr_ranges) >= 2:
+                last_start = stderr_ranges[-2]
+                last_end = stderr_ranges[-1]
+                error_text = self.text.get(last_start, last_end)
+                return error_text.strip()
+            
+            return None
+        except Exception:
+            return None
+    
+    def has_error_to_send(self) -> bool:
+        """Check if there's an error that can be sent to chat"""
+        return self.get_last_error() is not None
+    
+    def send_last_error_to_chat(self):
+        """Send the last error from shell to AI Chat"""
+        error_text = self.get_last_error()
+        if not error_text:
+            return
+        
+        # Get the chat view
+        try:
+            chat_view = get_workbench().get_view("ChatView")
+            if chat_view:
+                # Format the message with error context
+                try:
+                    lang = get_workbench().get_option("ai.language", "uk")
+                except Exception:
+                    lang = "uk"
+                
+                if lang == "ru":
+                    message = f"Помоги разобраться с ошибкой:\n\n```\n{error_text}\n```"
+                else:  # uk
+                    message = f"Допоможи розібратись з помилкою:\n\n```\n{error_text}\n```"
+                
+                # Send to chat
+                chat_view.submit_user_chat_message(message)
+                
+                # Switch to chat tab
+                notebook = chat_view.winfo_parent()
+                if notebook:
+                    parent = get_workbench().nametowidget(notebook)
+                    if hasattr(parent, 'select'):
+                        parent.select(chat_view)
+        except Exception as e:
+            logger.exception("Failed to send error to chat", exc_info=e)
 
     def has_pending_input(self):
         return self.text.has_pending_input()
@@ -337,6 +394,13 @@ class ShellMenu(TextMenu):
     def add_extra_items(self):
         self.add_separator()
         self.add_command(label=tr("Clear"), command=self.text._clear_shell)
+        
+        # Add "Send error to AI Chat" command
+        self.add_command(
+            label=tr("Send error to AI Chat"),
+            command=self.view.send_last_error_to_chat,
+            tester=self.view.has_error_to_send
+        )
 
         def toggle_from_menu():
             # I don't like that Tk menu toggles checbutton variable

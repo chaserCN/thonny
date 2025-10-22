@@ -137,9 +137,24 @@ class GeminiAssistant(BaseAIAssistant):
             # Stream response for last message
             response = chat.send_message(last_message_parts, stream=True)
             
+            has_content = False
             for chunk in response:
-                if chunk.text:
-                    yield ChatResponseChunk(chunk.text, is_final=False)
+                try:
+                    text = chunk.text
+                    if text:
+                        has_content = True
+                        yield ChatResponseChunk(text, is_final=False)
+                except (ValueError, AttributeError) as e:
+                    # chunk.text может вызвать ошибку, если нет валидных частей
+                    if not has_content:
+                        error_msg = f"❌ **Помилка відповіді**\n\n{str(e)}"
+                        yield ChatResponseChunk(error_msg, is_final=False)
+                        has_content = True
+                    break
+            
+            if not has_content:
+                error_msg = "❌ **AI не повернув відповідь**\n\nСпробуйте перефразувати питання."
+                yield ChatResponseChunk(error_msg, is_final=False)
             
             yield ChatResponseChunk("", is_final=True)
             

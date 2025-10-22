@@ -78,6 +78,7 @@ class ChatView(tktextext.TextFrame):
         self._typing_animation_id = None  # For typing indicator animation
         self._typing_animation_step = 0  # Current animation frame
         self._last_query_text_height = 3  # Cache last height to avoid unnecessary updates
+        self._captured_program_context: Optional[str] = None  # Pre-captured debug context to avoid race conditions
 
         main_font = tk.font.nametofont("TkDefaultFont")
 
@@ -117,8 +118,8 @@ class ChatView(tktextext.TextFrame):
         self.text.tag_configure(
             "user_message",
             rmargin=0,
-            spacing1=4,  # Отступ сверху
-            spacing3=4,  # Отступ снизу
+            spacing1=4,  # Небольшой отступ внутри
+            spacing3=4,  # Небольшой отступ внутри
             # font=italic_font,
             foreground="#1565C0",     # Тёмно-синий текст (без фона)
         )
@@ -402,13 +403,12 @@ class ChatView(tktextext.TextFrame):
                 # Add separator after bot message
                 self._append_text("\n")
                 try:
-                    chat_width = self.text.winfo_width()
+                    chat_width = self.text.winfo_width() - 20  # padx=10 слева и справа
                 except:
-                    chat_width = 400
+                    chat_width = 380
                 separator = tk.Frame(self.text, height=0.5, bg="#CCCCCC", relief="flat")
-                self.text.window_create("end", window=separator, pady=8, stretch=True)
-                separator.configure(width=max(chat_width, 400))
-                self._append_text("\n")
+                self.text.window_create("end", window=separator, pady=16, stretch=True)
+                separator.configure(width=max(chat_width, 380))
                 
                 self._current_chat_response_buffer = ""  # Clear buffer
                 self._bot_avatar_added = False  # Reset for next response
@@ -694,9 +694,8 @@ class ChatView(tktextext.TextFrame):
             else:
                 full_prompt = "Поясни що сталося на останньому кроці та що виконається далі"
         
-        # Добавляем debug контекст к полному промпту
-        if debug_ctx:
-            full_prompt = f"{full_prompt}\n\n{debug_ctx}"
+        # Debug контекст НЕ добавляем к промпту здесь,
+        # потому что он уже будет добавлен в _complete_debug_step через context.program_context
         
         # Временно подменяем assistant на debug версию для этого запроса
         original_assistant = self._current_assistant
@@ -704,11 +703,14 @@ class ChatView(tktextext.TextFrame):
         
         try:
             # Отправляем: полный промпт для AI, короткий для отображения
+            # Передаём захваченный контекст, чтобы избежать race condition
+            # (если пользователь быстро нажмёт step снова, состояние не изменится)
             self.submit_user_chat_message(
                 full_prompt, 
                 is_debug_related=True, 
                 debug_session_id=self._current_debug_session_id,
-                display_message=display_prompt
+                display_message=display_prompt,
+                captured_program_context=debug_ctx
             )
         finally:
             # Восстанавливаем оригинальный assistant
@@ -1073,6 +1075,7 @@ class ChatView(tktextext.TextFrame):
         # Avatar + Text content
         message_content = "👧 " + (display_text if display_text else "")
         self._append_text(message_content, tags=("user_message",))
+        self._append_text("\n")  # После сообщения пользователя
         
         # Image preview
         if image_data:
@@ -1081,17 +1084,16 @@ class ChatView(tktextext.TextFrame):
         
         # Add separator line after user message using Frame
         self._append_text("\n")
-        # Get chat width to make separator span full width
+        # Get chat width to make separator span full width (accounting for padx)
         try:
-            chat_width = self.text.winfo_width()
+            chat_width = self.text.winfo_width() - 20  # padx=10 слева и справа
         except:
-            chat_width = 400
+            chat_width = 380
         
-        separator = tk.Frame(self.text, height=1, bg="#E0E0E0", relief="flat")
-        self.text.window_create("end", window=separator, pady=8, stretch=True)
+        separator = tk.Frame(self.text, height=0.5, bg="#E0E0E0", relief="flat")
+        self.text.window_create("end", window=separator, pady=16, stretch=True)
         # Force separator to expand to full width
-        separator.configure(width=max(chat_width, 400))
-        self._append_text("\n")
+        separator.configure(width=max(chat_width, 380))
 
     def _on_click_submit(self) -> None:
         if self._current_assistant.get_ready():
@@ -1135,7 +1137,8 @@ class ChatView(tktextext.TextFrame):
         message: str, 
         is_debug_related: bool = False, 
         debug_session_id: Optional[str] = None,
-        display_message: Optional[str] = None  # What to show in UI (if different from full message)
+        display_message: Optional[str] = None,  # What to show in UI (if different from full message)
+        captured_program_context: Optional[str] = None  # Pre-captured debug context (to avoid race conditions)
     ):
         self._remove_suggestions()
         message = message.rstrip()
@@ -1159,7 +1162,10 @@ class ChatView(tktextext.TextFrame):
 
         self._active_chat_request_id = str(uuid.uuid4())
         self._show_loading_indicator()
-        self._append_text("\n")
+        
+        # Add initial padding if this is the first message
+        if self.text.get("1.0", "end-1c").strip() == "":
+            self._append_text("\n")  # Начальный отступ сверху
 
         # Render using window_create-based bubble
         text_to_display = (display_message if display_message else message).strip()
@@ -1173,10 +1179,6 @@ class ChatView(tktextext.TextFrame):
                 " 📎",
                 tags=("attachments_link", f"att_{self._active_chat_request_id}", "user_message"),
             )
-        # Plain newline (no user_message background) to avoid extra outer bubble behind box
-        self._append_text("\n")
-
-        self._append_text("\n")
 
         for warning in warnings:
             self._append_text("WARNING: " + warning + "\n\n")
@@ -1215,6 +1217,10 @@ class ChatView(tktextext.TextFrame):
         
         # Note: _clear_attached_image already calls focus_set(), but call again to be sure
         self.query_text.focus_set()
+
+        # Save captured context for thread to avoid race condition
+        # (otherwise debugger state might change before thread reads it)
+        self._captured_program_context = captured_program_context
 
         for assistant in self.select_assistants_for_user_message(message):
             threading.Thread(
@@ -1397,9 +1403,15 @@ class ChatView(tktextext.TextFrame):
             active_file_selection = None
             program_context = None
             
-            # Check if debugger is active first
+            # Use pre-captured context if available (to avoid race conditions with debugger)
+            # Otherwise, check if debugger is currently active
             from thonny.plugins.debug_common import get_debug_context, format_code_context
-            program_context = get_debug_context()
+            if hasattr(self, '_captured_program_context') and self._captured_program_context:
+                program_context = self._captured_program_context
+                # Clear after use
+                self._captured_program_context = None
+            else:
+                program_context = get_debug_context()
             
             # For non-debug requests, get editor context
             if not is_debug_request:

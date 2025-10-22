@@ -159,22 +159,21 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
     # Determine which insert method to use (direct_insert for TweakableText, insert for regular Text)
     insert_method = getattr(text_widget, 'direct_insert', text_widget.insert)
     
-    # Configure tags if not already done
-    if "md_heading" not in text_widget.tag_names():
-        text_widget.tag_configure("md_heading", font=("TkDefaultFont", 10, "bold"), spacing1=0, spacing3=2)
-        text_widget.tag_configure("md_normal_text", font=("TkDefaultFont", 10), spacing1=0, spacing3=8)
-        text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=0, spacing3=8, lmargin1=10, lmargin2=10, selectbackground="#4A90E2", selectforeground="white")
-        text_widget.tag_configure("md_inline_code", font=("TkFixedFont", 9), background="#f5f5f5", selectbackground="#4A90E2", selectforeground="white")
-        text_widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
-        text_widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
-        text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=2)
-        
-        # Syntax highlighting tags for code blocks
-        text_widget.tag_configure("code_keyword", font=("TkFixedFont", 9), foreground="#0000FF", background="#f5f5f5")  # Blue
-        text_widget.tag_configure("code_string", font=("TkFixedFont", 9), foreground="#008000", background="#f5f5f5")  # Green
-        text_widget.tag_configure("code_comment", font=("TkFixedFont", 9), foreground="#808080", background="#f5f5f5")  # Gray
-        text_widget.tag_configure("code_number", font=("TkFixedFont", 9), foreground="#FF00FF", background="#f5f5f5")  # Magenta
-        text_widget.tag_configure("code_builtin", font=("TkFixedFont", 9), foreground="#900090", background="#f5f5f5")  # Purple
+    # Configure tags (always update to apply new settings)
+    text_widget.tag_configure("md_heading", font=("TkDefaultFont", 10, "bold"), spacing1=4, spacing3=4)
+    text_widget.tag_configure("md_normal_text", font=("TkDefaultFont", 10), spacing1=4, spacing3=4)
+    text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=4, spacing3=4, lmargin1=10, lmargin2=10, selectbackground="#4A90E2", selectforeground="white")
+    text_widget.tag_configure("md_inline_code", font=("TkFixedFont", 9), background="#f5f5f5", selectbackground="#4A90E2", selectforeground="white")
+    text_widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
+    text_widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
+    text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=4, spacing3=4)
+    
+    # Syntax highlighting tags for code blocks (vibrant colors for visibility)
+    text_widget.tag_configure("code_keyword", font=("TkFixedFont", 9, "bold"), foreground="#0000FF", background="#f5f5f5")  # Bright Blue Bold
+    text_widget.tag_configure("code_string", font=("TkFixedFont", 9), foreground="#008000", background="#f5f5f5")  # Green
+    text_widget.tag_configure("code_comment", font=("TkFixedFont", 9, "italic"), foreground="#999999", background="#f5f5f5")  # Gray Italic
+    text_widget.tag_configure("code_number", font=("TkFixedFont", 9), foreground="#FF6600", background="#f5f5f5")  # Orange
+    text_widget.tag_configure("code_builtin", font=("TkFixedFont", 9), foreground="#9900CC", background="#f5f5f5")  # Purple
     
     def insert_formatted_text(text):
         """Insert text with inline formatting (bold, italic, code)"""
@@ -187,7 +186,14 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
                 code_content = part[1:-1]
                 code_start = text_widget.index("end-1c")
                 insert_method("end", code_content)
-                text_widget.tag_add("md_inline_code", code_start, text_widget.index("end-1c"))
+                code_end = text_widget.index("end-1c")
+                text_widget.tag_add("md_inline_code", code_start, code_end)
+                
+                # Apply Python syntax highlighting to inline code
+                try:
+                    highlight_python_syntax(text_widget, code_start, code_end)
+                except Exception as e:
+                    pass  # Fallback to plain inline code if highlighting fails
             else:
                 # Handle bold and italic
                 # Bold: **text**
@@ -250,7 +256,8 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
                 if not lang or lang == "python" or lang == "py":
                     try:
                         highlight_python_syntax(text_widget, start, end)
-                    except:
+                    except Exception as e:
+                        logger.warning(f"Syntax highlighting failed: {e}", exc_info=True)
                         pass  # Fallback to plain code block if highlighting fails
             continue
         

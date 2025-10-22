@@ -134,16 +134,19 @@ class ClaudeAssistant(BaseAIAssistant):
             # Claude uses separate system parameter (not in messages)
             # Note: messages should NOT include system messages
             # Available models: claude-sonnet-4-5, claude-haiku-4-5
-            response = client.messages.stream(
+            response = client.messages.create(
                 model="claude-sonnet-4-5",
                 max_tokens=8192,
                 system=system_prompt,
                 messages=messages,
             )
 
-            with response as stream:
-                for text in stream.text_stream:
-                    yield ChatResponseChunk(text, is_final=False)
+            # Get full response at once
+            content = response.content[0].text if response.content else ""
+            if content:
+                yield ChatResponseChunk(content, is_final=False)
+            else:
+                yield ChatResponseChunk("❌ **AI не повернув відповідь**", is_final=False)
 
             yield ChatResponseChunk("", is_final=True)
             

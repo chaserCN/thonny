@@ -126,12 +126,15 @@ class OpenAIAssistant(BaseAIAssistant):
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=all_messages,
-                stream=True,
+                stream=False,
             )
 
-            for chunk in response:
-                chunk_message = chunk.choices[0].delta.content or ""
-                yield ChatResponseChunk(chunk_message, is_final=False)
+            # Get full response at once
+            content = response.choices[0].message.content or ""
+            if content:
+                yield ChatResponseChunk(content, is_final=False)
+            else:
+                yield ChatResponseChunk("❌ **AI не повернув відповідь**", is_final=False)
 
             yield ChatResponseChunk("", is_final=True)
             
