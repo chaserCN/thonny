@@ -302,9 +302,13 @@ class ChatView(tktextext.TextFrame):
         self.query_text.bind("<Return>", self._on_press_enter_in_chat_entry, True)
         # Use <<Modified>> event to catch ALL text changes (including Shift+Enter)
         self.query_text.bind("<<Modified>>", self._on_query_text_modified, True)
-        # Bind Ctrl+V / Cmd+V for pasting images from clipboard
-        self.query_text.bind("<Control-v>", self._on_paste_in_query, True)
-        self.query_text.bind("<Command-v>", self._on_paste_in_query, True)  # Mac
+        
+        # Bind paste event (works on ALL keyboard layouts, including Russian/Ukrainian)
+        self.query_text.bind("<<Paste>>", self._on_paste_in_query, True)
+        
+        # Explicitly bind copy/cut for all layouts (Cmd+C/V/X on Mac, Ctrl+C/V/X on other OS)
+        self.query_text.bind("<<Copy>>", lambda e: None, True)  # Allow default copy
+        self.query_text.bind("<<Cut>>", lambda e: None, True)   # Allow default cut
 
         # sticky="sew" (south-east-west) makes it grow UPWARD like Cursor
         # Bottom edge stays in place, top edge expands

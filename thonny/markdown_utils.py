@@ -1,6 +1,143 @@
 """Markdown rendering utilities for Thonny UI"""
 import re
 import tkinter as tk
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Try to import Pygments for better syntax highlighting
+try:
+    from pygments import lex
+    from pygments.lexers import PythonLexer
+    from pygments.token import Token
+    HAS_PYGMENTS = True
+except ImportError:
+    HAS_PYGMENTS = False
+
+# Track if we've logged the highlighting method
+_HIGHLIGHTING_LOGGED = False
+
+
+def highlight_python_syntax_with_pygments(text_widget: tk.Text, start_index: str, end_index: str) -> None:
+    """Apply Python syntax highlighting using Pygments library"""
+    code_text = text_widget.get(start_index, end_index)
+    
+    # Tokenize code with Pygments
+    lexer = PythonLexer()
+    tokens = list(lex(code_text, lexer))
+    
+    # Map Pygments tokens to our tags
+    token_tag_map = {
+        Token.Keyword: 'code_keyword',
+        Token.Keyword.Constant: 'code_keyword',
+        Token.Keyword.Namespace: 'code_keyword',
+        Token.Name.Builtin: 'code_builtin',
+        Token.Name.Builtin.Pseudo: 'code_builtin',
+        Token.String: 'code_string',
+        Token.String.Doc: 'code_comment',
+        Token.Comment: 'code_comment',
+        Token.Comment.Single: 'code_comment',
+        Token.Comment.Multiline: 'code_comment',
+        Token.Number: 'code_number',
+        Token.Number.Integer: 'code_number',
+        Token.Number.Float: 'code_number',
+    }
+    
+    pos = 0
+    for token_type, value in tokens:
+        if not value:
+            continue
+        
+        token_start = f"{start_index}+{pos}c"
+        token_end = f"{start_index}+{pos + len(value)}c"
+        
+        # Find matching tag for this token type (check if token_type is subtype of mapped type)
+        for mapped_type, tag in token_tag_map.items():
+            if token_type in mapped_type:
+                text_widget.tag_add(tag, token_start, token_end)
+                break
+        
+        pos += len(value)
+    
+    # Raise priority of syntax tags above md_code_block
+    for tag in ['code_keyword', 'code_string', 'code_comment', 'code_number', 'code_builtin']:
+        text_widget.tag_raise(tag, 'md_code_block')
+
+
+def highlight_python_syntax_simple(text_widget: tk.Text, start_index: str, end_index: str) -> None:
+    """Apply Python syntax highlighting using simple regex (fallback when Pygments unavailable)"""
+    
+    # Python keywords
+    keywords = {
+        'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 
+        'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 
+        'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 
+        'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield'
+    }
+    
+    # Python builtins
+    builtins = {
+        'abs', 'all', 'any', 'bin', 'bool', 'chr', 'dict', 'dir', 'divmod', 'enumerate',
+        'filter', 'float', 'format', 'help', 'hex', 'id', 'input', 'int', 'isinstance',
+        'len', 'list', 'map', 'max', 'min', 'next', 'oct', 'open', 'ord', 'pow',
+        'print', 'range', 'repr', 'reversed', 'round', 'set', 'slice', 'sorted',
+        'str', 'sum', 'tuple', 'type', 'zip'
+    }
+    
+    # Get text content
+    code_text = text_widget.get(start_index, end_index)
+    
+    # Apply syntax highlighting
+    for match in re.finditer(
+        r'(#.*$)|'  # Comments
+        r'(""".*?"""|\'\'\'.*?\'\'\')|'  # Triple-quoted strings
+        r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')|'  # Regular strings
+        r'\b(\d+\.?\d*)\b|'  # Numbers
+        r'\b(\w+)\b',  # Words (keywords/builtins/identifiers)
+        code_text, 
+        re.MULTILINE | re.DOTALL
+    ):
+        match_start = f"{start_index}+{match.start()}c"
+        match_end = f"{start_index}+{match.end()}c"
+        
+        if match.group(1):  # Comment
+            text_widget.tag_add("code_comment", match_start, match_end)
+        elif match.group(2) or match.group(3):  # String
+            text_widget.tag_add("code_string", match_start, match_end)
+        elif match.group(4):  # Number
+            text_widget.tag_add("code_number", match_start, match_end)
+        elif match.group(5):  # Word - check if keyword or builtin
+            word = match.group(5)
+            if word in keywords:
+                text_widget.tag_add("code_keyword", match_start, match_end)
+            elif word in builtins:
+                text_widget.tag_add("code_builtin", match_start, match_end)
+    
+    # Raise priority of syntax tags above md_code_block
+    for tag in ['code_keyword', 'code_string', 'code_comment', 'code_number', 'code_builtin']:
+        text_widget.tag_raise(tag, 'md_code_block')
+
+
+def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: str) -> None:
+    """Apply Python syntax highlighting (uses Pygments if available, otherwise simple regex)"""
+    global _HIGHLIGHTING_LOGGED
+    
+    # Log highlighting method once
+    if not _HIGHLIGHTING_LOGGED:
+        if HAS_PYGMENTS:
+            try:
+                import pygments
+                logger.info(f"Using Pygments {pygments.__version__} for Python syntax highlighting")
+            except:
+                logger.info("Using Pygments for Python syntax highlighting")
+        else:
+            logger.info("Pygments not available, using simple regex syntax highlighting")
+        _HIGHLIGHTING_LOGGED = True
+    
+    if HAS_PYGMENTS:
+        highlight_python_syntax_with_pygments(text_widget, start_index, end_index)
+    else:
+        highlight_python_syntax_simple(text_widget, start_index, end_index)
 
 
 def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
@@ -31,6 +168,13 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
         text_widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
         text_widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
         text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=2)
+        
+        # Syntax highlighting tags for code blocks
+        text_widget.tag_configure("code_keyword", font=("TkFixedFont", 9), foreground="#0000FF", background="#f5f5f5")  # Blue
+        text_widget.tag_configure("code_string", font=("TkFixedFont", 9), foreground="#008000", background="#f5f5f5")  # Green
+        text_widget.tag_configure("code_comment", font=("TkFixedFont", 9), foreground="#808080", background="#f5f5f5")  # Gray
+        text_widget.tag_configure("code_number", font=("TkFixedFont", 9), foreground="#FF00FF", background="#f5f5f5")  # Magenta
+        text_widget.tag_configure("code_builtin", font=("TkFixedFont", 9), foreground="#900090", background="#f5f5f5")  # Purple
     
     def insert_formatted_text(text):
         """Insert text with inline formatting (bold, italic, code)"""
@@ -81,6 +225,9 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
         
         # Check for code block: ```
         if stripped.startswith("```"):
+            # Extract language hint (e.g., ```python)
+            lang = stripped[3:].strip().lower()
+            
             # Collect all lines until closing ```
             i += 1
             code_lines = []
@@ -96,7 +243,15 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
                 code_text = "\n".join(code_lines) + "\n"
                 start = text_widget.index("end-1c")
                 insert_method("end", code_text)
-                text_widget.tag_add("md_code_block", start, text_widget.index("end-1c"))
+                end = text_widget.index("end-1c")
+                text_widget.tag_add("md_code_block", start, end)
+                
+                # Apply Python syntax highlighting if language is python or not specified
+                if not lang or lang == "python" or lang == "py":
+                    try:
+                        highlight_python_syntax(text_widget, start, end)
+                    except:
+                        pass  # Fallback to plain code block if highlighting fails
             continue
         
         # Check for headings with #

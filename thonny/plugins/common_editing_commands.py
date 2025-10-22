@@ -22,7 +22,10 @@ def load_plugin() -> None:
         create_edit_command_handler("<<Undo>>"),
         tester=None,  # TODO:
         default_sequence=select_sequence("<Control-z>", "<Command-z>"),
-        extra_sequences=["<Control-Greek_zeta>"],
+        extra_sequences=[
+            "<Control-Greek_zeta>",
+            select_sequence("<Control-Cyrillic_ya>", "<Command-Cyrillic_ya>"),  # Russian/Ukrainian Z
+        ],
         skip_sequence_binding=True,
         group=10,
     )
@@ -38,6 +41,8 @@ def load_plugin() -> None:
             select_sequence("<Control-Shift-Z>", "<Command-Shift-Z>"),
             "<Control-Greek_upsilon>",
             "<Control-Shift-Greek_ZETA>",
+            select_sequence("<Control-Cyrillic_en>", "<Command-Cyrillic_en>"),  # Russian/Ukrainian Y
+            select_sequence("<Control-Shift-Cyrillic_YA>", "<Command-Shift-Cyrillic_YA>"),  # Russian/Ukrainian Shift+Z
         ],
         skip_sequence_binding=True,
         group=10,
@@ -50,7 +55,10 @@ def load_plugin() -> None:
         create_edit_command_handler("<<Cut>>"),
         tester=None,  # TODO:
         default_sequence=select_sequence("<Control-x>", "<Command-x>"),
-        extra_sequences=["<Control-Greek_chi>"],
+        extra_sequences=[
+            "<Control-Greek_chi>",
+            select_sequence("<Control-Cyrillic_che>", "<Command-Cyrillic_che>"),  # Russian/Ukrainian X
+        ],
         skip_sequence_binding=True,
         group=20,
     )
@@ -62,7 +70,10 @@ def load_plugin() -> None:
         create_edit_command_handler("<<Copy>>"),
         tester=None,  # TODO:
         default_sequence=select_sequence("<Control-c>", "<Command-c>"),
-        extra_sequences=["<Control-Greek_psi>"],
+        extra_sequences=[
+            "<Control-Greek_psi>",
+            select_sequence("<Control-Cyrillic_es>", "<Command-Cyrillic_es>"),  # Russian/Ukrainian C
+        ],
         skip_sequence_binding=True,
         group=20,
     )
@@ -74,7 +85,10 @@ def load_plugin() -> None:
         create_edit_command_handler("<<Paste>>"),
         tester=None,  # TODO:
         default_sequence=select_sequence("<Control-v>", "<Command-v>"),
-        extra_sequences=["<Control-Greek_omega>"],
+        extra_sequences=[
+            "<Control-Greek_omega>",
+            select_sequence("<Control-Cyrillic_em>", "<Command-Cyrillic_em>"),  # Russian/Ukrainian V
+        ],
         skip_sequence_binding=True,
         group=20,
     )
@@ -86,7 +100,10 @@ def load_plugin() -> None:
         create_edit_command_handler("<<SelectAll>>"),
         tester=None,  # TODO:
         default_sequence=select_sequence("<Control-a>", "<Command-a>"),
-        extra_sequences=["<Control-Greek_alpha>"],
+        extra_sequences=[
+            "<Control-Greek_alpha>",
+            select_sequence("<Control-Cyrillic_ef>", "<Command-Cyrillic_ef>"),  # Russian/Ukrainian A
+        ],
         skip_sequence_binding=True,
         group=20,
     )

@@ -5,6 +5,9 @@ asttokens>=2.2.1
 Send2Trash>=1.8.0
 packaging>=23.0
 
+# Syntax highlighting for AI chat code blocks
+Pygments>=2.19.0
+
 # AI assistants
 openai>=1.0.0
 google-generativeai>=0.3.0
