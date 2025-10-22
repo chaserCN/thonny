@@ -108,18 +108,16 @@ class ChatView(tktextext.TextFrame):
         self._last_analysis_start_index = "1.0"
         self._last_analysis_end_index = "1.0"
 
-        user_margin = ems_to_pixels(8)
+        # Common margin for both user and bot messages
+        message_margin = ems_to_pixels(0.5)  # Одинаковый отступ слева для всех сообщений
+        
         self.text.tag_configure(
             "user_message",
-            lmargin1=user_margin,
-            lmargin2=user_margin,
-            rmargin=ems_to_pixels(0.5),  # Правый отступ внутри фона
+            rmargin=0,
             spacing1=4,  # Отступ сверху
             spacing3=4,  # Отступ снизу
             # font=italic_font,
-            lmargincolor="white",
-            background="#E3F2FD",  # Светло-голубой фон
-            foreground="#1565C0",  # Тёмно-синий текст
+            foreground="#1565C0",     # Тёмно-синий текст (без фона)
         )
         
         # Avatar styles
@@ -198,17 +196,18 @@ class ChatView(tktextext.TextFrame):
         bordercolor = "#aaaaaa"  # TODO
 
         panel = tk.Frame(self, background=background)
-        panel.rowconfigure(1, weight=0)  # buttons row
-        panel.rowconfigure(2, weight=1)  # input
-        panel.columnconfigure(1, weight=0)  # left buttons
-        panel.columnconfigure(2, weight=1)  # loading indicator (expanding)
-        panel.columnconfigure(3, weight=0)  # right buttons
+        panel.rowconfigure(1, weight=0)  # top buttons row (lang, model, clear)
+        panel.rowconfigure(2, weight=1)  # input row
+        panel.rowconfigure(3, weight=0)  # image preview row
+        panel.columnconfigure(1, weight=0)  # image button (fixed)
+        panel.columnconfigure(2, weight=1)  # input field (expanding)
+        panel.columnconfigure(3, weight=0)  # submit button (fixed)
 
         pad = ems_to_pixels(1)
 
         # Left frame for language and model buttons
         left_buttons_frame = tk.Frame(panel, background=background)
-        left_buttons_frame.grid(row=1, column=1, sticky="w", padx=(pad, 0), pady=(pad, 0))
+        left_buttons_frame.grid(row=1, column=1, columnspan=2, sticky="w", padx=(pad, 0), pady=(pad, 0))
 
         # Language toggle button (UA/RU) above the input
         def _current_lang() -> str:
@@ -256,19 +255,31 @@ class ChatView(tktextext.TextFrame):
         self.model_combobox.pack(side="left", padx=(0, 5))
         self.model_combobox.bind("<<ComboboxSelected>>", lambda e: self._on_model_selected())
         
-        # Clear chat button (right side) - same style as submit button
+        # Clear chat button (right side)
         clear_button_frame = create_custom_toolbutton_in_frame(
             panel,
-            text=" 🗑 ",  # Trash icon with padding
+            image=get_workbench().get_image("chat-clear-glyph.png", for_toolbar=True),
             command=self._clear_chat,
             background=background,
-            borderwidth=1,
+            borderwidth=0,
             bordercolor=bordercolor,
         )
         clear_button_frame.grid(row=1, column=3, sticky="e", padx=(0, pad), pady=(pad, 0))
 
+        # Image attach button (left of input field)
+        image_button_frame = create_custom_toolbutton_in_frame(
+            panel,
+            image=get_workbench().get_image("chat-attach-glyph.png", for_toolbar=True),
+            command=self._attach_image,
+            background=background,
+            borderwidth=0,
+            bordercolor=bordercolor,
+        )
+        image_button_frame.grid(row=2, column=1, sticky="s", padx=(pad, pad//2), pady=(pad//2, pad))
+
+        # Input field (center, expanding)
         border_frame = tk.Frame(panel, background="#cccccc")
-        border_frame.grid(row=2, column=1, columnspan=2, sticky="nsew", padx=(pad, 0), pady=(pad//2, pad))
+        border_frame.grid(row=2, column=2, sticky="nsew", padx=0, pady=(pad//2, pad))
         border_frame.rowconfigure(0, weight=1)
         border_frame.columnconfigure(0, weight=1)
 
@@ -290,34 +301,31 @@ class ChatView(tktextext.TextFrame):
         )
         self.query_text.bind("<Return>", self._on_press_enter_in_chat_entry, True)
         self.query_text.bind("<Key>", self._on_change_query_text, True)
+        # Bind Ctrl+V / Cmd+V for pasting images from clipboard
+        self.query_text.bind("<Control-v>", self._on_paste_in_query, True)
+        self.query_text.bind("<Command-v>", self._on_paste_in_query, True)  # Mac
 
         self.query_text.grid(row=0, column=0, sticky="nsew", padx=3, pady=3)
-        
+
         # Set focus to input field on startup
         self.query_text.focus_set()
         
-        # Image attach button (left of submit button)
-        image_button_frame = create_custom_toolbutton_in_frame(
-            panel,
-            text=" 🖼️ ",  # Image icon
-            command=self._attach_image,
-            background=background,
-            borderwidth=1,
-            bordercolor=bordercolor,
-        )
-        image_button_frame.grid(row=2, column=2, sticky="e", padx=(0, pad//2), pady=(pad//2, pad))
-
-        # Create container for submit button and loading indicator (same position)
+        # Image preview frame (below input, hidden by default)
+        self.image_preview_frame = tk.Frame(panel, background=background)
+        self.image_preview_frame.grid(row=3, column=1, columnspan=3, sticky="ew", padx=pad, pady=0)
+        self.image_preview_frame.grid_remove()  # Hide by default
+        
+        # Create container for submit button and loading indicator (right of input field)
         submit_container = tk.Frame(panel, background=background)
-        submit_container.grid(row=2, column=3, sticky="e", padx=(pad//2, pad), pady=(pad//2, pad))
+        submit_container.grid(row=2, column=3, sticky="s", padx=(pad//2, pad), pady=(pad//2, pad))
         
         # Submit button (shown by default)
         self.submit_button_frame = create_custom_toolbutton_in_frame(
             submit_container,
-            text=" ⏎ ",
+            image=get_workbench().get_image("chat-send-glyph.png", for_toolbar=True),
             command=self._on_click_submit,
             background=background,
-            borderwidth=1,
+            borderwidth=0,
             bordercolor=bordercolor,
         )
         self.submit_button_frame.pack()
@@ -351,29 +359,30 @@ class ChatView(tktextext.TextFrame):
         if isinstance(self.text, rst_utils.RstText):
             if not fragment.is_final:
                 # Just accumulate the content
-                # Add bot avatar + typing indicator before first fragment
+                # Add typing indicator before first fragment
                 if not self._bot_avatar_added:
+                    # Add bot avatar and typing indicator
                     self._append_text("🤖 ", tags=("bot_avatar",))
-                    # Add typing indicator that will be animated
                     typing_start = self.text.index("end-1c")
                     self._append_text("·", tags=("typing_indicator",))
                     self._bot_avatar_added = True
-                    # Store position to update typing indicator
+                    # Store position to update typing indicator (just the dots, not avatar)
                     self._typing_indicator_start = typing_start
                     # Start animation
                     self._start_typing_animation()
                 
                 self._current_chat_response_buffer += fragment.content
             else:
-                # Stop animation and remove typing indicator
+                # Stop animation and remove typing indicator (dots only, keep avatar)
                 self._stop_typing_animation()
                 if hasattr(self, '_typing_indicator_start'):
                     try:
-                        self.text.direct_delete(self._typing_indicator_start, "end")
+                        # Delete only the typing indicator (dots), not the avatar
+                        self.text.direct_delete(self._typing_indicator_start, "end-1c")
                     except:
                         pass
                 
-                # Render accumulated content at the end
+                # Render accumulated content at the end (avatar already added above)
                 try:
                     # Use markdown renderer for all messages
                     from thonny.markdown_utils import render_markdown
@@ -382,7 +391,18 @@ class ChatView(tktextext.TextFrame):
                     # Fallback to plain text if formatting fails
                     logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
                     self.text.direct_insert("end", self._current_chat_response_buffer)
-                self.text.direct_insert("end", "\n")
+                
+                # Add separator after bot message
+                self._append_text("\n")
+                try:
+                    chat_width = self.text.winfo_width()
+                except:
+                    chat_width = 400
+                separator = tk.Frame(self.text, height=0.5, bg="#CCCCCC", relief="flat")
+                self.text.window_create("end", window=separator, pady=8, stretch=True)
+                separator.configure(width=max(chat_width, 400))
+                self._append_text("\n")
+                
                 self._current_chat_response_buffer = ""  # Clear buffer
                 self._bot_avatar_added = False  # Reset for next response
         else:
@@ -482,7 +502,7 @@ class ChatView(tktextext.TextFrame):
         self._last_tagged_attachments.clear()
         self._current_chat_response_buffer = ""
         self._last_auto_explained_step = None
-        self._attached_image = None  # Store selected image (path and base64)
+        self._clear_attached_image()  # Clear image and hide preview
         self._bot_avatar_added = False
         
         # Stop typing animation
@@ -682,7 +702,7 @@ class ChatView(tktextext.TextFrame):
                 error_info["lineno"],
                 self._format_file_url(error_info),
             )
-
+    
     def _append_text(self, chars, tags=(), source="analysis"):
         # Just insert text directly (RST handled separately in streaming handler)
         self.text.direct_insert("end", chars, tags=tags)
@@ -751,7 +771,7 @@ class ChatView(tktextext.TextFrame):
         except:
             # If something fails, stop animation
             self._stop_typing_animation()
-    
+
     def _cancel_completion(self):
         if self._current_assistant is None:
             return
@@ -791,7 +811,6 @@ class ChatView(tktextext.TextFrame):
     def _attach_image(self) -> None:
         """Open file dialog to select an image"""
         from tkinter import filedialog
-        import base64
         
         filetypes = [
             ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
@@ -804,38 +823,235 @@ class ChatView(tktextext.TextFrame):
         )
         
         if filepath:
-            try:
-                # Read and encode image to base64
-                with open(filepath, "rb") as image_file:
-                    image_data = base64.b64encode(image_file.read()).decode('utf-8')
+            self._load_image_from_file(filepath)
+    
+    def _on_paste_in_query(self, event) -> str:
+        """Handle Ctrl+V / Cmd+V in query text - try to paste image from clipboard"""
+        try:
+            # Try to get image from clipboard
+            from PIL import ImageGrab
+            import io
+            import base64
+            
+            image = ImageGrab.grabclipboard()
+            
+            if image is not None:
+                # Image found in clipboard
+                # Convert to PNG format in memory
+                buffer = io.BytesIO()
+                image.save(buffer, format='PNG')
+                buffer.seek(0)
                 
-                # Determine image format from extension
-                import os
-                ext = os.path.splitext(filepath)[1].lower().lstrip('.')
-                if ext == 'jpg':
-                    ext = 'jpeg'
+                # Encode to base64
+                image_data = base64.b64encode(buffer.read()).decode('utf-8')
                 
                 self._attached_image = {
-                    'path': filepath,
+                    'path': 'clipboard.png',
                     'base64': image_data,
-                    'format': ext
+                    'format': 'png'
                 }
                 
-                # Clear any previous image indicator
-                current_text = self.query_text.get("1.0", "end-1c")
-                if current_text.startswith("[🖼️"):
-                    # Remove old image indicator
-                    first_newline = current_text.find("\n")
-                    if first_newline != -1:
-                        self.query_text.delete("1.0", f"1.{first_newline+1}")
+                self._show_image_preview()
                 
-                # Show image indicator at the top
-                self.query_text.insert("1.0", f"[🖼️ {os.path.basename(filepath)}]\n")
-                
-            except Exception as e:
-                from tkinter import messagebox
-                messagebox.showerror("Error", f"Failed to load image: {e}")
+                # Prevent default paste behavior
+                return "break"
+        except Exception as e:
+            logger.debug(f"Failed to paste image from clipboard: {e}")
+        
+        # If no image in clipboard or error, allow default text paste
+        return None
     
+    def _load_image_from_file(self, filepath: str) -> None:
+        """Load image from file and show preview"""
+        try:
+            import base64
+            import os
+            
+            # Read and encode image to base64
+            with open(filepath, "rb") as image_file:
+                image_data = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # Determine image format from extension
+            ext = os.path.splitext(filepath)[1].lower().lstrip('.')
+            if ext == 'jpg':
+                ext = 'jpeg'
+            
+            self._attached_image = {
+                'path': filepath,
+                'base64': image_data,
+                'format': ext
+            }
+            
+            self._show_image_preview()
+            
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Failed to load image: {e}")
+    
+    def _show_image_preview(self) -> None:
+        """Show preview of attached image with thumbnail"""
+        if not self._attached_image:
+            return
+        
+        import os
+        from PIL import Image
+        import io
+        import base64
+        
+        # Clear previous preview
+        for widget in self.image_preview_frame.winfo_children():
+            widget.destroy()
+        
+        try:
+            # Decode base64 image
+            image_bytes = base64.b64decode(self._attached_image['base64'])
+            image = Image.open(io.BytesIO(image_bytes))
+            
+            # Create thumbnail (max 80px height)
+            thumbnail_height = 80
+            aspect_ratio = image.width / image.height
+            thumbnail_width = int(thumbnail_height * aspect_ratio)
+            image.thumbnail((thumbnail_width, thumbnail_height), Image.Resampling.LANCZOS)
+            
+            # Convert to PhotoImage
+            from PIL import ImageTk
+            photo = ImageTk.PhotoImage(image)
+            
+            # Create preview with thumbnail, filename, and close button
+            preview_container = tk.Frame(
+                self.image_preview_frame,
+                background="#f0f0f0",
+                relief="solid",
+                borderwidth=1
+            )
+            preview_container.pack(fill="x", padx=5, pady=5)
+            
+            # Thumbnail
+            img_label = tk.Label(preview_container, image=photo, background="#f0f0f0")
+            img_label.image = photo  # Keep reference
+            img_label.pack(side="left", padx=5, pady=5)
+            
+            # Close button
+            close_btn = tk.Button(
+                preview_container,
+                text="✕",
+                command=self._clear_attached_image,
+                background="#f0f0f0",
+                foreground="#666666",
+                borderwidth=0,
+                font=("TkDefaultFont", 12),
+                cursor="hand2",
+                padx=5
+            )
+            close_btn.pack(side="right", padx=5, pady=5)
+            
+            # Show the preview frame
+            self.image_preview_frame.grid()
+            
+        except Exception as e:
+            logger.error(f"Failed to show image preview: {e}")
+    
+    def _clear_attached_image(self) -> None:
+        """Clear attached image and hide preview"""
+        self._attached_image = None
+        
+        # Clear preview widgets
+        for widget in self.image_preview_frame.winfo_children():
+            widget.destroy()
+        
+        # Hide preview frame
+        self.image_preview_frame.grid_remove()
+        
+        # Return focus to input field
+        self.query_text.focus_set()
+    
+    def _append_image_preview_in_chat(self, image_data: dict) -> None:
+        """Insert image thumbnail into chat with proper alignment and background"""
+        try:
+            from PIL import Image, ImageTk
+            import io
+            import base64
+            
+            # Decode base64 image
+            image_bytes = base64.b64decode(image_data['base64'])
+            image = Image.open(io.BytesIO(image_bytes))
+            
+            # Create thumbnail (max 150px width/height)
+            max_size = 150
+            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+            # Convert to PhotoImage
+            photo = ImageTk.PhotoImage(image)
+            
+            # Store reference to prevent garbage collection
+            if not hasattr(self.text, '_image_references'):
+                self.text._image_references = []
+            self.text._image_references.append(photo)
+            
+            # Insert newline before image
+            self._append_text("\n", tags=("user_message",))
+            
+            # Get current position and insert image with proper alignment
+            # Use direct_insert for RstText, insert for regular Text
+            insert_method = getattr(self.text, 'direct_insert', self.text.insert)
+            current_pos = self.text.index("end-1c")
+            
+            # Insert image aligned with text (after avatar)
+            # Use invisible space characters to create left margin instead of padx
+            # (padx adds margin on both sides, we only want left margin)
+            
+            # Calculate how many spaces we need for alignment
+            # Avatar (👤) + 2 spaces for padding to align with text
+            num_spaces = 4  # Avatar width + padding
+            spaces = " " * num_spaces
+            
+            # Insert spaces before image (with user_message tag for background)
+            spaces_start = current_pos
+            insert_method(current_pos, spaces, "user_message")
+            
+            # Now insert image right after the spaces (without padx)
+            image_pos = self.text.index(f"{spaces_start}+{num_spaces}c")
+            self.text.image_create(image_pos, image=photo)
+            
+            # Apply user_message tag to the image for background color
+            image_end = self.text.index(f"{image_pos}+1c")
+            self.text.tag_add("user_message", image_pos, image_end)
+            
+            # Add newline after image with user_message tag to continue background
+            #insert_method(self.text.index("end-1c"), "\n", "user_message")
+            
+        except Exception as e:
+            logger.error(f"Failed to insert image preview in chat: {e}")
+            # Fallback to text indicator
+            import os
+            image_name = os.path.basename(image_data['path'])
+            self._append_text(f"\n[🖼️ {image_name}]", tags=("user_message",))
+
+    def _insert_user_bubble(self, display_text: str, image_data: Optional[dict]) -> None:
+        """Insert a user message using simple text with tags (like bot messages)."""
+        # Avatar + Text content
+        message_content = "👧 " + (display_text if display_text else "")
+        self._append_text(message_content, tags=("user_message",))
+        
+        # Image preview
+        if image_data:
+            self._append_text("\n")
+            self._append_image_preview_in_chat(image_data)
+        
+        # Add separator line after user message using Frame
+        self._append_text("\n")
+        # Get chat width to make separator span full width
+        try:
+            chat_width = self.text.winfo_width()
+        except:
+            chat_width = 400
+        
+        separator = tk.Frame(self.text, height=1, bg="#E0E0E0", relief="flat")
+        self.text.window_create("end", window=separator, pady=8, stretch=True)
+        # Force separator to expand to full width
+        separator.configure(width=max(chat_width, 400))
+        self._append_text("\n")
+
     def _on_click_submit(self) -> None:
         if self._current_assistant.get_ready():
             self.submit_user_chat_message(self.query_text.get("1.0", "end"))
@@ -861,25 +1077,31 @@ class ChatView(tktextext.TextFrame):
     ):
         self._remove_suggestions()
         message = message.rstrip()
+        
+        # If message is empty and image is attached, use default prompt based on language
+        if not message and self._attached_image:
+            try:
+                lang = get_workbench().get_option("ai.language", "uk")
+            except Exception:
+                lang = "uk"
+            
+            if lang == "ru":
+                message = "Опиши изображение и реши задачу, если она изображена."
+                display_message = ""  # Don't show any text, only image preview
+            else:  # uk
+                message = "Опиши зображення та розв'яжи задачу, якщо вона зображена."
+                display_message = ""  # Don't show any text, only image preview
+        
         attachments, warnings = self.compile_attachments(message)
         self._prepare_new_completion()
 
         self._active_chat_request_id = str(uuid.uuid4())
         self._show_loading_indicator()
         self._append_text("\n")
-        
-        # Add user avatar before message (with same background as message)
-        self._append_text("👤 ", tags=("user_avatar", "user_message"))
-        
-        # Show display_message in UI if provided, otherwise show full message
-        text_to_display = display_message if display_message else message
-        self._append_text(text_to_display, tags=("user_message",))
-        
-        # Show image indicator if image is attached
-        if self._attached_image:
-            import os
-            image_name = os.path.basename(self._attached_image['path'])
-            self._append_text(f" [🖼️ {image_name}]", tags=("user_message",))
+
+        # Render using window_create-based bubble
+        text_to_display = (display_message if display_message else message).strip()
+        self._insert_user_bubble(text_to_display, self._attached_image if self._attached_image else None)
         
         if attachments:
             self._formatted_attachmets_per_message[self._active_chat_request_id] = (
@@ -889,7 +1111,8 @@ class ChatView(tktextext.TextFrame):
                 " 📎",
                 tags=("attachments_link", f"att_{self._active_chat_request_id}", "user_message"),
             )
-        self._append_text("\n", tags=("user_message",))  # Include newline in background
+        # Plain newline (no user_message background) to avoid extra outer bubble behind box
+        self._append_text("\n")
 
         self._append_text("\n")
 
@@ -909,10 +1132,10 @@ class ChatView(tktextext.TextFrame):
         )
         self.query_text.delete("1.0", "end")
         
-        # Clear attached image after sending
-        self._attached_image = None
+        # Clear attached image and preview after sending
+        self._clear_attached_image()
         
-        # Return focus to input field after submitting
+        # Note: _clear_attached_image already calls focus_set(), but call again to be sure
         self.query_text.focus_set()
 
         for assistant in self.select_assistants_for_user_message(message):
@@ -1041,7 +1264,7 @@ class ChatView(tktextext.TextFrame):
 
     def select_assistants_for_user_message(self, message: str) -> List[Assistant]:
         # Single active assistant only (model toggle controls which one)
-        return [self._current_assistant]
+            return [self._current_assistant]
 
     def _complete_chat_in_thread(self, assistant: Assistant, request_id: str):
         try:

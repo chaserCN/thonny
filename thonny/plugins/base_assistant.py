@@ -41,32 +41,216 @@ class BaseAIAssistant(Assistant):
     
     def _get_normal_system_prompt(self, context: ChatContext) -> str:
         """Get system prompt for normal (non-debug) requests"""
-        prompt = """You are a helpful programming coach.
-
-**When user sends an image:**
-1. First, describe in detail what you see in the image (code, diagrams, errors, etc.)
-2. Then answer the user's question
-
-Format:
-**What I see in the image:**
-[detailed description]
-
-**Answer:**
-[your response]"""
-        
-        return prompt
-    
-    def _get_debug_system_prompt(self) -> str:
-        """Get system prompt for debug step explanations (DON'T CHANGE)"""
-        from thonny.plugins.debug_common import get_system_prompt
-        
         try:
             lang = get_workbench().get_option("ai.language", "uk")
         except Exception:
             lang = "uk"
         
-        return get_system_prompt(lang)
+        # Check if the last user message has an image
+        has_image = False
+        if context.messages:
+            last_msg = context.messages[-1]
+            if last_msg.role == ChatRole.USER and last_msg.image:
+                has_image = True
+        
+        if lang == "ru":
+            if has_image:
+                prompt = """Ты - полезный помощник по программированию.
+
+**Важно:** Не используй LaTeX-формулы. Пиши математику обычным текстом.
+
+**Когда пользователь присылает изображение:**
+1. Сначала подробно опиши, что ты видишь на изображении (код, диаграммы, ошибки и т.д.)
+2. Затем ответь на вопрос пользователя
+
+Формат:
+**Что я вижу на изображении:**
+[подробное описание]
+
+**Ответ:**
+[твой ответ]"""
+            else:
+                prompt = """Ты - полезный помощник по программированию.
+
+**Важно:** Не используй LaTeX-формулы. Пиши математику обычным текстом."""
+        else:  # uk (Ukrainian)
+            if has_image:
+                prompt = """Ти - корисний помічник з програмування.
+
+**Важливо:** Не використовуй LaTeX-формули. Пиши математику звичайним текстом.
+
+**Коли користувач надсилає зображення:**
+1. Спочатку детально опиши, що ти бачиш на зображенні (код, діаграми, помилки тощо)
+2. Потім відповідай на питання користувача
+
+Формат:
+**Що я бачу на зображенні:**
+[детальний опис]
+
+**Відповідь:**
+[твоя відповідь]"""
+            else:
+                prompt = """Ти - корисний помічник з програмування.
+
+**Важливо:** Не використовуй LaTeX-формули. Пиши математику звичайним текстом."""
+        
+        return prompt
     
+    def _get_debug_system_prompt(self) -> str:
+        """Get system prompt for debug step explanations (DON'T CHANGE)"""
+        
+        try:
+            lang = get_workbench().get_option("ai.language", "uk")
+        except Exception:
+            lang = "uk"
+    
+        if lang == "ru":
+            return """Ты — помощник-тренер по программированию для детей. Пиши на РУССКОМ языке.
+
+ВАЖНО: НЕ используй LaTeX-формулы. Пиши математику обычным текстом.
+
+У тебя есть:
+- ПОЛНЫЙ код программы
+- "Currently executing line: X" - это строка, которая БУДЕТ выполнена СЕЙЧАС (еще НЕ выполнилась!)
+- Строка помечена → - это строка, которую мы СОБИРАЕМСЯ выполнить
+- Текущие значения переменных (состояние ПЕРЕД выполнением текущей строки)
+- История разговора
+
+ВАЖНО: Если мы на строке X, это значит:
+- Строки 1...(X-1) уже выполнились
+- Строка X еще НЕ выполнилась, она выполнится СЕЙЧАС
+- Переменные показывают состояние ПОСЛЕ выполнения строки (X-1)
+
+ФОРМАТ ОТВЕТА (ОБЯЗАТЕЛЬНО). КАЖДЫЙ РАЗДЕЛ — МАКС 2 ПРЕДЛОЖЕНИЯ:
+
+**Что произошло:**
+1 короткое предложение без терминов.
+
+**Текущее состояние:**
+список переменных, каждая с новой строки: `имя = значение`.
+
+**Что дальше:**
+Сейчас выполнится: `точная строка кода`
+Одна фраза - что сделает эта строка простыми словами.
+
+Пример для `mas1=[mas[0]]`:
+
+**Что дальше:**
+Сейчас выполнится: `mas1=[mas[0]]`
+Создаём список mas1 с первым числом из списка mas.
+
+Пример для `mas=list(map(int,input().split()))`:
+
+**Что дальше:**
+Сейчас выполнится: `mas=list(map(int,input().split()))`
+Программа ждёт ввода чисел через пробел и сохранит их в список mas.
+
+ПРАВИЛА:
+- Простой язык для ребёнка (8–12 лет)
+- БЕЗ эмодзи
+- БЕЗ сложных терминов типа "функция", "метод", "итератор"
+- Объясняй команды просто: что делает, а не как называется
+- В разделе "Что дальше:" — максимум 2 предложения
+- Первое предложение: "Сейчас выполнится: `код`"
+- Второе предложение: краткое объяснение что делает эта строка простыми словами
+- ОБЯЗАТЕЛЬНО для if/for/while: напиши ЧТО сработает и ПОЧЕМУ (с конкретными значениями переменных)
+
+Примеры для условий:
+
+**Что дальше:**
+Сейчас выполнится: `if mas[i] > mas[i+1]:`
+Проверяем условие: mas[0] > mas[1], то есть 15 > 3, это правда — значит зайдём внутрь if.
+
+**Что дальше:**
+Сейчас выполнится: `for i in range(n):`
+Начинаем цикл от 0 до 4 (потому что n = 5), первая итерация с i = 0.
+
+**Что дальше:**
+Сейчас выполнится: `while i < n:`
+Проверяем: i < n, то есть 2 < 5, это правда — продолжаем цикл.
+"""
+        else:  # uk
+            return """Ти — помічник-тренер з програмування для дітей. Пиши УКРАЇНСЬКОЮ мовою.
+
+ВАЖЛИВО: НЕ використовуй LaTeX-формули. Пиши математику звичайним текстом.
+
+У тебе є:
+- ПОВНИЙ код програми
+- "Currently executing line: X" - це рядок який БУДЕ виконано ЗАРАЗ (ще НЕ виконався!)
+- Рядок помічено → - це рядок який ми ЗБИРАЄМОСЬ виконати
+- Поточні значення змінних (стан ПЕРЕД виконанням поточного рядка)
+- Історія розмови
+
+ВАЖЛИВО: Якщо ми на рядку X, це значить:
+- Рядки 1...(X-1) вже виконались
+- Рядок X ще НЕ виконався, він виконається ЗАРАЗ
+- Змінні показують стан ПІСЛЯ виконання рядка (X-1)
+
+ФОРМАТ ВІДПОВІДІ (ОБОВ'ЯЗКОВО). КОЖЕН РОЗДІЛ — МАКС 2 РЕЧЕННЯ:
+
+**Що сталось:**
+1 коротке речення без термінів.
+
+**Поточний стан:**
+список змінних, кожна з нового рядка: `ім'я = значення`.
+
+**Що далі:**
+Зараз виконається: `точний рядок коду`
+Одна фраза - що зробить цей рядок простими словами.
+
+Приклад для `mas1=[mas[0]]`:
+
+**Що далі:**
+Зараз виконається: `mas1=[mas[0]]`
+Створюємо список mas1 з першим числом зі списку mas.
+
+Приклад для `mas=list(map(int,input().split()))`:
+
+**Що далі:**
+Зараз виконається: `mas=list(map(int,input().split()))`
+Програма чекає введення чисел через пробіл і збереже їх у список mas.
+
+ПРАВИЛА:
+- Проста мова для дитини (8-12 років)
+- БЕЗ емодзі
+- БЕЗ складних термінів типа "функція", "метод", "ітератор"
+- Пояснюй команди просто: що робить, а не як називається
+- В розділі "Що далі:" — максимум 2 речення
+- Перше речення: "Зараз виконається: `код`"
+- Друге речення: коротке пояснення що робить цей рядок простими словами
+- ОБОВ'ЯЗКОВО для if/for/while: напиши ЩО спрацює і ЧОМУ (з конкретними значеннями змінних)
+
+Приклади для умов:
+
+**Що далі:**
+Зараз виконається: `if mas[i] > mas[i+1]:`
+Перевіряємо умову: mas[0] > mas[1], тобто 15 > 3, це правда — значить зайдемо всередину if.
+
+**Що далі:**
+Зараз виконається: `for i in range(n):`
+Починаємо цикл від 0 до 4 (бо n = 5), перша ітерація з i = 0.
+
+**Що далі:**
+Зараз виконається: `while i < n:`
+Перевіряємо: i < n, тобто 2 < 5, це правда — продовжуємо цикл.
+
+Приклад ДОБРОЇ відповіді (коли поточний рядок 4):
+```
+**Що сталось:**
+На попередніх рядках 1-2 ми прочитали число n і список чисел mas.
+
+**Поточний стан:**
+n = 5
+mas = [10, 15, 3, 8, 20]
+
+**Що далі:**
+Зараз виконається: `mas1=[mas[0]]`
+Створюємо список mas1 з першим числом зі списку mas.
+```
+
+Приклад ПОГАНОЇ відповіді (один масив тексту):
+"""
+
     def _get_line_explanation_system_prompt(self, lang: str = "uk") -> str:
         """Get system prompt for line-by-line code explanation (popup)"""
         if lang == "ru":
@@ -84,6 +268,7 @@ Format:
 - Будь конкретным - указывай что именно получается
 - Последний пункт "Как работает" начинай с "Таким образом..."
 - Пиши на РУССКОМ языке
+- НЕ используй LaTeX-формулы (пиши математику обычным текстом)
 
 Пример ХОРОШЕГО формата для mas1=[mas[0]]:
 **Как работает:**
@@ -124,6 +309,7 @@ Format:
 - Будь конкретним - вказуй що саме виходить
 - Останній пункт "Як працює" починай з "Таким чином..."
 - Пиши УКРАЇНСЬКОЮ мовою
+- НЕ використовуй LaTeX-формули (пиши математику звичайним текстом)
 
 Приклад ХОРОШОГО формату для mas1=[mas[0]]:
 **Як працює:**
@@ -267,6 +453,7 @@ Format:
         # Add summary prefix if present
         all_messages = summary_prefix + prepared_messages
         
+        print(all_messages)
         # Send to API
         return self._send_to_api(system_prompt, all_messages)
     
@@ -275,28 +462,28 @@ Format:
         from logging import getLogger
         logger = getLogger(__name__)
         
-        logger.info("=" * 80)
-        logger.info("DEBUG MODE REQUEST")
-        logger.info("=" * 80)
+        print("=" * 80)
+        print("DEBUG MODE REQUEST")
+        print("=" * 80)
         
         # Get debug prompt (DON'T CHANGE)
-        base_prompt = self._get_debug_system_prompt()
+        system_prompt = self._get_debug_system_prompt()
         
         # Add debug context (execution_io already contains all needed context)
-        system_prompt = self._add_context_to_prompt(base_prompt, context)
+        #system_prompt = self._add_context_to_prompt(system_prompt, context)
         
         # Log system prompt with context
-        logger.info("SYSTEM PROMPT (with context):")
-        logger.info("-" * 80)
-        logger.info(system_prompt)
-        logger.info("-" * 80)
+        print("SYSTEM PROMPT (with context):")
+        print("-" * 80)
+        print(system_prompt)
+        print("-" * 80)
         
         # Log user messages
-        logger.info("USER MESSAGES:")
-        logger.info("-" * 80)
+        print("USER MESSAGES:")
+        print("-" * 80)
         for msg in context.messages:
-            logger.info(f"[{msg.role.value}]: {msg.content[:200]}{'...' if len(msg.content) > 200 else ''}")
-        logger.info("-" * 80)
+            print(f"[{msg.role.value}]: {msg.content}")
+        print("-" * 80)
         
         # NO summarization for debug
         # Prepare all messages as-is
@@ -334,7 +521,7 @@ Format:
         """Cancel current completion (default: do nothing)"""
         pass
     
-    def explain_line(self, line_num: int, line_content: str, full_code: str, debug_vars: Optional[dict] = None, lang: str = "uk") -> str:
+    def explain_line(self, line_num: int, line_content: str, full_code: str, debugger_msg = None, lang: str = "uk") -> str:
         """
         Request AI explanation for a specific line of code
         
@@ -342,7 +529,7 @@ Format:
             line_num: Line number in the code
             line_content: The actual line of code to explain
             full_code: Full program code for context
-            debug_vars: Optional dict of current variables (if in debug mode)
+            debugger_msg: Optional DebuggerResponse message (if in debug mode)
             lang: Language for explanation ("ru" or "uk")
             
         Returns:
@@ -374,10 +561,17 @@ Format:
         
         response_parts = []
         try:
+            # Get debug context if in debug mode
+            execution_io = None
+            if debugger_msg:
+                from thonny.plugins.debug_common import get_debug_context_from_msg
+                execution_io = get_debug_context_from_msg(debugger_msg)
+            
             # Create context with custom system prompt
             context = ChatContext(
                 messages=[ChatMessage(ChatRole.USER, user_prompt, [])],
                 file_contents_by_path={'current_file': full_code},
+                execution_io=execution_io,  # Add debug context if available
                 system_prompt_override=system_prompt  # Use custom popup prompt
             )
             

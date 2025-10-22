@@ -26,8 +26,8 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
     if "md_heading" not in text_widget.tag_names():
         text_widget.tag_configure("md_heading", font=("TkDefaultFont", 10, "bold"), spacing1=0, spacing3=2)
         text_widget.tag_configure("md_normal_text", font=("TkDefaultFont", 10), spacing1=0, spacing3=8)
-        text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=0, spacing3=8, lmargin1=10, lmargin2=10)
-        text_widget.tag_configure("md_inline_code", font=("TkFixedFont", 9), background="#f5f5f5")
+        text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=0, spacing3=8, lmargin1=10, lmargin2=10, selectbackground="#4A90E2", selectforeground="white")
+        text_widget.tag_configure("md_inline_code", font=("TkFixedFont", 9), background="#f5f5f5", selectbackground="#4A90E2", selectforeground="white")
         text_widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
         text_widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
         text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=2)

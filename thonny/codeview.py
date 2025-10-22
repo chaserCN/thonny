@@ -623,28 +623,18 @@ class CodeView(tktextext.EnhancedTextFrame):
         # Get full program code for context
         full_code = self.get_content()
         
-        # Check if we're in debug mode and get variables
-        debug_vars = None
+        # Check if we're in debug mode and get debugger message
+        debugger_msg = None
         try:
             from thonny.plugins.debugger import get_current_debugger
             debugger = get_current_debugger()
             if debugger and debugger._last_progress_message:
-                msg = debugger._last_progress_message
-                if msg.stack:
-                    frame = msg.stack[-1]
-                    # Combine globals and locals
-                    all_vars = {}
-                    if frame.globals:
-                        all_vars.update(frame.globals)
-                    if frame.locals:
-                        all_vars.update(frame.locals)
-                    # Filter out internal variables
-                    debug_vars = {k: v for k, v in all_vars.items() if not k.startswith('__')}
+                debugger_msg = debugger._last_progress_message
         except:
             pass
         
         # Call assistant's explain_line method (all AI logic is there)
-        return assistant.explain_line(line_num, line_content, full_code, debug_vars, lang)
+        return assistant.explain_line(line_num, line_content, full_code, debugger_msg, lang)
 
 
 def set_syntax_options(syntax_options):
