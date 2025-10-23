@@ -124,48 +124,8 @@ class ShellView(tk.PanedWindow):
         main_frame = tk.Frame(self)
         self.add(main_frame, minsize=100)
 
-        # Create toolbar at the top with matching background color
-        self.toolbar = tk.Frame(
-            main_frame, 
-            height=28,
-            background=lookup_style_option(".", "background")
-        )
-        self.toolbar.grid(row=0, column=1, columnspan=2, sticky=tk.EW)
-        self.toolbar.grid_columnconfigure(0, weight=1)  # Empty space on the left
-        
-        # Add "Explain" button on the right with icon (resize to 24x24)
-        from PIL import Image, ImageTk
-        
-        # Load and resize icon to 24x24
-        icon_path = os.path.join(get_workbench().get_package_dir(), "res", "bot_explain.png")
-        pil_image = Image.open(icon_path)
-        pil_image = pil_image.resize((24, 24), Image.Resampling.LANCZOS)
-        explain_icon = ImageTk.PhotoImage(pil_image)
-        
-        self.explain_button = ttk.Button(
-            self.toolbar, 
-            image=explain_icon,
-            command=self.explain_shell_output,
-            style="Toolbutton"
-        )
-        self.explain_button.image = explain_icon  # Keep reference to prevent garbage collection
-        self.explain_button.grid(row=0, column=1, sticky=tk.E, padx=0)
-        
-        # Add tooltip for the button
-        try:
-            lang = get_workbench().get_option("ai.language", "uk")
-        except Exception:
-            lang = "uk"
-        
-        if lang == "ru":
-            tooltip_text = "Объяснить вывод Shell"
-        else:  # uk
-            tooltip_text = "Пояснити вивід Shell"
-        
-        create_tooltip(self.explain_button, tooltip_text)
-
         self.vert_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL)
-        self.vert_scrollbar.grid(row=2, column=2, sticky=tk.NSEW)
+        self.vert_scrollbar.grid(row=1, column=2, sticky=tk.NSEW)
         get_workbench().add_command(
             "clear_shell",
             "edit",
@@ -204,10 +164,48 @@ class ShellView(tk.PanedWindow):
         get_workbench().bind("TextDelete", self.text_deleted, True)
         get_workbench().bind("OscEvent", self.handle_osc_event, True)
 
-        self.text.grid(row=2, column=1, sticky=tk.NSEW)
+        self.text.grid(row=1, column=1, sticky=tk.NSEW)
         self.vert_scrollbar["command"] = self.text.yview
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(2, weight=1)
+        main_frame.rowconfigure(1, weight=1)
+
+        # Add "Explain" button floating in the top-right corner of text widget
+        from PIL import Image, ImageTk
+        
+        # Load and resize icon to 24x24
+        icon_path = os.path.join(get_workbench().get_package_dir(), "res", "bot_explain.png")
+        pil_image = Image.open(icon_path)
+        pil_image = pil_image.resize((24, 24), Image.Resampling.LANCZOS)
+        explain_icon = ImageTk.PhotoImage(pil_image)
+        
+        # Use Label instead of Button to avoid gray background
+        self.explain_button = tk.Label(
+            main_frame, 
+            image=explain_icon,
+            cursor="hand2",
+            borderwidth=0,
+            relief="flat",
+            background=self.text["background"]  # Match text widget background
+        )
+        self.explain_button.image = explain_icon  # Keep reference to prevent garbage collection
+        self.explain_button.bind("<Button-1>", lambda e: self.explain_shell_output())
+        
+        # Position the button floating on top of the text widget in the top-right corner (before scrollbar)
+        # Using place to make it float above text
+        self.explain_button.place(in_=self.text, relx=1.0, y=2, x=-2, anchor="ne")
+        
+        # Add tooltip for the button
+        try:
+            lang = get_workbench().get_option("ai.language", "uk")
+        except Exception:
+            lang = "uk"
+        
+        if lang == "ru":
+            tooltip_text = "Объяснить вывод Shell"
+        else:  # uk
+            tooltip_text = "Пояснити вивід Shell"
+        
+        create_tooltip(self.explain_button, tooltip_text)
 
         self.notice = ttk.Label(self, text="", background="#ffff99", padding=3)
 
