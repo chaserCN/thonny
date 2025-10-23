@@ -140,6 +140,107 @@ def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: s
         highlight_python_syntax_simple(text_widget, start_index, end_index)
 
 
+def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, code_text: str) -> None:
+    """Add a copy button next to a code block"""
+    try:
+        # Get the background color from text_widget
+        try:
+            bg_color = str(text_widget.cget("background"))
+            # Convert system colors to actual colors if needed
+            if bg_color.startswith("system"):
+                bg_color = "white"
+        except:
+            bg_color = "white"
+        
+        # Create a clickable label instead of button (no borders/shadows)
+        button = tk.Label(
+            text_widget,
+            text="Copy 📋",
+            font=("TkDefaultFont", 8),
+            bg=bg_color,  # Match text widget background
+            fg="#666",
+            cursor="hand2",
+            padx=0,  # No padding
+            pady=0,  # No padding
+        )
+        
+        # Make it clickable
+        button.bind("<Button-1>", lambda e: _copy_code_to_clipboard(text_widget, code_text, button))
+        
+        # Add hover effects
+        def on_enter(e):
+            button.config(fg="#333")
+        def on_leave(e):
+            button.config(fg="#666")
+        
+        button.bind("<Enter>", on_enter)
+        button.bind("<Leave>", on_leave)
+        
+        # Create a tag for right alignment with matching background
+        tag_name = f"copy_button_{id(button)}"
+        text_widget.tag_configure(tag_name, justify="right", background=bg_color, spacing1=0, spacing3=0)
+        
+        # Insert a newline at the END of code block for the button
+        insert_method = getattr(text_widget, 'direct_insert', text_widget.insert)
+        insert_method(code_end, "\n")
+        
+        # Add some spaces before button to push it to the right and fill the line
+        insert_method(code_end, "                                                                              ")
+        
+        # Now the button will be on its own line at the bottom
+        button_pos = text_widget.index(f"{code_end} lineend")
+        
+        # Insert the button
+        text_widget.window_create(button_pos, window=button)
+        
+        # Apply right alignment tag to the entire line with the button
+        line_start = f"{code_end} linestart"
+        line_end = f"{button_pos} lineend +1c"
+        text_widget.tag_add(tag_name, line_start, line_end)
+        
+        # Remove md_code_block and all syntax highlighting tags from button line to avoid gray background
+        text_widget.tag_remove("md_code_block", line_start, line_end)
+        text_widget.tag_remove("code_keyword", line_start, line_end)
+        text_widget.tag_remove("code_string", line_start, line_end)
+        text_widget.tag_remove("code_comment", line_start, line_end)
+        text_widget.tag_remove("code_number", line_start, line_end)
+        text_widget.tag_remove("code_builtin", line_start, line_end)
+        
+    except Exception as e:
+        logger.warning(f"Failed to create copy button: {e}", exc_info=True)
+
+
+def _copy_code_to_clipboard(text_widget: tk.Text, code_text: str, button: tk.Label) -> None:
+    """Copy code to clipboard and show visual feedback"""
+    try:
+        # Copy to clipboard
+        text_widget.clipboard_clear()
+        text_widget.clipboard_append(code_text.rstrip('\n'))
+        
+        # Show visual feedback
+        original_text = button.cget("text")
+        button.config(text="Copied! ✓", fg="#22aa22")
+        
+        # Reset after 1.5 seconds
+        def reset_button():
+            try:
+                button.config(text=original_text, fg="#666")
+            except:
+                pass  # Button might be destroyed
+        
+        text_widget.after(1500, reset_button)
+        
+        logger.info("Code copied to clipboard")
+        
+    except Exception as e:
+        logger.error(f"Failed to copy code to clipboard: {e}")
+        try:
+            button.config(text="Error ✗", fg="#aa2222")
+            text_widget.after(1500, lambda: button.config(text="Copy 📋", fg="#666"))
+        except:
+            pass
+
+
 def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
     """
     Render markdown directly in tk.Text widget with tags.
@@ -259,6 +360,12 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
                     except Exception as e:
                         logger.warning(f"Syntax highlighting failed: {e}", exc_info=True)
                         pass  # Fallback to plain code block if highlighting fails
+                
+                # Add copy button at the end of code block
+                try:
+                    _add_copy_button(text_widget, start, end, code_text)
+                except Exception as e:
+                    logger.warning(f"Failed to add copy button: {e}", exc_info=True)
             continue
         
         # Check for headings with #
