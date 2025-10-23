@@ -60,11 +60,12 @@ class EditorConfigurationPage(ConfigurationPage):
             "edit.tab_request_completions_in_shell",
             tr("Request completions with Tab-key in Shell"),
         )
-        add_option_checkbox(
-            self,
-            "edit.inline_completions_enabled",
-            tr("Enable inline code suggestions (AI-powered, press Tab to accept)"),
-        )
+        # ВРЕМЕННО ЗАКОММЕНТИРОВАНО - задача требует доработки
+        # add_option_checkbox(
+        #     self,
+        #     "edit.inline_completions_enabled",
+        #     tr("Enable inline code suggestions (AI-powered, press Tab to accept)"),
+        # )
 
         add_vertical_separator(self)
 

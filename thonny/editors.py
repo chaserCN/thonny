@@ -827,7 +827,7 @@ class Editor(BaseEditor):
 
         ls_changes = []
         for change in self._unpublished_incremental_changes:
-            logger.info("processing change %r", change)
+            logger.debug("processing change %r", change)
             if change["sequence"] == "TextInsert":
                 line, col = parse_text_index(change["index"])
                 pos = Position(line=line - 1, character=col)  # TODO: Utf-16

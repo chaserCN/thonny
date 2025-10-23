@@ -27,12 +27,18 @@ class InlineCompleter:
         self._last_request_time: float = 0
         self._min_request_interval: float = 0.5  # 500ms between requests
         
-        # Bind to editor events
+        # Bind to editor events (bind without add=True so we process BEFORE default handlers)
         logger.info("Binding to EditorCodeViewText events...")
+        # Use empty string binding tag to run before class bindings
+        get_workbench().bind_class("EditorCodeViewText", "<KeyPress>", self._on_keypress_before, False)
         get_workbench().bind_class("EditorCodeViewText", "<Key>", self._on_keypress, True)
-        get_workbench().bind_class("EditorCodeViewText", "<Tab>", self._on_tab, True)
         get_workbench().bind_class("EditorCodeViewText", "<Escape>", self._on_escape, True)
+        get_workbench().bind_class("EditorCodeViewText", "<Button-1>", self._on_mouse_click, True)
+        get_workbench().bind_class("EditorCodeViewText", "<FocusOut>", self._on_focus_out, True)
         logger.info("Event bindings completed")
+        
+        # Patch perform_midline_tab to handle Tab key
+        self._patch_tab_handler()
         
         # Configure ghost text tag
         self._setup_ghost_text_tag()
@@ -41,6 +47,69 @@ class InlineCompleter:
         """Configure the visual style for ghost text suggestions"""
         # Will be applied to each text widget when needed
         pass
+    
+    def _patch_tab_handler(self):
+        """Patch Tab methods to handle inline completions"""
+        logger.info("Patching Tab handlers...")
+        
+        # Save original methods
+        original_perform_midline_tab = CodeViewText.perform_midline_tab
+        original_perform_smart_tab = CodeViewText.perform_smart_tab
+        original_perform_dumb_tab = CodeViewText.perform_dumb_tab
+        
+        # Helper to check and accept suggestion
+        completer_self = self  # Capture self in closure
+        
+        def check_and_accept_suggestion(text_widget, method_name):
+            logger.info(f"Tab in {method_name}! suggestion={bool(completer_self._current_suggestion)}, match={completer_self._active_text_widget == text_widget}")
+            
+            # Check if this widget has an active suggestion
+            if completer_self._current_suggestion and completer_self._active_text_widget == text_widget:
+                logger.info("✅ Accepting inline suggestion...")
+                completer_self._accept_suggestion(text_widget)
+                return "break"
+            return None
+        
+        # Patch all three Tab handlers (these are instance methods, so first arg is self=text_widget)
+        def patched_perform_midline_tab(text_widget_self, event=None):
+            result = check_and_accept_suggestion(text_widget_self, "perform_midline_tab")
+            if result == "break":
+                return result
+            return original_perform_midline_tab(text_widget_self, event)
+        
+        def patched_perform_smart_tab(text_widget_self, event=None):
+            result = check_and_accept_suggestion(text_widget_self, "perform_smart_tab")
+            if result == "break":
+                return result
+            return original_perform_smart_tab(text_widget_self, event)
+        
+        def patched_perform_dumb_tab(text_widget_self, event=None):
+            result = check_and_accept_suggestion(text_widget_self, "perform_dumb_tab")
+            if result == "break":
+                return result
+            return original_perform_dumb_tab(text_widget_self, event)
+        
+        # Replace methods
+        CodeViewText.perform_midline_tab = patched_perform_midline_tab
+        CodeViewText.perform_smart_tab = patched_perform_smart_tab
+        CodeViewText.perform_dumb_tab = patched_perform_dumb_tab
+        logger.info("All Tab handlers patched successfully")
+    
+    def _on_keypress_before(self, event: tk.Event) -> Optional[str]:
+        """Handle keypress BEFORE text insertion - clear ghost text"""
+        widget = event.widget
+        if not isinstance(widget, CodeViewText):
+            return None
+        
+        # Clear ghost text before any key that inserts text
+        # (but not for modifier keys)
+        if event.keysym not in ("Shift_L", "Shift_R", "Control_L", "Control_R", 
+                                "Alt_L", "Alt_R", "Meta_L", "Meta_R",
+                                "Tab", "Escape", "Up", "Down", "Left", "Right", 
+                                "Home", "End", "Page_Up", "Page_Down"):
+            self._clear_suggestion(widget)
+        
+        return None  # Allow event to continue
     
     def _on_keypress(self, event: tk.Event) -> Optional[str]:
         """Handle keypress events to trigger suggestions"""
@@ -55,40 +124,45 @@ class InlineCompleter:
             logger.debug(f"Not CodeViewText: {type(widget)}")
             return None
         
-        # Clear current suggestion on most keypresses
-        if event.keysym not in ("Shift_L", "Shift_R", "Control_L", "Control_R", 
-                                "Alt_L", "Alt_R", "Meta_L", "Meta_R"):
-            self._clear_suggestion(widget)
+        # Ghost text already cleared in _on_keypress_before
         
-        # Don't trigger on special keys
-        if event.keysym in ("Tab", "Return", "Escape", "BackSpace", "Delete"):
+        # Don't trigger on some special keys (but Return/BackSpace/Delete are OK)
+        if event.keysym in ("Tab", "Escape", 
+                           "Up", "Down", "Left", "Right", "Home", "End", 
+                           "Page_Up", "Page_Down"):
+            # But for arrow keys, if we end up on empty line, trigger after delay
+            if event.keysym in ("Up", "Down", "Left", "Right"):
+                widget.after(1000, lambda: self._check_empty_line(widget))
             return None
         
         # Debounce: wait for typing to pause
         if self._debounce_timer:
             self._debounce_timer.cancel()
         
+        # Longer delay for empty lines (suggest next line) vs typing
+        try:
+            cursor_pos = widget.index("insert")
+            line_start = widget.index("insert linestart")
+            line_prefix = widget.get(line_start, cursor_pos).strip()
+            
+            # Empty line or just whitespace = suggest next line (longer delay)
+            if not line_prefix:
+                delay = 1.0  # 1 second for empty line
+                logger.debug(f"Empty line, using {delay}s delay")
+            else:
+                delay = 0.3  # 300ms when typing
+                logger.debug(f"Typing detected, using {delay}s delay")
+        except:
+            delay = 0.3
+        
         logger.debug(f"Starting debounce timer for widget {widget}")
         self._debounce_timer = threading.Timer(
-            0.3,  # 300ms delay after last keypress
+            delay,
             lambda: self._request_suggestion(widget)
         )
         self._debounce_timer.start()
         
         return None
-    
-    def _on_tab(self, event: tk.Event) -> Optional[str]:
-        """Handle Tab key to accept suggestion"""
-        widget = event.widget
-        if not isinstance(widget, CodeViewText):
-            return None
-        
-        if self._current_suggestion and self._active_text_widget == widget:
-            # Accept the suggestion
-            self._accept_suggestion(widget)
-            return "break"  # Prevent default Tab behavior
-        
-        return None  # Allow default Tab behavior
     
     def _on_escape(self, event: tk.Event) -> Optional[str]:
         """Handle Escape to dismiss suggestion"""
@@ -100,6 +174,36 @@ class InlineCompleter:
             self._clear_suggestion(widget)
             return "break"
         
+        return None
+    
+    def _on_mouse_click(self, event: tk.Event) -> Optional[str]:
+        """Handle mouse click to dismiss suggestion"""
+        widget = event.widget
+        if isinstance(widget, CodeViewText):
+            self._clear_suggestion(widget)
+            # After click, if on empty line, suggest after 1 second
+            widget.after(1000, lambda: self._check_empty_line(widget))
+        return None
+    
+    def _check_empty_line(self, widget: CodeViewText):
+        """Check if current line is empty and trigger suggestion if so"""
+        try:
+            cursor_pos = widget.index("insert")
+            line_start = widget.index("insert linestart")
+            line_prefix = widget.get(line_start, cursor_pos).strip()
+            
+            # If line is empty/whitespace and no current suggestion, request one
+            if not line_prefix and not self._current_suggestion:
+                logger.debug("Empty line detected, requesting suggestion...")
+                self._request_suggestion(widget)
+        except:
+            pass
+    
+    def _on_focus_out(self, event: tk.Event) -> Optional[str]:
+        """Handle focus out to dismiss suggestion"""
+        widget = event.widget
+        if isinstance(widget, CodeViewText):
+            self._clear_suggestion(widget)
         return None
     
     def _request_suggestion(self, widget: CodeViewText):
@@ -163,8 +267,8 @@ class InlineCompleter:
                 import google.generativeai as genai
                 
                 genai.configure(api_key=api_key)
-                # Use fast model for inline completion
-                model_name = get_workbench().get_option("ai.inline_completion_model", "gemini-2.0-flash-exp")
+                # Use fast model for inline completion (Flash-Lite has 4000 RPM!)
+                model_name = get_workbench().get_option("ai.inline_completion_model", "gemini-2.0-flash")
                 logger.info(f"Using model: {model_name}")
                 model = genai.GenerativeModel(model_name)
                 
@@ -177,7 +281,17 @@ class InlineCompleter:
                     }
                 )
                 
-                raw_suggestion = response.text.strip()
+                # Check if response has candidates
+                if not response.candidates:
+                    logger.warning("Gemini returned no candidates (may be blocked by safety filters)")
+                    return
+                
+                try:
+                    raw_suggestion = response.text.strip()
+                except ValueError as e:
+                    logger.warning(f"Could not get response text: {e}")
+                    return
+                
                 logger.info(f"Got raw suggestion: '{raw_suggestion[:100]}'")
                 
                 # Clean up the suggestion
@@ -200,8 +314,11 @@ class InlineCompleter:
     
     def _clean_suggestion(self, raw: str) -> str:
         """Clean up AI response to get pure code suggestion"""
+        # Ensure raw is a string
         if not raw:
             return ""
+        
+        raw = str(raw)  # Convert to string if it's a Tcl object
         
         # Remove markdown code blocks
         if "```" in raw:
@@ -219,7 +336,7 @@ class InlineCompleter:
         result_lines = []
         
         for line in lines:
-            line = line.strip()
+            line = str(line).strip()  # Convert to string and strip
             
             # Skip empty lines
             if not line:
@@ -236,27 +353,43 @@ class InlineCompleter:
             if len(result_lines) >= 1:
                 break
         
-        return result_lines[0] if result_lines else ""
+        suggestion = str(result_lines[0]) if result_lines else ""
+        
+        # Remove surrounding quotes if present
+        if suggestion:
+            # Remove outer quotes: "code" or 'code'
+            if (suggestion.startswith('"') and suggestion.endswith('"')) or \
+               (suggestion.startswith("'") and suggestion.endswith("'")):
+                suggestion = suggestion[1:-1]
+        
+        return str(suggestion)
     
     def _build_completion_prompt(self, context: str, line_prefix: str) -> str:
         """Build prompt for inline code completion"""
-        return f"""You are a code completion AI. Complete the Python code after the cursor position.
+        # Ensure parameters are strings
+        context = str(context)
+        line_prefix = str(line_prefix)
+        
+        # Check if we're suggesting next line or completing current line
+        if not line_prefix.strip():
+            task = "Suggest the NEXT LINE of code that should come after the cursor"
+        else:
+            task = "Complete the current line of code"
+        
+        return f"""You are a code completion AI. {task}.
 
 RULES:
-- Return ONLY the text to insert after the cursor
-- NO explanations, NO markdown, NO code blocks
-- Complete the current line or suggest next line if current is finished
-- Keep completions SHORT (one line preferred)
-- Match the coding style
+- Return ONLY the code to insert (one line)
+- NO explanations, NO markdown, NO code blocks, NO quotes around code
+- Keep it SHORT and SIMPLE
+- Match the coding style and indentation
 
 CODE:
 ```python
 {context}█
 ```
 
-The cursor (█) is after: `{line_prefix}`
-
-COMPLETE THE CODE (return only the text after cursor):"""
+The cursor (█) is at the end of line. Return ONLY the code to insert:"""
     
     def _show_suggestion(self, widget: CodeViewText, cursor_pos: str, suggestion: str):
         """Show ghost text suggestion in the editor (main thread)"""
@@ -300,25 +433,31 @@ COMPLETE THE CODE (return only the text after cursor):"""
     
     def _accept_suggestion(self, widget: CodeViewText):
         """Accept the current suggestion"""
+        logger.info(f"_accept_suggestion called: suggestion='{self._current_suggestion}', start={self._suggestion_start_index}")
+        
         if not self._current_suggestion or not self._suggestion_start_index:
+            logger.warning("No suggestion to accept!")
             return
         
         try:
-            # Remove ghost text tag
+            # Remove ghost text tag (keep the text, just remove the tag)
             end_index = f"{self._suggestion_start_index}+{len(self._current_suggestion)}c"
+            logger.debug(f"Removing ghost_text tag from {self._suggestion_start_index} to {end_index}")
             widget.tag_remove("ghost_text", self._suggestion_start_index, end_index)
             
             # Move cursor to end of suggestion
+            logger.debug(f"Moving cursor to {end_index}")
             widget.mark_set("insert", end_index)
             widget.see("insert")
             
             # Clear state
+            logger.info("Suggestion accepted successfully")
             self._current_suggestion = None
             self._suggestion_start_index = None
             self._active_text_widget = None
             
         except tk.TclError as e:
-            logger.debug(f"Failed to accept suggestion: {e}")
+            logger.error(f"Failed to accept suggestion: {e}", exc_info=True)
     
     def _clear_suggestion(self, widget: CodeViewText):
         """Clear the current ghost text suggestion"""
@@ -326,9 +465,16 @@ COMPLETE THE CODE (return only the text after cursor):"""
             return
         
         try:
-            # Remove ghost text
-            end_index = f"{self._suggestion_start_index}+{len(self._current_suggestion)}c"
-            widget.delete(self._suggestion_start_index, end_index)
+            # Find all text with ghost_text tag and remove it
+            ranges = widget.tag_ranges("ghost_text")
+            if ranges:
+                # Remove in reverse order to maintain indices
+                for i in range(len(ranges)-1, -1, -2):
+                    if i > 0:
+                        # Convert Tcl objects to strings
+                        start = str(ranges[i-1])
+                        end = str(ranges[i])
+                        widget.delete(start, end)
             
             # Clear state
             self._current_suggestion = None
@@ -339,15 +485,16 @@ COMPLETE THE CODE (return only the text after cursor):"""
             pass
 
 
-def load_plugin():
-    """Initialize inline completion plugin"""
-    logger.info("=== Loading inline completion plugin ===")
-    
-    completer = InlineCompleter()
-    
-    # Add settings
-    get_workbench().set_default("edit.inline_completions_enabled", True)
-    get_workbench().set_default("ai.inline_completion_model", "gemini-2.0-flash-exp")
-    
-    logger.info(f"Inline completion plugin loaded successfully, enabled={get_workbench().get_option('edit.inline_completions_enabled', True)}")
+# ВРЕМЕННО ЗАКОММЕНТИРОВАНО - задача требует доработки
+# def load_plugin():
+#     """Initialize inline completion plugin"""
+#     logger.info("=== Loading inline completion plugin ===")
+#     
+#     completer = InlineCompleter()
+#     
+#     # Add settings
+#     get_workbench().set_default("edit.inline_completions_enabled", True)
+#     get_workbench().set_default("ai.inline_completion_model", "gemini-2.0-flash")  # 2000 RPM
+#     
+#     logger.info(f"Inline completion plugin loaded successfully, enabled={get_workbench().get_option('edit.inline_completions_enabled', True)}")
 
