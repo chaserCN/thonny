@@ -176,7 +176,7 @@ def load_plugin() -> None:
         "edit",
         tr("Toggle comment"),
         _cmd_toggle_selection_comment,
-        default_sequence=select_sequence("<Control-Key-3>", "<Command-Key-3>"),
+        default_sequence=select_sequence("<Control-slash>", "<Command-slash>"),
         tester=_writable_text_is_focused,
         group=50,
     )

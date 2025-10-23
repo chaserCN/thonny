@@ -25,6 +25,7 @@ from thonny.common import STRING_PSEUDO_FILENAME, ToplevelResponse
 from thonny.languages import tr
 from thonny.tktextext import EnhancedText, TweakableText
 from thonny.ui_utils import (
+    CustomToolbutton,
     LongTextDialog,
     create_custom_toolbutton_in_frame,
     ems_to_pixels,
@@ -166,7 +167,7 @@ class ChatView(tktextext.TextFrame):
         )
 
         self.query_box = self.create_query_panel()
-        self.query_box.grid(row=1, column=1, sticky="nsew")
+        self.query_box.grid(row=1, column=1, columnspan=2, sticky="nsew")
 
         from thonny.plugins.openai import OpenAIAssistant
 
@@ -200,20 +201,32 @@ class ChatView(tktextext.TextFrame):
         bordercolor = "#aaaaaa"  # TODO
 
         panel = tk.Frame(self, background=background)
-        panel.rowconfigure(1, weight=0)  # top buttons row (lang, model, clear)
+        panel.rowconfigure(1, weight=0)  # top buttons row (attach, lang, model, clear)
         panel.rowconfigure(2, weight=1)  # input row
         panel.rowconfigure(3, weight=0)  # image preview row
-        panel.columnconfigure(1, weight=0)  # image button (fixed)
-        panel.columnconfigure(2, weight=1)  # input field (expanding)
-        panel.columnconfigure(3, weight=0)  # submit button (fixed)
+        panel.columnconfigure(1, weight=0)  # attach button (fixed)
+        panel.columnconfigure(2, weight=1)  # spacer (expanding)
+        panel.columnconfigure(3, weight=0)  # lang, model, clear (fixed)
 
         pad = ems_to_pixels(1)
+        pad_small = ems_to_pixels(0.67)  # ~8 pixels for smaller horizontal padding
 
-        # Left frame for language and model buttons
-        left_buttons_frame = tk.Frame(panel, background=background)
-        left_buttons_frame.grid(row=1, column=1, columnspan=2, sticky="w", padx=(pad, 0), pady=(pad, 0))
+        # Image attach button (top left)
+        image_button_frame = create_custom_toolbutton_in_frame(
+            panel,
+            image=get_workbench().get_image("chat-attach-glyph.png", for_toolbar=True),
+            command=self._attach_image,
+            background=background,
+            borderwidth=0,
+            bordercolor=bordercolor,
+        )
+        image_button_frame.grid(row=1, column=1, sticky="w", padx=(pad_small, 0), pady=(pad//3, 0))
 
-        # Language selection dropdown (УК/РУ) above the input
+        # Right frame for language, model and clear buttons
+        right_buttons_frame = tk.Frame(panel, background=background)
+        right_buttons_frame.grid(row=1, column=3, sticky="e", padx=(0, pad_small), pady=(pad//3, 0))
+
+        # Language selection dropdown (УК/РУ)
         def _current_lang() -> str:
             try:
                 return get_workbench().get_option("ai.language", "uk")
@@ -226,7 +239,7 @@ class ChatView(tktextext.TextFrame):
         # Language dropdown (УК/РУ)
         self.lang_var = tk.StringVar(value=_lang_label_from(_current_lang()))
         self.lang_combobox = ttk.Combobox(
-            left_buttons_frame,
+            right_buttons_frame,
             textvariable=self.lang_var,
             values=["УК", "РУ"],
             state="readonly",
@@ -247,7 +260,7 @@ class ChatView(tktextext.TextFrame):
         
         self.model_var = tk.StringVar(value=_model_label_from(_current_model()))
         self.model_combobox = ttk.Combobox(
-            left_buttons_frame,
+            right_buttons_frame,
             textvariable=self.model_var,
             values=["Gemini", "Claude", "GPT"],
             state="readonly",
@@ -256,33 +269,20 @@ class ChatView(tktextext.TextFrame):
         self.model_combobox.pack(side="left", padx=(0, 5))
         self.model_combobox.bind("<<ComboboxSelected>>", lambda e: self._on_model_selected())
         
-        # Clear chat button (right side)
-        clear_button_frame = create_custom_toolbutton_in_frame(
-            panel,
+        # Clear chat button (in right frame)
+        clear_button = CustomToolbutton(
+            right_buttons_frame,
             image=get_workbench().get_image("chat-clear-glyph.png", for_toolbar=True),
             command=self._clear_chat,
             background=background,
-            borderwidth=0,
-            bordercolor=bordercolor,
         )
-        clear_button_frame.grid(row=1, column=3, sticky="e", padx=(0, pad), pady=(pad, 0))
+        clear_button.pack(side="left", padx=(5, 0))
 
-        # Image attach button (left of input field)
-        image_button_frame = create_custom_toolbutton_in_frame(
-            panel,
-            image=get_workbench().get_image("chat-attach-glyph.png", for_toolbar=True),
-            command=self._attach_image,
-            background=background,
-            borderwidth=0,
-            bordercolor=bordercolor,
-        )
-        image_button_frame.grid(row=2, column=1, sticky="s", padx=(pad, pad//2), pady=(pad//2, pad))
-
-        # Input field (center, expanding)
+        # Input field (full width)
         # White background container to prevent gray flash when resizing
         # sticky="sew" makes it grow upward (bottom-anchored like Cursor)
         white_container = tk.Frame(panel, background="white")
-        white_container.grid(row=2, column=2, sticky="sew", padx=0, pady=(pad//2, pad))
+        white_container.grid(row=2, column=1, columnspan=3, sticky="sew", padx=(pad_small, pad_small), pady=(pad//4, pad_small))
         white_container.rowconfigure(0, weight=1)
         white_container.columnconfigure(0, weight=1)
         
@@ -320,37 +320,8 @@ class ChatView(tktextext.TextFrame):
         
         # Image preview frame (below input, hidden by default)
         self.image_preview_frame = tk.Frame(panel, background=background)
-        self.image_preview_frame.grid(row=3, column=1, columnspan=3, sticky="ew", padx=pad, pady=0)
+        self.image_preview_frame.grid(row=3, column=1, columnspan=3, sticky="ew", padx=pad_small, pady=0)
         self.image_preview_frame.grid_remove()  # Hide by default
-        
-        # Create container for submit button and loading indicator (right of input field)
-        submit_container = tk.Frame(panel, background=background)
-        submit_container.grid(row=2, column=3, sticky="s", padx=(pad//2, pad), pady=(pad//2, pad))
-        
-        # Submit button (shown by default)
-        self.submit_button_frame = create_custom_toolbutton_in_frame(
-            submit_container,
-            image=get_workbench().get_image("chat-send-glyph.png", for_toolbar=True),
-            command=self._on_click_submit,
-            background=background,
-            borderwidth=0,
-            bordercolor=bordercolor,
-        )
-        self.submit_button_frame.pack()
-        
-        # Loading indicator (hidden by default) - same size as submit button
-        import tkinter.font as tkfont
-        spinner_font = tkfont.Font(family="TkDefaultFont", size=14, weight="normal")
-        
-        self.loading_label = tk.Label(
-            submit_container,
-            text="",
-            background=background,
-            font=spinner_font,
-            foreground="#666666",
-            width=2,  # Same width as submit button
-        )
-        # Don't pack yet - will be shown when loading starts
 
         return panel
 
@@ -455,7 +426,7 @@ class ChatView(tktextext.TextFrame):
         
         if fragment.is_final:
             self._active_chat_request_id = None
-            self._hide_loading_indicator()
+            # self._hide_loading_indicator()  # Removed submit button
             self._update_suggestions()
             self.text.see("end")
             
@@ -821,7 +792,7 @@ class ChatView(tktextext.TextFrame):
         if self._chat_completion_in_progress():
             self._active_chat_request_id = None
             self._current_pending_message = None  # Clear pending message
-            self._hide_loading_indicator()
+            # self._hide_loading_indicator()  # Removed submit button
             self._stop_typing_animation()  # Stop animation on cancel
             
             # Remove bot avatar and typing indicator if they were added
@@ -1102,9 +1073,10 @@ class ChatView(tktextext.TextFrame):
         # Force separator to expand to full width
         separator.configure(width=max(chat_width, 380))
 
-    def _on_click_submit(self) -> None:
-        if self._current_assistant.get_ready():
-            self.submit_user_chat_message(self.query_text.get("1.0", "end"))
+    # Removed submit button - use Enter key instead
+    # def _on_click_submit(self) -> None:
+    #     if self._current_assistant.get_ready():
+    #         self.submit_user_chat_message(self.query_text.get("1.0", "end"))
 
     def _on_query_text_modified(self, event: tk.Event):
         # <<Modified>> event fires after ANY text change (including Shift+Enter)
@@ -1168,7 +1140,7 @@ class ChatView(tktextext.TextFrame):
         self._prepare_new_completion()
 
         self._active_chat_request_id = str(uuid.uuid4())
-        self._show_loading_indicator()
+        # self._show_loading_indicator()  # Removed submit button
         
         # Add initial padding if this is the first message
         if self.text.get("1.0", "end-1c").strip() == "":
@@ -1564,47 +1536,18 @@ class ChatView(tktextext.TextFrame):
         return
         update_text_height(self.suggestions_text, min_lines=1, max_lines=5)
     
-    def _show_loading_indicator(self):
-        """Show animated loading indicator and hide submit button"""
-        # Hide submit button
-        self.submit_button_frame.pack_forget()
-        
-        # Show loading indicator
-        self.loading_label.pack()
-        
-        # Start animation
-        self._loading_animation_step = 0
-        self._animate_loading()
-    
-    def _hide_loading_indicator(self):
-        """Hide loading indicator and show submit button"""
-        # Stop animation
-        self.loading_label.config(text="")
-        if hasattr(self, '_loading_after_id'):
-            try:
-                self.after_cancel(self._loading_after_id)
-            except Exception:
-                pass
-        
-        # Hide loading indicator
-        self.loading_label.pack_forget()
-        
-        # Show submit button
-        self.submit_button_frame.pack()
-    
-    def _animate_loading(self):
-        """Animate loading spinner"""
-        if not self._chat_completion_in_progress():
-            self._hide_loading_indicator()
-            return
-        
-        # Simple spinner animation
-        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        char = spinner_chars[self._loading_animation_step % len(spinner_chars)]
-        self.loading_label.config(text=char)
-        
-        self._loading_animation_step += 1
-        self._loading_after_id = self.after(100, self._animate_loading)
+    # Removed submit button and loading indicator - using Enter to submit
+    # def _show_loading_indicator(self):
+    #     """Show animated loading indicator and hide submit button"""
+    #     pass
+    # 
+    # def _hide_loading_indicator(self):
+    #     """Hide loading indicator and show submit button"""
+    #     pass
+    # 
+    # def _animate_loading(self):
+    #     """Animate loading spinner"""
+    #     pass
 
 
 def load_plugin():
