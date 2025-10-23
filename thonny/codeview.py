@@ -153,9 +153,24 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         # Clone menu to avoid modifying original
         popup_menu = tk.Menu(self, tearoff=False)
         
-        # Add "Explain under cursor" option at the TOP
+        # Check if there's a selection
+        has_selection = False
+        try:
+            self.index("sel.first")
+            has_selection = True
+        except:
+            pass
+        
+        # Add "Explain Selection" at the TOP if there's a selection
+        if has_selection:
+            popup_menu.add_command(
+                label="Explain Selection...",
+                command=lambda: self.explain_token_under_cursor()
+            )
+        
+        # Add "Explain under cursor" at the TOP
         popup_menu.add_command(
-            label=tr("Explain under cursor..."),
+            label="Explain under cursor...",
             command=lambda: self.explain_token_under_cursor()
         )
         
