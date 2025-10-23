@@ -634,9 +634,7 @@ class CodeView(tktextext.EnhancedTextFrame):
                 
         root = self.winfo_toplevel()
         root_x = root.winfo_rootx()
-        root_y = root.winfo_rooty()
         root_w = root.winfo_width()
-        root_h = root.winfo_height()
 
         # Горизонтально — центр относительно всего окна Thonny
         popup_x = root_x + (root_w - popup_width) // 2
@@ -644,7 +642,6 @@ class CodeView(tktextext.EnhancedTextFrame):
         # Вертикально — под текущей строкой
         # Берём экранные координаты левой границы текущей строки
         line_index = f"{line_num}.0"
-        line_x = self.text.winfo_rootx()
         line_y = self.text.dlineinfo(line_index)[1] + self.text.winfo_rooty()  # верх строки
         line_height = self.text.dlineinfo(line_index)[3]
         popup_y = line_y + line_height + 8  # на 8px ниже строки
