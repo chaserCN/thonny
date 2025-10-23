@@ -1051,7 +1051,7 @@ class EnhancedTextFrame(TextFrame):
             self._gutter.delete("1.0", "end")
             # need to add first item separately, because Text can't report 0 rows
             for content, tags in self.compute_gutter_line(self._first_line_number):
-                self._gutter.insert("end-1c", content, tags + ("content",))
+                self._gutter.insert("end-1c", content, self._get_gutter_tags(content, tags))
 
             self._gutter.config(state="disabled")
 
@@ -1076,12 +1076,12 @@ class EnhancedTextFrame(TextFrame):
                         for content, tags in self.compute_gutter_line(i, plain=True):
                             parts.append(content)
 
-                    self._gutter.insert("end-1c", "".join(parts), ("content",) + tags)
+                    self._gutter.insert("end-1c", "".join(parts), self._get_gutter_tags("".join(parts), tags))
                 else:
                     for i in range(start, start + delta):
-                        self._gutter.insert("end-1c", "\n", ("content",))
+                        self._gutter.insert("end-1c", "\n", self._get_gutter_tags("\n", ()))
                         for content, tags in self.compute_gutter_line(i):
-                            self._gutter.insert("end-1c", content, ("content",) + tags)
+                            self._gutter.insert("end-1c", content, self._get_gutter_tags(content, tags))
             else:
                 self._gutter.delete(line2index(text_line_count) + "-1c", "end-1c")
 
@@ -1105,6 +1105,10 @@ class EnhancedTextFrame(TextFrame):
 
     def compute_gutter_line(self, lineno, plain=False):
         yield str(lineno), ()
+    
+    def _get_gutter_tags(self, content, tags):
+        """Get tags for gutter content. Can be overridden by subclasses."""
+        return ("content",) + tags
 
     def update_margin_line(self):
         if self._recommended_line_length == 0:

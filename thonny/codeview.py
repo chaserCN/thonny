@@ -219,19 +219,18 @@ class CodeView(tktextext.EnhancedTextFrame):
         self._gutter.tag_configure("active", font="BoldEditorFont")
         self._gutter.tag_raise("spacer")
         
-        # Create right info gutter
+        # Configure info button in gutter 
+        self._gutter.tag_configure("info_button", foreground="#0066cc")
+        self._gutter.tag_bind("info_button", "<Button-1>", self._on_info_click)
+        self._gutter.tag_bind("info_button", "<Enter>", lambda e: self._gutter.config(cursor="hand2"))
+        self._gutter.tag_bind("info_button", "<Leave>", lambda e: self._gutter.config(cursor="arrow"))
+        
+        # Hide right info gutter (not needed anymore)
         self.create_right_gutter(width=3)
-        self.set_right_gutter_visibility(True)
+        self.set_right_gutter_visibility(False)
         
-        # Configure clickable info buttons
-        self._right_gutter.tag_configure("info_button", foreground="#0066cc")
-        self._right_gutter.tag_bind("info_button", "<Button-1>", self._on_info_click)
-        self._right_gutter.tag_bind("info_button", "<Enter>", lambda e: self._right_gutter.config(cursor="hand2"))
-        self._right_gutter.tag_bind("info_button", "<Leave>", lambda e: self._right_gutter.config(cursor="arrow"))
-        
-        # Update right gutter when text changes
-        self.text.bind("<<TextChange>>", self._update_right_gutter, True)
-        self._update_right_gutter()
+        # Ensure gutter is updated after initialization
+        self.after_idle(lambda: self.update_gutter(clean=True))
 
     def get_content(self, up_to_end=False):
         if not up_to_end:
@@ -329,11 +328,26 @@ class CodeView(tktextext.EnhancedTextFrame):
 
         if not keep_undo:
             self.text.edit_reset()
+        
+        # Force gutter update to ensure all lines get info buttons
+        self.update_gutter(clean=True)
 
     def _start_toggle_breakpoint(self, event):
+        # Check if click is on info button
+        click_index = self._gutter.index(f"@{event.x},{event.y}")
+        tags_at_click = self._gutter.tag_names(click_index)
+        if "info_button" in tags_at_click:
+            return
+        
         self._start_toggle_breakpoint_index = "@%d,%d" % (event.x, event.y)
 
     def _consider_toggle_breakpoint(self, event):
+        # Check if click is on info button
+        click_index = self._gutter.index(f"@{event.x},{event.y}")
+        tags_at_click = self._gutter.tag_names(click_index)
+        if "info_button" in tags_at_click:
+            return
+        
         if time.time() - self._last_toggle_breakpoint_time < 0.3:
             # it was probably a double-click. Don't want to double-toggle in this case.
             return
@@ -373,12 +387,59 @@ class CodeView(tktextext.EnhancedTextFrame):
             visual_line_number = self._first_line_number + lineno - 1
             linestart = str(visual_line_number) + ".0"
 
-            yield str(lineno), ()
+            # breakpoint на строке?
+            bp_present = bool(self.text.tag_nextrange("breakpoint_line", linestart, linestart + " lineend"))
+            bp = BREAKPOINT_SYMBOL if bp_present else " "
 
-            if self.text.tag_nextrange("breakpoint_line", linestart, linestart + " lineend"):
-                yield BREAKPOINT_SYMBOL, ("breakpoint",)
+            left = "𝓲"
+            left_tag = ("info_button",)
+
+            # номер строки
+            num = str(lineno)
+
+            # ширина гаттера и вычисление паддинга
+            gutter_width = int(self._gutter["width"]) if "width" in self._gutter.keys() else 5
+            pad_len = gutter_width - len(left) - len(num) - len(bp)
+            if pad_len < 1:
+                pad_len = 1
+            pad = " " * pad_len
+
+            # отрисовка элементов
+            yield left, left_tag              # "i" (тёмный или бледный)
+            yield pad + num, ()               # номер строки
+            if bp_present:
+                yield bp, ("breakpoint",)
             else:
-                yield " ", ()
+                yield bp, ()
+
+    def compute_gutter_line2(self, lineno, plain=False):
+        if plain:
+            yield str(lineno) + " ", ()
+        else:
+            visual_line_number = self._first_line_number + lineno - 1
+            linestart = str(visual_line_number) + ".0"
+
+            # параметры разметки
+            gutter_width = int(self._gutter["width"]) if "width" in self._gutter.keys() else 5
+            bp_present = bool(self.text.tag_nextrange("breakpoint_line", linestart, linestart + " lineend"))
+            bp = BREAKPOINT_SYMBOL if bp_present else " "
+
+            left = "ⓘ"                       # левый индикатор
+            num = str(lineno)                # номер строки
+
+            # сколько пробелов надо, чтобы num «прилип» к правому краю (перед bp)
+            pad_len = gutter_width - len(left) - len(num) - len(bp)
+            if pad_len < 1:
+                pad_len = 1
+            pad = " " * pad_len
+
+            # рисуем по сегментам: кликабельная "i", затем пробелы+номер, затем брейкпоинт/пусто
+            yield left, ("info_button",)                 # остаётся у левого края
+            yield pad + num, ()                          # номер выровнен вправо "жёстко"
+            if bp_present:
+                yield bp, ("breakpoint",)               # кликабельный символ брейкпоинта
+            else:
+                yield bp, ()
 
     def select_range(self, text_range):
         self.text.tag_remove("sel", "1.0", tk.END)
@@ -431,55 +492,81 @@ class CodeView(tktextext.EnhancedTextFrame):
         # super()._reload_gutter_theme_options(event)
         if "GUTTER" in _syntax_options:
             opts = _syntax_options["GUTTER"].copy()
+
+            # дублируем фон и цвет для выделенного состояния
             if "background" in opts and "selectbackground" not in opts:
                 opts["selectbackground"] = opts["background"]
                 opts["inactiveselectbackground"] = opts["background"]
             if "foreground" in opts and "selectforeground" not in opts:
                 opts["selectforeground"] = opts["foreground"]
 
+            # применяем цвета к гаттеру
             self._gutter.configure(opts)
 
+            # применяем фон к margin line
             if "background" in opts:
                 background = opts["background"]
                 self._margin_line.configure(background=background)
                 self._gutter.tag_configure("sel", background=background)
 
+            # === настройка шрифта ===
+            from tkinter import font as tkfont
+            from thonny.tktextext import get_text_font
+
+            # base_font = get_text_font(self.text)
+            # mono_family = "Consolas" if "Consolas" in tkfont.families() else (
+            #     "Courier New" if "Courier New" in tkfont.families() else base_font.cget("family")
+            # )
+
+            # gutter_font = base_font.copy()
+            # gutter_font.configure(family=mono_family, size=base_font.cget("size"))
+            # self._gutter.configure(font=gutter_font)
+
+            # === настройка цветов тегов ===
+            fg_normal = opts.get("foreground", "#404040")
+            bg = opts.get("background", "#e0e0e0")
+
+            # обычный info_button (непустые строки)
+            self._gutter.tag_configure(
+                "info_button",
+                foreground=fg_normal,
+                background=bg,
+            )
+
         if "breakpoint" in _syntax_options:
             self._gutter.tag_configure("breakpoint", _syntax_options["breakpoint"])
     
-    def _update_right_gutter(self, event=None):
-        """Update right info gutter with ℹ buttons for each line"""
-        if not self._right_gutter:
-            return
-        
-        # Count lines in editor
-        line_count = int(self.text.index("end-1c").split(".")[0])
-        
-        # Update gutter content
-        self._right_gutter.config(state="normal")
-        self._right_gutter.delete("1.0", "end")
-        
-        for line_num in range(1, line_count + 1):
-            # Add info button with line number tag
-            self._right_gutter.insert("end", " ℹ\n", ("info_button", f"line_{line_num}"))
-        
-        self._right_gutter.config(state="disabled")
+    def _get_gutter_tags(self, content, tags):
+        """Override to prevent info_button from getting content tag (which causes right alignment)"""
+        if "info_button" in tags:
+            # Don't add "content" tag to info buttons so they stay left-aligned
+            return tags
+        else:
+            # Normal behavior for everything else
+            return ("content",) + tags
     
     def _on_info_click(self, event):
-        """Handle click on info button - show line explanation popup"""
+        """Handle click on info button in gutter"""
         # Get which line was clicked
-        index = self._right_gutter.index(f"@{event.x},{event.y}")
-        line_num = int(index.split(".")[0])
+        click_index = self._gutter.index(f"@{event.x},{event.y}")
+        
+        # Check if click is on info_button tag
+        tags_at_click = self._gutter.tag_names(click_index)
+        if "info_button" not in tags_at_click:
+            return
+        
+        line_num = int(click_index.split(".")[0])
         
         # Get the line content
         line_content = self.text.get(f"{line_num}.0", f"{line_num}.end")
         
         # Skip empty lines
         if not line_content.strip():
-            return
+            return "break"
         
         # Show explanation popup positioned relative to the clicked button
         self._show_line_explanation_popup(line_num, line_content, event)
+        return "break"  # Prevent breakpoint toggle
     
     def _show_line_explanation_popup(self, line_num, line_content, event):
         """Show popup with AI explanation of the code line"""
@@ -544,39 +631,35 @@ class CodeView(tktextext.EnhancedTextFrame):
         popup_width = 600
         popup_height = 520  # Increased by 30% (was 400)
         popup.geometry(f"{popup_width}x{popup_height}")
-        
-        # Calculate position relative to the info button
-        # Get button's screen coordinates
-        button_x = event.widget.winfo_rootx() + event.x
-        button_y = event.widget.winfo_rooty() + event.y
-        
-        # Calculate popup position: center horizontally with button
-        popup_x = button_x - (popup_width // 2)
-        
-        # Get screen dimensions
+                
+        root = self.winfo_toplevel()
+        root_x = root.winfo_rootx()
+        root_y = root.winfo_rooty()
+        root_w = root.winfo_width()
+        root_h = root.winfo_height()
+
+        # Горизонтально — центр относительно всего окна Thonny
+        popup_x = root_x + (root_w - popup_width) // 2
+
+        # Вертикально — под текущей строкой
+        # Берём экранные координаты левой границы текущей строки
+        line_index = f"{line_num}.0"
+        line_x = self.text.winfo_rootx()
+        line_y = self.text.dlineinfo(line_index)[1] + self.text.winfo_rooty()  # верх строки
+        line_height = self.text.dlineinfo(line_index)[3]
+        popup_y = line_y + line_height + 8  # на 8px ниже строки
+
+        # Страховка от выхода за экран
         screen_width = popup.winfo_screenwidth()
         screen_height = popup.winfo_screenheight()
-        
-        # Try to place below the button first
-        popup_y_below = button_y + 10  # 10px offset below button
-        popup_y_above = button_y - popup_height - 10  # 10px offset above button
-        
-        # Check if popup fits below the button
-        if popup_y_below + popup_height <= screen_height:
-            popup_y = popup_y_below
-        else:
-            # Place above the button
-            popup_y = popup_y_above
-        
-        # Ensure popup doesn't go off-screen horizontally
         if popup_x < 0:
             popup_x = 0
         elif popup_x + popup_width > screen_width:
             popup_x = screen_width - popup_width
-        
-        # Ensure popup doesn't go off-screen vertically (if above also doesn't fit)
-        if popup_y < 0:
-            popup_y = 0
+
+        if popup_y + popup_height > screen_height:
+            # если вниз не влезает — появляемся непосредственно над строкой
+            popup_y = max(0, line_y - popup_height - 8)
         
         # Set position and show
         popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
