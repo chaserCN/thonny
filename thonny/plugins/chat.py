@@ -238,9 +238,9 @@ class ChatView(tktextext.TextFrame):
         # Model selection dropdown (GPT/Gemini/Claude) next to language button
         def _current_model() -> str:
             try:
-                return get_workbench().get_option("ai.model", "gpt")
+                return get_workbench().get_option("ai.model", "gemini")
             except Exception:
-                return "gpt"
+                return "gemini"
         
         def _model_label_from(model: str) -> str:
             return {"gpt": "GPT", "gemini": "Gemini", "claude": "Claude"}.get(model, "GPT")
@@ -249,7 +249,7 @@ class ChatView(tktextext.TextFrame):
         self.model_combobox = ttk.Combobox(
             left_buttons_frame,
             textvariable=self.model_var,
-            values=["GPT", "Gemini", "Claude"],
+            values=["Gemini", "Claude", "GPT"],
             state="readonly",
             width=8,
         )
@@ -822,7 +822,18 @@ class ChatView(tktextext.TextFrame):
             self._current_pending_message = None  # Clear pending message
             self._hide_loading_indicator()
             self._stop_typing_animation()  # Stop animation on cancel
-            self._append_text("... [cancelled]", source="chat")
+            
+            # Remove bot avatar and typing indicator if they were added
+            if self._bot_avatar_added and hasattr(self, '_typing_indicator_start'):
+                try:
+                    # Find where the bot avatar starts (before typing indicator)
+                    # Avatar is "🤖 " (bot emoji + space), typing indicator starts after it
+                    avatar_start = self.text.index(f"{self._typing_indicator_start}-3c")
+                    self.text.direct_delete(avatar_start, "end-1c")
+                except Exception:
+                    pass
+            
+            #self._append_text("... [cancelled]", source="chat")
             # Clear RST streaming buffer if any
             self._current_chat_response_buffer = ""
             self._bot_avatar_added = False  # Reset avatar flag
@@ -1597,7 +1608,7 @@ class ChatView(tktextext.TextFrame):
 
 def load_plugin():
     # Register AI options with defaults so they persist between sessions
-    get_workbench().set_default("ai.model", "gpt")
+    get_workbench().set_default("ai.model", "gemini")
     get_workbench().set_default("ai.language", "uk")
     get_workbench().set_default("ai.summary_max_msgs", 25)
     get_workbench().set_default("ai.summary_max_chars", 10000)

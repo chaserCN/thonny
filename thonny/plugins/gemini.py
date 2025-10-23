@@ -121,7 +121,8 @@ class GeminiAssistant(BaseAIAssistant):
             genai.configure(api_key=self._get_saved_api_key())
             
             # Create model with system instruction
-            model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
+            model_name = get_workbench().get_option("ai.gemini_model", "gemini-2.5-pro")
+            model = genai.GenerativeModel(model_name, system_instruction=system_prompt)
             
             # Separate last message from history
             if not messages:

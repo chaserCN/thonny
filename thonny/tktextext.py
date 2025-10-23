@@ -257,6 +257,7 @@ class EnhancedText(TweakableText):
     def _bind_mouse_aids(self):
         if _running_on_mac():
             self.bind("<Button-2>", self.on_secondary_click)
+            self.bind("<Button-3>", self.on_secondary_click)  # Right click / two-finger tap
             self.bind("<Control-Button-1>", self.on_secondary_click)
         else:
             self.bind("<Button-3>", self.on_secondary_click)

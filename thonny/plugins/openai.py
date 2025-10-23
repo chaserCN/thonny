@@ -116,15 +116,21 @@ class OpenAIAssistant(BaseAIAssistant):
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to OpenAI API and stream response"""
         from openai import OpenAI, APIConnectionError, APIError
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
 
         try:
-            client = OpenAI(api_key=self._get_saved_api_key())
+            api_key = self._get_saved_api_key()
+            logger.info(f"OpenAI API key from secrets: exists={api_key is not None}, length={len(api_key) if api_key else 0}")
+            client = OpenAI(api_key=api_key)
 
             # Combine system message with history
             all_messages = [{"role": "system", "content": system_prompt}] + messages
 
+            model_name = get_workbench().get_option("ai.gpt_model", "gpt-5")
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model_name,
                 messages=all_messages,
                 stream=False,
             )

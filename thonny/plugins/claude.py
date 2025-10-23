@@ -134,8 +134,9 @@ class ClaudeAssistant(BaseAIAssistant):
             # Claude uses separate system parameter (not in messages)
             # Note: messages should NOT include system messages
             # Available models: claude-sonnet-4-5, claude-haiku-4-5
+            model_name = get_workbench().get_option("ai.claude_model", "claude-sonnet-4-5")
             response = client.messages.create(
-                model="claude-sonnet-4-5",
+                model=model_name,
                 max_tokens=8192,
                 system=system_prompt,
                 messages=messages,

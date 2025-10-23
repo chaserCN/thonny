@@ -571,6 +571,9 @@ msgstr "Створити віртуальне середовище"
 msgid "Clear shell"
 msgstr "Очистити оболонку"
 
+msgid "Explain"
+msgstr "Пояснити"
+
 #: thonny/shell.py:185
 msgid "Plotter"
 msgstr "Плотер"

@@ -138,17 +138,49 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         super().on_secondary_click(event)
         self.mark_set("insert", "@%d,%d" % (event.x, event.y))
 
+        # Get base menu
         menu = get_workbench().get_menu("edit")
+        
+        # Check for debugger menu
         try:
             from thonny.plugins.debugger import get_current_debugger
-
             debugger = get_current_debugger()
             if debugger is not None:
                 menu = debugger.get_editor_context_menu()
         except ImportError:
             pass
+        
+        # Clone menu to avoid modifying original
+        popup_menu = tk.Menu(self, tearoff=False)
+        
+        # Copy all items from original menu
+        for i in range(menu.index("end") + 1):
+            try:
+                item_type = menu.type(i)
+                if item_type == "separator":
+                    popup_menu.add_separator()
+                elif item_type == "command":
+                    popup_menu.add_command(
+                        label=menu.entrycget(i, "label"),
+                        command=menu.entrycget(i, "command"),
+                        accelerator=menu.entrycget(i, "accelerator") if menu.entrycget(i, "accelerator") else None
+                    )
+                elif item_type == "cascade":
+                    popup_menu.add_cascade(
+                        label=menu.entrycget(i, "label"),
+                        menu=menu.nametowidget(menu.entrycget(i, "menu"))
+                    )
+            except:
+                pass
+        
+        # Add code snippets
+        try:
+            from thonny.plugins import code_snippets
+            code_snippets._populate_editor_menu(popup_menu)
+        except (ImportError, AttributeError):
+            pass
 
-        menu.tk_popup(event.x_root, event.y_root)
+        popup_menu.tk_popup(event.x_root, event.y_root)
 
 
 class CodeView(tktextext.EnhancedTextFrame):
@@ -510,7 +542,7 @@ class CodeView(tktextext.EnhancedTextFrame):
         
         # Set size
         popup_width = 600
-        popup_height = 400
+        popup_height = 520  # Increased by 30% (was 400)
         popup.geometry(f"{popup_width}x{popup_height}")
         
         # Calculate position relative to the info button
@@ -591,6 +623,10 @@ class CodeView(tktextext.EnhancedTextFrame):
                 
                 # Update UI in main thread
                 def update_ui():
+                    # Check if popup still exists
+                    if not popup.winfo_exists():
+                        return
+                    
                     from thonny.markdown_utils import render_markdown
                     # Clear and show formatted explanation
                     explanation_text.delete("1.0", "end")
@@ -605,6 +641,10 @@ class CodeView(tktextext.EnhancedTextFrame):
                 popup.after(0, update_ui)
             except Exception as e:
                 def show_error(err_label=error_label, error=e):
+                    # Check if popup still exists
+                    if not popup.winfo_exists():
+                        return
+                    
                     from thonny.markdown_utils import render_markdown
                     explanation_text.delete("1.0", "end")
                     error_md = f"**{err_label}**\n\n{str(error)}"
