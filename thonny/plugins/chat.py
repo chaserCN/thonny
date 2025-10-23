@@ -959,19 +959,27 @@ class ChatView(tktextext.TextFrame):
             img_label.image = photo  # Keep reference
             img_label.pack(side="left", padx=5, pady=5)
             
-            # Close button
-            close_btn = tk.Button(
+            # Close button (small emoji label, top-right)
+            close_label = tk.Label(
                 preview_container,
-                text="✕",
-                command=self._clear_attached_image,
+                text="❌",
                 background="#f0f0f0",
                 foreground="#666666",
-                borderwidth=0,
-                font=("TkDefaultFont", 12),
+                font=("TkDefaultFont", 10),
                 cursor="hand2",
-                padx=5
+                padx=3,
+                pady=0
             )
-            close_btn.pack(side="right", padx=5, pady=5)
+            close_label.pack(side="right", anchor="ne", padx=3, pady=3)
+            close_label.bind("<Button-1>", lambda e: self._clear_attached_image())
+            
+            # Hover effects
+            def on_enter(e):
+                close_label.config(foreground="#333333")
+            def on_leave(e):
+                close_label.config(foreground="#666666")
+            close_label.bind("<Enter>", on_enter)
+            close_label.bind("<Leave>", on_leave)
             
             # Show the preview frame
             self.image_preview_frame.grid()
