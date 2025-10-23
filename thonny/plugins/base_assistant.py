@@ -335,6 +335,8 @@ class BaseAIAssistant(Assistant):
             PromptType.USER_EXPLAIN_SELECTION,
             lang,
             selected_code=context.selected_code,
+            start_line=context.start_line,
+            end_line=context.end_line,
             program_context=context.program_context
         )
         

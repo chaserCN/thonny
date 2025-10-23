@@ -272,8 +272,12 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
             )
             return
         
+        # Extract final line numbers after expansion
+        final_start_line = int(sel_start.split('.')[0])
+        final_end_line = int(sel_end.split('.')[0])
+        
         # Show explanation popup for selected code
-        self._show_selection_explanation_popup(selected_text)
+        self._show_selection_explanation_popup(selected_text, final_start_line, final_end_line)
     
     def _get_token_under_cursor(self, line_content, col_num):
         """Identify the token or construct under cursor
@@ -512,7 +516,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         
         threading.Thread(target=get_explanation, daemon=True).start()
     
-    def _show_selection_explanation_popup(self, selected_code):
+    def _show_selection_explanation_popup(self, selected_code, start_line, end_line):
         """Show popup with AI explanation of selected code fragment"""
         from tkinter import messagebox
         import threading
@@ -617,7 +621,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         # Request explanation in background
         def get_explanation():
             try:
-                explanation = self._request_selection_explanation(assistant, selected_code)
+                explanation = self._request_selection_explanation(assistant, selected_code, start_line, end_line)
                 
                 def show_result():
                     # Check if popup still exists
@@ -689,7 +693,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         # Call assistant's explain_token method (all AI logic is there)
         return assistant.explain_token(context)
     
-    def _request_selection_explanation(self, assistant, selected_code):
+    def _request_selection_explanation(self, assistant, selected_code, start_line, end_line):
         """Request AI explanation for selected code fragment
         
         Note: assistant.get_ready() must be called BEFORE this method in the main thread!
@@ -702,6 +706,8 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         # Create context with selected code and program context
         context = SelectionContext(
             selected_code=selected_code,
+            start_line=start_line,
+            end_line=end_line,
             program_context=program_context
         )
         

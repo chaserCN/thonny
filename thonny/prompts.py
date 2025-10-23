@@ -1141,7 +1141,7 @@ else:
     # Used in: base_assistant.py - explain_selection()
     # Provides user context: selected code and full program
     PromptType.USER_EXPLAIN_SELECTION: {
-        "ru": """**Виділений фрагмент:**
+        "ru": """**Выделенный фрагмент (строки {start_line}-{end_line}):**
 ```python
 {selected_code}
 ```
@@ -1150,7 +1150,7 @@ else:
 {program_context}
 
 Объясни что делает выделенный фрагмент кода.""",
-        "uk": """**Виділений фрагмент:**
+        "uk": """**Виділений фрагмент (рядки {start_line}-{end_line}):**
 ```python
 {selected_code}
 ```

@@ -123,6 +123,8 @@ class TokenContext:
 class SelectionContext:
     """Context for selected code explanation requests from code view"""
     selected_code: str
+    start_line: int
+    end_line: int
     program_context: str  # Always contains either debug context or formatted code
 
 
