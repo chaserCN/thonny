@@ -344,6 +344,7 @@ class ChatView(tktextext.TextFrame):
                     self._append_text("🤖 ", tags=("bot_avatar",))
                     typing_start = self.text.index("end-1c")
                     self._append_text("·", tags=("typing_indicator",))
+                    self._append_text("\n", tags=())  # Bottom spacing
                     self._bot_avatar_added = True
                     # Store position to update typing indicator (just the dots, not avatar)
                     self._typing_indicator_start = typing_start
@@ -775,6 +776,7 @@ class ChatView(tktextext.TextFrame):
             # Update the text
             self.text.direct_delete(self._typing_indicator_start, "end")
             self.text.direct_insert(self._typing_indicator_start, current_dots, ("typing_indicator",))
+            self.text.direct_insert("end", "\n", ())  # Bottom spacing
             
             # Next frame
             self._typing_animation_step += 1
@@ -1179,6 +1181,7 @@ class ChatView(tktextext.TextFrame):
         self._append_text("🤖 ", tags=("bot_avatar",))
         typing_start = self.text.index("end-1c")
         self._append_text("·", tags=("typing_indicator",))
+        self._append_text("\n", tags=())  # Bottom spacing
         self._bot_avatar_added = True
         # Store position to update typing indicator (just the dots, not avatar)
         self._typing_indicator_start = typing_start
