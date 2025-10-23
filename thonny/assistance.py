@@ -119,6 +119,13 @@ class TokenContext:
     program_context: str  # Always contains either debug context or formatted code
 
 
+@dataclass
+class SelectionContext:
+    """Context for selected code explanation requests from code view"""
+    selected_code: str
+    program_context: str  # Always contains either debug context or formatted code
+
+
 class Assistant(ABC):
     @abstractmethod
     def get_ready(self) -> bool:

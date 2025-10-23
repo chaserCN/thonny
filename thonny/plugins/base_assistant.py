@@ -2,7 +2,7 @@ from abc import abstractmethod
 from typing import Iterator, List, Optional
 
 from thonny import get_workbench
-from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole, CodeViewContext, TokenContext
+from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole, CodeViewContext, TokenContext, SelectionContext
 from thonny.prompts import PromptType, get_prompt
 
 
@@ -300,6 +300,60 @@ class BaseAIAssistant(Assistant):
                     
         except Exception as e:
             logger.exception("Error requesting token explanation")
+            if lang == "ru":
+                return f"Ошибка при запросе к AI: {str(e)}"
+            else:
+                return f"Помилка при запиті до AI: {str(e)}"
+        
+        result = "".join(response_parts) if response_parts else ("Нет ответа от AI" if lang == "ru" else "Немає відповіді від AI")
+        
+        return result
+    
+    def explain_selection(self, context: SelectionContext) -> str:
+        """
+        Request AI explanation for selected code fragment
+        
+        Args:
+            context: SelectionContext with selected code and full program
+            
+        Returns:
+            AI explanation as string
+        """
+        from logging import getLogger
+        from thonny.assistance import ChatMessage, ChatRole
+        
+        logger = getLogger(__name__)
+        
+        # Get language preference
+        lang = self._get_language()
+        
+        # Get system prompt (instructions only)
+        system_prompt = get_prompt(PromptType.SYSTEM_SELECTION_EXPLANATION, lang)
+        
+        # Build user prompt with all context (data)
+        user_prompt = get_prompt(
+            PromptType.USER_EXPLAIN_SELECTION,
+            lang,
+            selected_code=context.selected_code,
+            program_context=context.program_context
+        )
+        
+        # Prepare single message
+        user_message = ChatMessage(ChatRole.USER, user_prompt, [])
+        
+        print_request_info("EXPLAIN SELECTION", system_prompt, [user_message])
+        
+        messages = self._prepare_messages([user_message])
+
+        # Call API directly
+        response_parts = []
+        try:
+            for chunk in self._send_to_api(system_prompt, messages):
+                if chunk.content:
+                    response_parts.append(chunk.content)
+                    
+        except Exception as e:
+            logger.exception("Error requesting selection explanation")
             if lang == "ru":
                 return f"Ошибка при запросе к AI: {str(e)}"
             else:

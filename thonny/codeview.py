@@ -153,6 +153,22 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         # Clone menu to avoid modifying original
         popup_menu = tk.Menu(self, tearoff=False)
         
+        # Add "Explain under cursor" option at the TOP
+        popup_menu.add_command(
+            label=tr("Explain under cursor..."),
+            command=lambda: self.explain_token_under_cursor()
+        )
+        
+        # Add code snippets at the TOP
+        try:
+            from thonny.plugins import code_snippets
+            code_snippets._populate_editor_menu(popup_menu)
+        except (ImportError, AttributeError):
+            pass
+        
+        # Add separator before standard items
+        popup_menu.add_separator()
+        
         # Copy all items from original menu
         for i in range(menu.index("end") + 1):
             try:
@@ -172,25 +188,22 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                     )
             except:
                 pass
-        
-        # Add code snippets
-        try:
-            from thonny.plugins import code_snippets
-            code_snippets._populate_editor_menu(popup_menu)
-        except (ImportError, AttributeError):
-            pass
-        
-        # Add "Explain token under cursor" option
-        popup_menu.add_separator()
-        popup_menu.add_command(
-            label=tr("Explain under cursor..."),
-            command=lambda: self.explain_token_under_cursor()
-        )
 
         popup_menu.tk_popup(event.x_root, event.y_root)
     
     def explain_token_under_cursor(self):
-        """Explain the token/construct under cursor using AI"""
+        """Explain the token/construct under cursor or selected text using AI"""
+        # Check if there's a selection
+        try:
+            sel_start = self.index("sel.first")
+            sel_end = self.index("sel.last")
+            # If we got here, there's a selection
+            self._explain_selection(sel_start, sel_end)
+            return
+        except:
+            # No selection, continue with token under cursor
+            pass
+        
         # Get cursor position
         cursor_index = self.index("insert")
         line_num = int(cursor_index.split(".")[0])
@@ -213,6 +226,54 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         
         # Show explanation popup
         self._show_token_explanation_popup(line_num, line_content, token_info)
+    
+    def _explain_selection(self, sel_start, sel_end):
+        """Explain selected code fragment using AI"""
+        import re
+        
+        # Get selected text
+        selected_text = self.get(sel_start, sel_end)
+        
+        # Expand to word boundaries if selection is partial
+        # Check if start is in the middle of a word
+        start_line, start_col = map(int, sel_start.split('.'))
+        line_start_text = self.get(f"{start_line}.0", sel_start)
+        if line_start_text and re.match(r'.*[a-zA-Z0-9_]$', line_start_text):
+            # Expand left to word boundary
+            while start_col > 0:
+                char_before = self.get(f"{start_line}.{start_col-1}", f"{start_line}.{start_col}")
+                if not (char_before.isalnum() or char_before == '_'):
+                    break
+                start_col -= 1
+            sel_start = f"{start_line}.{start_col}"
+        
+        # Check if end is in the middle of a word
+        end_line, end_col = map(int, sel_end.split('.'))
+        char_at_end = self.get(sel_end, f"{end_line}.{end_col+1}")
+        if char_at_end and (char_at_end.isalnum() or char_at_end == '_'):
+            # Expand right to word boundary
+            line_end_pos = self.index(f"{end_line}.end")
+            line_end_col = int(line_end_pos.split('.')[1])
+            while end_col < line_end_col:
+                char = self.get(f"{end_line}.{end_col}", f"{end_line}.{end_col+1}")
+                if not (char.isalnum() or char == '_'):
+                    break
+                end_col += 1
+            sel_end = f"{end_line}.{end_col}"
+        
+        # Get the expanded selection
+        selected_text = self.get(sel_start, sel_end)
+        
+        if not selected_text.strip():
+            from tkinter import messagebox
+            messagebox.showinfo(
+                tr("Explain selection"),
+                tr("Selection is empty")
+            )
+            return
+        
+        # Show explanation popup for selected code
+        self._show_selection_explanation_popup(selected_text)
     
     def _get_token_under_cursor(self, line_content, col_num):
         """Identify the token or construct under cursor
@@ -349,7 +410,6 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
             token_label = "Элемент:"
             explanation_label = "Объяснение:"
             loading_text = "⏳ *Запрашиваю AI для объяснения...*"
-            close_text = "Закрыть"
             error_label = "Ошибка:"
         else:  # uk
             title_text = f"Пояснення: {token_info['token']}"
@@ -357,7 +417,6 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
             token_label = "Елемент:"
             explanation_label = "Пояснення:"
             loading_text = "⏳ *Запитую AI для пояснення...*"
-            close_text = "Закрити"
             error_label = "Помилка:"
         
         # Create popup dialog
@@ -418,10 +477,6 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         from thonny.markdown_utils import render_markdown
         render_markdown(explanation_text, loading_text)
         
-        # Close button
-        close_btn = ttk.Button(popup, text=close_text, command=popup.destroy)
-        close_btn.pack(pady=(0, 10))
-        
         # Get AI explanation in thread
         def get_explanation():
             try:
@@ -448,6 +503,132 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                 def show_error(err_label=error_label, error=e):
                     if not popup.winfo_exists():
                         return
+                    
+                    from thonny.markdown_utils import render_markdown
+                    explanation_text.delete("1.0", "end")
+                    error_md = f"**{err_label}**\n\n{str(error)}"
+                    render_markdown(explanation_text, error_md)
+                popup.after(0, show_error)
+        
+        threading.Thread(target=get_explanation, daemon=True).start()
+    
+    def _show_selection_explanation_popup(self, selected_code):
+        """Show popup with AI explanation of selected code fragment"""
+        from tkinter import messagebox
+        import threading
+        from thonny import get_workbench
+        
+        # Check assistant readiness BEFORE creating popup/thread
+        try:
+            model = get_workbench().get_option("ai.model", "gpt")
+        except:
+            model = "gpt"
+        
+        assistants = get_workbench().assistants
+        if model == "gpt":
+            assistant = assistants.get("openai")
+        elif model == "gemini":
+            assistant = assistants.get("gemini")
+        elif model == "claude":
+            assistant = assistants.get("claude")
+        else:
+            assistant = assistants.get("openai")
+        
+        if not assistant:
+            messagebox.showerror("AI Error", tr("AI assistant unavailable. Check API key settings."))
+            return
+        
+        if not assistant.get_ready():
+            return
+        
+        # Get language preference
+        try:
+            lang = get_workbench().get_option("ai.language", "uk")
+        except:
+            lang = "uk"
+        
+        # Localized strings
+        if lang == "ru":
+            title_text = "Объяснение выделенного кода"
+            code_label = "Выделенный код:"
+            explanation_label = "Объяснение:"
+            loading_text = "⏳ *Запрашиваю AI для объяснения...*"
+            error_label = "Ошибка:"
+        else:  # uk
+            title_text = "Пояснення виділеного коду"
+            code_label = "Виділений код:"
+            explanation_label = "Пояснення:"
+            loading_text = "⏳ *Запитую AI для пояснення...*"
+            error_label = "Помилка:"
+        
+        # Create popup dialog
+        popup = tk.Toplevel(self)
+        popup.title(title_text)
+        popup.withdraw()
+        popup.transient(self.winfo_toplevel())
+        
+        # Set size
+        popup_width = 700
+        popup_height = 600
+        popup.geometry(f"{popup_width}x{popup_height}")
+        
+        root = self.winfo_toplevel()
+        root_x = root.winfo_rootx()
+        root_w = root.winfo_width()
+        root_h = root.winfo_height()
+        
+        # Center horizontally
+        popup_x = root_x + (root_w - popup_width) // 2
+        popup_y = root.winfo_rooty() + (root_h - popup_height) // 2
+        
+        # Screen boundaries
+        screen_width = popup.winfo_screenwidth()
+        screen_height = popup.winfo_screenheight()
+        if popup_x < 0:
+            popup_x = 0
+        elif popup_x + popup_width > screen_width:
+            popup_x = screen_width - popup_width
+        if popup_y < 0:
+            popup_y = 0
+        elif popup_y + popup_height > screen_height:
+            popup_y = screen_height - popup_height
+        
+        popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
+        popup.deiconify()
+        
+        # Add Text widget
+        text_frame = tk.Frame(popup)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        explanation_text = tk.Text(
+            text_frame,
+            wrap=tk.WORD,
+            font="TkDefaultFont",
+            background="white",
+            foreground="black",
+            state="normal"
+        )
+        explanation_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Show loading message
+        from thonny.markdown_utils import render_markdown
+        render_markdown(explanation_text, loading_text)
+        
+        # Request explanation in background
+        def get_explanation():
+            try:
+                explanation = self._request_selection_explanation(assistant, selected_code)
+                
+                def show_result():
+                    explanation_text.delete("1.0", "end")
+                    render_markdown(explanation_text, explanation)
+                popup.after(0, show_result)
+            except Exception as error:
+                import traceback
+                traceback.print_exc()
+                
+                def show_error():
+                    err_label = error_label
                     
                     from thonny.markdown_utils import render_markdown
                     explanation_text.delete("1.0", "end")
@@ -501,6 +682,25 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         
         # Call assistant's explain_token method (all AI logic is there)
         return assistant.explain_token(context)
+    
+    def _request_selection_explanation(self, assistant, selected_code):
+        """Request AI explanation for selected code fragment
+        
+        Note: assistant.get_ready() must be called BEFORE this method in the main thread!
+        """
+        from thonny.assistance import SelectionContext
+        
+        # Get program context (debug if available, or formatted code)
+        program_context = self._get_program_context()
+        
+        # Create context with selected code and program context
+        context = SelectionContext(
+            selected_code=selected_code,
+            program_context=program_context
+        )
+        
+        # Call assistant's explain_selection method (all AI logic is there)
+        return assistant.explain_selection(context)
 
 
 class CodeView(tktextext.EnhancedTextFrame):
@@ -931,14 +1131,12 @@ class CodeView(tktextext.EnhancedTextFrame):
             code_line_label = "Строка кода:"
             explanation_label = "Пояснение:"
             loading_text = "⏳ *Запрашиваю AI для пояснения...*"
-            close_text = "Закрыть"
             error_label = "Ошибка:"
         else:  # uk
             title_text = f"Рядок {line_num}: Пояснення"
             code_line_label = "Рядок коду:"
             explanation_label = "Пояснення:"
             loading_text = "⏳ *Запитую AI для пояснення...*"
-            close_text = "Закрити"
             error_label = "Помилка:"
         
         # Create popup dialog
@@ -1011,10 +1209,6 @@ class CodeView(tktextext.EnhancedTextFrame):
         from thonny.markdown_utils import render_markdown
         loading_msg = f"**{code_line_label}**\n\n{line_content}\n\n{loading_text}\n"
         render_markdown(explanation_text, loading_msg)
-        
-        # Close button
-        close_btn = ttk.Button(popup, text=close_text, command=popup.destroy)
-        close_btn.pack(pady=(0, 10))
         
         # Get AI explanation in thread
         def get_explanation():
