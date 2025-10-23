@@ -19,6 +19,7 @@ class InlineCompleter:
     """Manages inline code completions with ghost text"""
     
     def __init__(self):
+        logger.info("Initializing InlineCompleter")
         self._current_suggestion: Optional[str] = None
         self._suggestion_start_index: Optional[str] = None
         self._active_text_widget: Optional[CodeViewText] = None
@@ -27,9 +28,11 @@ class InlineCompleter:
         self._min_request_interval: float = 0.5  # 500ms between requests
         
         # Bind to editor events
+        logger.info("Binding to EditorCodeViewText events...")
         get_workbench().bind_class("EditorCodeViewText", "<Key>", self._on_keypress, True)
         get_workbench().bind_class("EditorCodeViewText", "<Tab>", self._on_tab, True)
         get_workbench().bind_class("EditorCodeViewText", "<Escape>", self._on_escape, True)
+        logger.info("Event bindings completed")
         
         # Configure ghost text tag
         self._setup_ghost_text_tag()
@@ -41,11 +44,15 @@ class InlineCompleter:
     
     def _on_keypress(self, event: tk.Event) -> Optional[str]:
         """Handle keypress events to trigger suggestions"""
-        if not get_workbench().get_option("edit.inline_completions_enabled", True):
+        enabled = get_workbench().get_option("edit.inline_completions_enabled", True)
+        logger.debug(f"Keypress: {event.keysym}, inline_completions_enabled={enabled}")
+        
+        if not enabled:
             return None
         
         widget = event.widget
         if not isinstance(widget, CodeViewText):
+            logger.debug(f"Not CodeViewText: {type(widget)}")
             return None
         
         # Clear current suggestion on most keypresses
@@ -61,6 +68,7 @@ class InlineCompleter:
         if self._debounce_timer:
             self._debounce_timer.cancel()
         
+        logger.debug(f"Starting debounce timer for widget {widget}")
         self._debounce_timer = threading.Timer(
             0.3,  # 300ms delay after last keypress
             lambda: self._request_suggestion(widget)
@@ -96,9 +104,12 @@ class InlineCompleter:
     
     def _request_suggestion(self, widget: CodeViewText):
         """Request inline completion from Gemini"""
+        logger.info("_request_suggestion called")
+        
         # Rate limiting
         now = time.time()
         if now - self._last_request_time < self._min_request_interval:
+            logger.debug(f"Rate limited: {now - self._last_request_time:.2f}s < {self._min_request_interval}s")
             return
         
         self._last_request_time = now
@@ -111,12 +122,15 @@ class InlineCompleter:
             
             # Don't suggest in comments or strings (simple heuristic)
             if "#" in line_prefix or '"' in line_prefix or "'" in line_prefix:
+                logger.debug(f"Skipping: comment or string detected in '{line_prefix}'")
                 return
             
             # Get more context (previous lines)
             start_line = max(1, int(cursor_pos.split('.')[0]) - 10)
             context_start = f"{start_line}.0"
             context = widget.get(context_start, cursor_pos)
+            
+            logger.info(f"Requesting completion for: '{line_prefix}' (context: {len(context)} chars)")
             
             # Request completion in background thread
             threading.Thread(
@@ -131,12 +145,15 @@ class InlineCompleter:
     def _fetch_suggestion(self, widget: CodeViewText, cursor_pos: str, 
                          context: str, line_prefix: str):
         """Fetch suggestion from Gemini API (runs in background thread)"""
+        logger.info("_fetch_suggestion: Starting API request")
         try:
             # Get API key
             api_key = get_workbench().get_secret("gemini_api_key")
             if not api_key:
-                logger.debug("No Gemini API key configured")
+                logger.warning("No Gemini API key configured for inline completion")
                 return
+            
+            logger.debug(f"API key found: {api_key[:10]}...")
             
             # Build prompt for code completion
             prompt = self._build_completion_prompt(context, line_prefix)
@@ -147,8 +164,10 @@ class InlineCompleter:
                 
                 genai.configure(api_key=api_key)
                 model_name = get_workbench().get_option("ai.gemini_model", "gemini-2.0-flash-exp")
+                logger.info(f"Using model: {model_name}")
                 model = genai.GenerativeModel(model_name)
                 
+                logger.debug("Sending request to Gemini...")
                 response = model.generate_content(
                     prompt,
                     generation_config={
@@ -158,12 +177,13 @@ class InlineCompleter:
                 )
                 
                 suggestion = response.text.strip()
+                logger.info(f"Got suggestion: '{suggestion[:50]}...'")
                 
                 # Schedule UI update on main thread
                 widget.after(0, lambda: self._show_suggestion(widget, cursor_pos, suggestion))
                 
             except ImportError:
-                logger.warning("google-generativeai package not installed")
+                logger.error("google-generativeai package not installed! Run: pip install google-generativeai")
             
         except Exception as e:
             logger.debug(f"Failed to fetch inline completion: {e}")
@@ -181,10 +201,12 @@ Return only the text to insert, nothing else."""
     
     def _show_suggestion(self, widget: CodeViewText, cursor_pos: str, suggestion: str):
         """Show ghost text suggestion in the editor (main thread)"""
+        logger.info(f"_show_suggestion called with: '{suggestion}'")
         try:
             # Verify cursor hasn't moved
             current_pos = widget.index("insert")
             if current_pos != cursor_pos:
+                logger.debug(f"Cursor moved: {cursor_pos} -> {current_pos}, skipping suggestion")
                 return
             
             # Configure ghost text tag if not already done
@@ -209,11 +231,13 @@ Return only the text to insert, nothing else."""
             self._active_text_widget = widget
             
             # Insert ghost text at cursor
+            logger.info(f"Inserting ghost text: '{suggestion}' at {cursor_pos}")
             widget.insert(cursor_pos, suggestion, "ghost_text")
             
             # Move cursor back to original position
             widget.mark_set("insert", cursor_pos)
             widget.see("insert")
+            logger.info("Ghost text displayed successfully")
             
         except tk.TclError as e:
             logger.debug(f"Failed to show suggestion: {e}")
@@ -261,10 +285,12 @@ Return only the text to insert, nothing else."""
 
 def load_plugin():
     """Initialize inline completion plugin"""
+    logger.info("=== Loading inline completion plugin ===")
+    
     completer = InlineCompleter()
     
     # Add setting
     get_workbench().set_default("edit.inline_completions_enabled", True)
     
-    logger.info("Inline completion plugin loaded")
+    logger.info(f"Inline completion plugin loaded successfully, enabled={get_workbench().get_option('edit.inline_completions_enabled', True)}")
 
