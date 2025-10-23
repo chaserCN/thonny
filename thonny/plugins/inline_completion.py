@@ -163,7 +163,8 @@ class InlineCompleter:
                 import google.generativeai as genai
                 
                 genai.configure(api_key=api_key)
-                model_name = get_workbench().get_option("ai.gemini_model", "gemini-2.0-flash-exp")
+                # Use fast model for inline completion
+                model_name = get_workbench().get_option("ai.inline_completion_model", "gemini-2.0-flash-exp")
                 logger.info(f"Using model: {model_name}")
                 model = genai.GenerativeModel(model_name)
                 
@@ -182,11 +183,13 @@ class InlineCompleter:
                 # Schedule UI update on main thread
                 widget.after(0, lambda: self._show_suggestion(widget, cursor_pos, suggestion))
                 
-            except ImportError:
-                logger.error("google-generativeai package not installed! Run: pip install google-generativeai")
+            except ImportError as e:
+                logger.error(f"google-generativeai package not installed! Run: pip install google-generativeai. Error: {e}")
+            except Exception as api_error:
+                logger.error(f"Gemini API error: {api_error}", exc_info=True)
             
         except Exception as e:
-            logger.debug(f"Failed to fetch inline completion: {e}")
+            logger.error(f"Failed to fetch inline completion: {e}", exc_info=True)
     
     def _build_completion_prompt(self, context: str, line_prefix: str) -> str:
         """Build prompt for inline code completion"""
@@ -289,8 +292,9 @@ def load_plugin():
     
     completer = InlineCompleter()
     
-    # Add setting
+    # Add settings
     get_workbench().set_default("edit.inline_completions_enabled", True)
+    get_workbench().set_default("ai.inline_completion_model", "gemini-2.0-flash-exp")
     
     logger.info(f"Inline completion plugin loaded successfully, enabled={get_workbench().get_option('edit.inline_completions_enabled', True)}")
 
