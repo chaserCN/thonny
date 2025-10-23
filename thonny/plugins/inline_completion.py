@@ -177,11 +177,18 @@ class InlineCompleter:
                     }
                 )
                 
-                suggestion = response.text.strip()
-                logger.info(f"Got suggestion: '{suggestion[:50]}...'")
+                raw_suggestion = response.text.strip()
+                logger.info(f"Got raw suggestion: '{raw_suggestion[:100]}'")
                 
-                # Schedule UI update on main thread
-                widget.after(0, lambda: self._show_suggestion(widget, cursor_pos, suggestion))
+                # Clean up the suggestion
+                suggestion = self._clean_suggestion(raw_suggestion)
+                logger.info(f"Cleaned suggestion: '{suggestion[:50]}...'")
+                
+                if suggestion:
+                    # Schedule UI update on main thread
+                    widget.after(0, lambda: self._show_suggestion(widget, cursor_pos, suggestion))
+                else:
+                    logger.debug("Empty suggestion after cleaning, skipping")
                 
             except ImportError as e:
                 logger.error(f"google-generativeai package not installed! Run: pip install google-generativeai. Error: {e}")
@@ -191,16 +198,65 @@ class InlineCompleter:
         except Exception as e:
             logger.error(f"Failed to fetch inline completion: {e}", exc_info=True)
     
+    def _clean_suggestion(self, raw: str) -> str:
+        """Clean up AI response to get pure code suggestion"""
+        if not raw:
+            return ""
+        
+        # Remove markdown code blocks
+        if "```" in raw:
+            # Extract code between ```python and ``` or ``` and ```
+            parts = raw.split("```")
+            for i, part in enumerate(parts):
+                if i % 2 == 1:  # Odd indices are code blocks
+                    code = part.strip()
+                    if code.startswith("python\n"):
+                        code = code[7:]
+                    return code.strip()
+        
+        # Split by lines and take meaningful content
+        lines = raw.split('\n')
+        result_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Skip empty lines
+            if not line:
+                continue
+            
+            # Skip explanatory text (heuristics)
+            if line.startswith(('Note:', 'Explanation:', 'This', 'The', '**', '#')):
+                continue
+            
+            # Take code-like lines
+            result_lines.append(line)
+            
+            # For inline completion, usually just one line is enough
+            if len(result_lines) >= 1:
+                break
+        
+        return result_lines[0] if result_lines else ""
+    
     def _build_completion_prompt(self, context: str, line_prefix: str) -> str:
         """Build prompt for inline code completion"""
-        return f"""Complete the following Python code. Return ONLY the completion text that should come after the cursor, without any explanations, markdown, or code blocks.
+        return f"""You are a code completion AI. Complete the Python code after the cursor position.
 
-Code context:
-{context}
+RULES:
+- Return ONLY the text to insert after the cursor
+- NO explanations, NO markdown, NO code blocks
+- Complete the current line or suggest next line if current is finished
+- Keep completions SHORT (one line preferred)
+- Match the coding style
 
-Complete this line starting after: {line_prefix}
+CODE:
+```python
+{context}█
+```
 
-Return only the text to insert, nothing else."""
+The cursor (█) is after: `{line_prefix}`
+
+COMPLETE THE CODE (return only the text after cursor):"""
     
     def _show_suggestion(self, widget: CodeViewText, cursor_pos: str, suggestion: str):
         """Show ghost text suggestion in the editor (main thread)"""
@@ -219,13 +275,10 @@ Return only the text to insert, nothing else."""
             # Clear any previous suggestion
             self._clear_suggestion(widget)
             
-            # Extract only the first line or first meaningful completion
-            if '\n' in suggestion:
-                suggestion = suggestion.split('\n')[0]
-            
-            # Clean up the suggestion
-            suggestion = suggestion.lstrip()
+            # Suggestion is already cleaned by _clean_suggestion
+            # Just verify it's not empty
             if not suggestion:
+                logger.debug("Empty suggestion, skipping")
                 return
             
             # Store suggestion state
