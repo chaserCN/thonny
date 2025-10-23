@@ -1557,4 +1557,4 @@ def load_plugin():
     get_workbench().set_default("ai.summary_max_msgs", 25)
     get_workbench().set_default("ai.summary_max_chars", 10000)
     
-    get_workbench().add_view(ChatView, tr("Chat"), "se", visible_by_default=False)
+    get_workbench().add_view(ChatView, tr("Chat"), "se", visible_by_default=True)

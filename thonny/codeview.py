@@ -155,7 +155,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         
         # Add "Explain Selection" at the TOP
         popup_menu.add_command(
-            label="Explain Selection...",
+            label=tr("Explain Selection..."),
             command=lambda: self.explain_token_under_cursor()
         )
         

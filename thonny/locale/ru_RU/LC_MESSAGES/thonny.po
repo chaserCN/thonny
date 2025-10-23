@@ -2035,3 +2035,6 @@ msgstr "Сбросить все сниппеты к значениям по ум
 
 msgid "Enable inline code suggestions (AI-powered, press Tab to accept)"
 msgstr "Включить AI-подсказки кода (серым текстом, Tab для вставки)"
+
+msgid "Explain Selection..."
+msgstr "Объяснить код..."

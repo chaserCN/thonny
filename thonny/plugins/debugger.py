@@ -1290,7 +1290,7 @@ def load_plugin() -> None:
 
     get_workbench().set_default("debugger.automatic_stack_view", True)
     get_workbench().set_default(
-        "debugger.preferred_debugger", "faster" if running_on_rpi() else "nicer"
+        "debugger.preferred_debugger", "faster"
     )
     get_workbench().set_default("debugger.allow_stepping_into_libraries", False)
 
