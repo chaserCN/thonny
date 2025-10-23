@@ -1469,7 +1469,7 @@ class Workbench(tk.Tk):
 
         if include_in_toolbar:
             toolbar_group = self._get_menu_index(menu) * 100 + group
-            assert caption is not None
+            # caption can be None for icon-only buttons
             assert image is not None
             toolbar_image = self.get_image(image, for_toolbar=True)
             disabled_toolbar_image = self.get_image(image, for_toolbar=True, disabled=True)
@@ -2503,16 +2503,14 @@ class Workbench(tk.Tk):
         image: Optional[tk.PhotoImage],
         disabled_image: Optional[tk.PhotoImage],
         command_label: str,
-        caption: str,
-        alternative_caption: str,
+        caption: Optional[str],
+        alternative_caption: Optional[str],
         accelerator: Optional[str],
         handler: Callable[[], None],
         tester: Optional[Callable[[], bool]],
         toolbar_group: int,
     ) -> None:
-        assert caption is not None and len(caption) > 0, (
-            "Missing caption for '%s'. Toolbar commands must have caption." % command_label
-        )
+        # caption can be None for icon-only toolbar buttons
         slaves = self._toolbar.grid_slaves(0, toolbar_group)
         if len(slaves) == 0:
             group_frame = ttk.Frame(self._toolbar)
@@ -2524,14 +2522,16 @@ class Workbench(tk.Tk):
         else:
             group_frame = slaves[0]
 
-        if self.in_simple_mode():
+        if self.in_simple_mode() and caption:
             screen_width = self.winfo_screenwidth()
+            caption_len = len(caption) if caption else 0
+            alt_caption_len = len(alternative_caption) if alternative_caption else 0
             if screen_width >= 1280:
-                button_width = max(7, len(caption), len(alternative_caption))
+                button_width = max(7, caption_len, alt_caption_len)
             elif screen_width >= 1024:
-                button_width = max(6, len(caption), len(alternative_caption))
+                button_width = max(6, caption_len, alt_caption_len)
             else:
-                button_width = max(5, len(caption), len(alternative_caption))
+                button_width = max(5, caption_len, alt_caption_len)
         else:
             button_width = None
 
@@ -2545,7 +2545,7 @@ class Workbench(tk.Tk):
             image=image_spec,
             state=tk.NORMAL,
             text=caption,
-            compound="top" if self.in_simple_mode() else None,
+            compound="top" if (self.in_simple_mode() and caption) else None,
             pad=ems_to_pixels(0.5) if self.in_simple_mode() else ems_to_pixels(0.25),
             width=button_width,
         )
@@ -2562,8 +2562,11 @@ class Workbench(tk.Tk):
 
         button.pack(side=tk.LEFT)
         button.tester = tester  # type: ignore
-        tooltip_text = command_label
-        if self.get_ui_mode() != "simple":
+        
+        # Only create tooltip if caption is provided (not None) and command_label is not empty
+        # Icon-only buttons (caption=None) or buttons with empty label should not have tooltips
+        if caption is not None and command_label and self.get_ui_mode() != "simple":
+            tooltip_text = command_label
             if accelerator and lookup_style_option(
                 "OPTIONS", "shortcuts_in_tooltips", default=True
             ):

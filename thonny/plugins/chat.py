@@ -1561,6 +1561,132 @@ class ChatView(tktextext.TextFrame):
     #     pass
 
 
+def take_screenshot_without_chat():
+    """Global function to take screenshot while hiding Chat panel"""
+    try:
+        import time
+        from datetime import datetime
+        from pathlib import Path
+        
+        workbench = get_workbench()
+        
+        # Get ChatView instance
+        chat_view = None
+        notebook = None
+        was_visible = False
+        
+        try:
+            chat_view = workbench.get_view("ChatView", create=False)
+            notebook = getattr(chat_view, 'containing_notebook', None)
+            
+            if notebook:
+                # Check if chat is visible as a tab
+                tabs = notebook.tabs()
+                # If there are tabs and chat is managed, it's visible
+                was_visible = len(tabs) > 0 and chat_view.winfo_manager() != ''
+                
+                if was_visible:
+                    # Temporarily remove the chat tab from notebook
+                    try:
+                        notebook.forget(chat_view)
+                        # Force UI update to apply changes
+                        workbench.update_idletasks()
+                        workbench.update()
+                        
+                        # Wait for UI to stabilize - check that chat is actually unmapped
+                        max_wait = 1.0  # Maximum 1 second
+                        wait_step = 0.05  # Check every 50ms
+                        waited = 0.0
+                        
+                        while waited < max_wait:
+                            # Check if widget is unmapped (not visible)
+                            if not chat_view.winfo_ismapped():
+                                # Widget is hidden, wait a bit more for rendering
+                                time.sleep(0.1)
+                                break
+                            time.sleep(wait_step)
+                            workbench.update()
+                            waited += wait_step
+                        
+                        # If still mapped after max_wait, just proceed anyway
+                        if chat_view.winfo_ismapped():
+                            logger.warning("Chat panel still visible after timeout")
+                            
+                    except Exception as e:
+                        logger.warning(f"Could not hide chat panel: {e}")
+                        was_visible = False  # Don't try to restore if we couldn't hide
+        except (RuntimeError, KeyError):
+            # ChatView not created yet or not found
+            pass
+        
+        # Prepare filename
+        desktop_path = Path.home() / "Desktop"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"thonny_screenshot_{timestamp}.png"
+        filepath = desktop_path / filename
+        
+        # Try mss library first (fast and reliable)
+        try:
+            import mss
+            
+            # Get window bounds
+            x = workbench.winfo_rootx()
+            y = workbench.winfo_rooty()
+            width = workbench.winfo_width()
+            height = workbench.winfo_height()
+            
+            monitor = {"top": y, "left": x, "width": width, "height": height}
+            
+            with mss.mss() as sct:
+                # Capture the window area
+                sct_img = sct.grab(monitor)
+                # Save to file
+                mss.tools.to_png(sct_img.rgb, sct_img.size, output=str(filepath))
+            
+            logger.debug(f"Screenshot saved with mss: {filepath}")
+            
+        except ImportError:
+            # Fallback to PIL if mss is not available
+            logger.debug("mss not available, trying PIL")
+            from PIL import ImageGrab
+            
+            x = workbench.winfo_rootx()
+            y = workbench.winfo_rooty()
+            width = workbench.winfo_width()
+            height = workbench.winfo_height()
+            
+            # Bring window to front
+            workbench.lift()
+            workbench.attributes('-topmost', True)
+            workbench.update()
+            time.sleep(0.1)
+            workbench.attributes('-topmost', False)
+            
+            screenshot = ImageGrab.grab(bbox=(x, y, x + width, y + height))
+            screenshot.save(filepath)
+            logger.info(f"Screenshot saved with PIL: {filepath}")
+        
+        # Show brief notification in console
+        print(f"✓ Скриншот сохранён: {filepath}")
+        
+    except Exception as e:
+        logger.error(f"Failed to take screenshot: {e}", exc_info=True)
+        print(f"✗ Ошибка при создании скриншота: {e}")
+        
+    finally:
+        # Always restore chat panel if it was visible
+        if was_visible and notebook and chat_view:
+            try:
+                # Re-add the chat tab to notebook
+                logger.info(f"Restoring chat panel")
+                notebook.add(chat_view, text=tr("Chat"))
+                notebook.select(chat_view)
+                get_workbench().update_idletasks()
+                logger.info(f"Chat panel restored")
+            except Exception as e:
+                logger.error(f"Failed to restore chat panel: {e}")
+
+
 def load_plugin():
     # Register AI options with defaults so they persist between sessions
     get_workbench().set_default("ai.model", "gemini")
@@ -1569,3 +1695,16 @@ def load_plugin():
     get_workbench().set_default("ai.summary_max_chars", 10000)
     
     get_workbench().add_view(ChatView, tr("Chat"), "se", visible_by_default=True)
+    
+    # Add screenshot command to toolbar (icon only, no caption)
+    get_workbench().add_command(
+        "take_screenshot",
+        "tools",
+        "",  # Empty command_label - no tooltip
+        take_screenshot_without_chat,
+        include_in_menu=False,  # Not in menu, only in toolbar
+        include_in_toolbar=True,
+        image="camera",
+        caption=None,  # No caption - icon-only button
+        group=200,
+    )
