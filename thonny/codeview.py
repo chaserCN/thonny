@@ -179,8 +179,328 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
             code_snippets._populate_editor_menu(popup_menu)
         except (ImportError, AttributeError):
             pass
+        
+        # Add "Explain token under cursor" option
+        popup_menu.add_separator()
+        popup_menu.add_command(
+            label=tr("Explain under cursor..."),
+            command=lambda: self.explain_token_under_cursor()
+        )
 
         popup_menu.tk_popup(event.x_root, event.y_root)
+    
+    def explain_token_under_cursor(self):
+        """Explain the token/construct under cursor using AI"""
+        # Get cursor position
+        cursor_index = self.index("insert")
+        line_num = int(cursor_index.split(".")[0])
+        col_num = int(cursor_index.split(".")[1])
+        
+        # Get the line content
+        line_start = f"{line_num}.0"
+        line_end = f"{line_num}.end"
+        line_content = self.get(line_start, line_end)
+        
+        # Determine what's under cursor
+        token_info = self._get_token_under_cursor(line_content, col_num)
+        
+        if not token_info:
+            messagebox.showinfo(
+                tr("Explain under cursor"),
+                tr("Could not identify token under cursor")
+            )
+            return
+        
+        # Show explanation popup
+        self._show_token_explanation_popup(line_num, line_content, token_info)
+    
+    def _get_token_under_cursor(self, line_content, col_num):
+        """Identify the token or construct under cursor
+        
+        Returns dict with 'token' (the actual token text) and 'type' (function, operator, etc.)
+        """
+        import re
+        import keyword
+        
+        if col_num >= len(line_content):
+            col_num = len(line_content) - 1
+        
+        if col_num < 0 or not line_content.strip():
+            return None
+        
+        # Check for operators and special characters
+        char_at_cursor = line_content[col_num] if col_num < len(line_content) else ''
+        
+        # Check for bracket operators - but look for the content type
+        if char_at_cursor == '[':
+            return {'token': '[]', 'type': 'operator', 'description': 'indexing/slicing operator'}
+        elif char_at_cursor == ']':
+            # Find matching opening bracket
+            return {'token': '[]', 'type': 'operator', 'description': 'indexing/slicing operator'}
+        elif char_at_cursor in '()':
+            # Check if it's a method call (preceded by .method)
+            before_cursor = line_content[:col_num]
+            method_match = re.search(r'\.(\w+)\s*$', before_cursor)
+            if method_match:
+                method_name = method_match.group(1)
+                return {'token': method_name + '()', 'type': 'method', 'description': 'method call'}
+            
+            # Check if it's a function call (preceded by function name)
+            func_match = re.search(r'(\w+)\s*$', before_cursor)
+            if func_match:
+                func_name = func_match.group(1)
+                return {'token': func_name + '()', 'type': 'function', 'description': 'function call'}
+            return {'token': '()', 'type': 'operator', 'description': 'parentheses'}
+        elif char_at_cursor in '{}':
+            return {'token': '{}', 'type': 'operator', 'description': 'dictionary/set literal'}
+        elif char_at_cursor == ':':
+            return {'token': ':', 'type': 'operator', 'description': 'colon (slice or dict)'}
+        elif char_at_cursor == '.':
+            # Method call - get the method name after dot
+            after_cursor = line_content[col_num+1:]
+            method_match = re.match(r'(\w+)', after_cursor)
+            if method_match:
+                method_name = method_match.group(1)
+                # Check if followed by (
+                rest_after_method = line_content[col_num+1+len(method_name):].lstrip()
+                if rest_after_method.startswith('('):
+                    return {'token': method_name + '()', 'type': 'method', 'description': 'method call'}
+                return {'token': method_name, 'type': 'method', 'description': 'method'}
+            return {'token': '.', 'type': 'operator', 'description': 'dot operator'}
+        
+        # Find word boundaries around cursor
+        # Expand left
+        start = col_num
+        while start > 0 and (line_content[start-1].isalnum() or line_content[start-1] in '_'):
+            start -= 1
+        
+        # Expand right
+        end = col_num
+        while end < len(line_content) and (line_content[end].isalnum() or line_content[end] in '_'):
+            end += 1
+        
+        if start == end:
+            return None
+        
+        token = line_content[start:end]
+        
+        if not token:
+            return None
+        
+        # Check if followed by parentheses (function/method call)
+        rest_of_line = line_content[end:].lstrip()
+        if rest_of_line.startswith('('):
+            # Check if it's a method (preceded by .)
+            before_token = line_content[:start]
+            if before_token.rstrip().endswith('.'):
+                return {'token': token + '()', 'type': 'method', 'description': 'method call'}
+            return {'token': token + '()', 'type': 'function', 'description': 'function or method call'}
+        
+        # Check if it's a keyword
+        if keyword.iskeyword(token):
+            return {'token': token, 'type': 'keyword', 'description': 'Python keyword'}
+        
+        # Check if it's a built-in function
+        if token in dir(__builtins__):
+            return {'token': token, 'type': 'builtin', 'description': 'built-in function or type'}
+        
+        # Otherwise it's likely a variable
+        return {'token': token, 'type': 'variable', 'description': 'variable or identifier'}
+    
+    def _show_token_explanation_popup(self, line_num, line_content, token_info):
+        """Show popup with AI explanation of the token/construct"""
+        from tkinter import messagebox
+        import threading
+        from thonny import get_workbench
+        
+        # Check assistant readiness BEFORE creating popup/thread
+        try:
+            model = get_workbench().get_option("ai.model", "gpt")
+        except:
+            model = "gpt"
+        
+        assistants = get_workbench().assistants
+        if model == "gpt":
+            assistant = assistants.get("openai")
+        elif model == "gemini":
+            assistant = assistants.get("gemini")
+        elif model == "claude":
+            assistant = assistants.get("claude")
+        else:
+            assistant = assistants.get("openai")
+        
+        if not assistant:
+            messagebox.showerror("AI Error", tr("AI assistant unavailable. Check API key settings."))
+            return
+        
+        if not assistant.get_ready():
+            return
+        
+        # Get language preference
+        try:
+            lang = get_workbench().get_option("ai.language", "uk")
+        except:
+            lang = "uk"
+        
+        # Localized strings
+        if lang == "ru":
+            title_text = f"Объяснение: {token_info['token']}"
+            code_line_label = "Строка кода:"
+            token_label = "Элемент:"
+            explanation_label = "Объяснение:"
+            loading_text = "⏳ *Запрашиваю AI для объяснения...*"
+            close_text = "Закрыть"
+            error_label = "Ошибка:"
+        else:  # uk
+            title_text = f"Пояснення: {token_info['token']}"
+            code_line_label = "Рядок коду:"
+            token_label = "Елемент:"
+            explanation_label = "Пояснення:"
+            loading_text = "⏳ *Запитую AI для пояснення...*"
+            close_text = "Закрити"
+            error_label = "Помилка:"
+        
+        # Create popup dialog
+        popup = tk.Toplevel(self)
+        popup.title(title_text)
+        popup.withdraw()
+        popup.transient(self.winfo_toplevel())
+        
+        # Set size
+        popup_width = 600
+        popup_height = 520
+        popup.geometry(f"{popup_width}x{popup_height}")
+        
+        root = self.winfo_toplevel()
+        root_x = root.winfo_rootx()
+        root_w = root.winfo_width()
+        root_h = root.winfo_height()
+        
+        # Center horizontally
+        popup_x = root_x + (root_w - popup_width) // 2
+        popup_y = root.winfo_rooty() + (root_h - popup_height) // 2
+        
+        # Screen boundaries
+        screen_width = popup.winfo_screenwidth()
+        screen_height = popup.winfo_screenheight()
+        if popup_x < 0:
+            popup_x = 0
+        elif popup_x + popup_width > screen_width:
+            popup_x = screen_width - popup_width
+        if popup_y < 0:
+            popup_y = 0
+        elif popup_y + popup_height > screen_height:
+            popup_y = screen_height - popup_height
+        
+        popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
+        popup.deiconify()
+        
+        # Add Text widget
+        text_frame = tk.Frame(popup)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        explanation_text = tk.Text(
+            text_frame,
+            wrap=tk.WORD,
+            font="TkDefaultFont",
+            background="white",
+            foreground="black",
+            state="normal"
+        )
+        
+        scrollbar = ttk.Scrollbar(text_frame, command=explanation_text.yview)
+        explanation_text.configure(yscrollcommand=scrollbar.set)
+        
+        explanation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Show loading message
+        from thonny.markdown_utils import render_markdown
+        render_markdown(explanation_text, loading_text)
+        
+        # Close button
+        close_btn = ttk.Button(popup, text=close_text, command=popup.destroy)
+        close_btn.pack(pady=(0, 10))
+        
+        # Get AI explanation in thread
+        def get_explanation():
+            try:
+                explanation = self._request_token_explanation(
+                    assistant, line_num, line_content, token_info
+                )
+                
+                def update_ui():
+                    if not popup.winfo_exists():
+                        return
+                    
+                    from thonny.markdown_utils import render_markdown
+                    explanation_text.delete("1.0", "end")
+                    
+                    md_content = f"**{code_line_label}**\n\n{line_content}\n\n"
+                    md_content += f"**{token_label}** `{token_info['token']}`\n\n"
+                    md_content += f"**{explanation_label}**\n\n"
+                    md_content += explanation
+                    
+                    render_markdown(explanation_text, md_content)
+                
+                popup.after(0, update_ui)
+            except Exception as e:
+                def show_error(err_label=error_label, error=e):
+                    if not popup.winfo_exists():
+                        return
+                    
+                    from thonny.markdown_utils import render_markdown
+                    explanation_text.delete("1.0", "end")
+                    error_md = f"**{err_label}**\n\n{str(error)}"
+                    render_markdown(explanation_text, error_md)
+                popup.after(0, show_error)
+        
+        threading.Thread(target=get_explanation, daemon=True).start()
+    
+    def _get_program_context(self):
+        """Get program context: debug info with variables if available, or formatted code otherwise"""
+        from thonny.plugins.debug_common import get_debug_context, format_code_context
+        
+        # Try to get debug context first (includes variable values)
+        program_context = None
+        try:
+            program_context = get_debug_context()
+        except:
+            pass
+        
+        # If not in debug mode, format the code
+        if not program_context:
+            full_code = self.get("1.0", "end-1c")
+            try:
+                filename = self.master.get_filename() if hasattr(self.master, 'get_filename') else "program.py"
+                program_context = format_code_context(full_code, filename or "program.py")
+            except:
+                program_context = format_code_context(full_code)
+        
+        return program_context
+    
+    def _request_token_explanation(self, assistant, line_num, line_content, token_info):
+        """Request AI explanation for a token with full program context
+        
+        Note: assistant.get_ready() must be called BEFORE this method in the main thread!
+        """
+        from thonny.assistance import TokenContext
+        
+        # Get program context (debug if available, or formatted code)
+        program_context = self._get_program_context()
+        
+        # Create context with token info and program context
+        context = TokenContext(
+            line_num=line_num,
+            line_content=line_content,
+            token=token_info['token'],
+            token_type=token_info['type'],
+            token_description=token_info.get('description', token_info['type']),
+            program_context=program_context
+        )
+        
+        # Call assistant's explain_token method (all AI logic is there)
+        return assistant.explain_token(context)
 
 
 class CodeView(tktextext.EnhancedTextFrame):
@@ -739,23 +1059,9 @@ class CodeView(tktextext.EnhancedTextFrame):
         Note: assistant.get_ready() must be called BEFORE this method in the main thread!
         """
         from thonny.assistance import CodeViewContext
-        from thonny.plugins.debug_common import get_debug_context, format_code_context
         
-        # Get code context (debug if active, or formatted code otherwise)
-        program_context = None
-        try:
-            # Try to get debug context first
-            program_context = get_debug_context()
-        except:
-            pass
-        
-        # If not in debug mode, format the code
-        if not program_context:
-            try:
-                filename = self.master.get_filename() if hasattr(self.master, 'get_filename') else "program.py"
-                program_context = format_code_context(self.get_content(), filename or "program.py")
-            except:
-                program_context = format_code_context(self.get_content())
+        # Get program context (debug if available, or formatted code)
+        program_context = self._get_program_context()
         
         # Create context with line info and code context
         context = CodeViewContext(

@@ -2,7 +2,7 @@ from abc import abstractmethod
 from typing import Iterator, List, Optional
 
 from thonny import get_workbench
-from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole, CodeViewContext
+from thonny.assistance import Assistant, ChatContext, ChatMessage, ChatResponseChunk, ChatRole, CodeViewContext, TokenContext
 from thonny.prompts import PromptType, get_prompt
 
 
@@ -249,6 +249,63 @@ class BaseAIAssistant(Assistant):
             return f"Помилка при запиті до AI: {str(e)}"
         
         result = "".join(response_parts) if response_parts else "Немає відповіді від AI"
+        
+        return result
+    
+    def explain_token(self, context: TokenContext) -> str:
+        """
+        Request AI explanation for a specific token/element in code
+        
+        Args:
+            context: TokenContext with token info and full code
+            
+        Returns:
+            AI explanation as string
+        """
+        from logging import getLogger
+        from thonny.assistance import ChatMessage, ChatRole
+        
+        logger = getLogger(__name__)
+        
+        # Get language preference
+        lang = self._get_language()
+        
+        # Get system prompt (instructions only)
+        system_prompt = get_prompt(PromptType.SYSTEM_TOKEN_EXPLANATION, lang)
+        
+        # Build user prompt with all context (data)
+        user_prompt = get_prompt(
+            PromptType.USER_EXPLAIN_TOKEN,
+            lang,
+            line_num=context.line_num,
+            line_content=context.line_content,
+            token=context.token,
+            token_description=context.token_description,
+            program_context=context.program_context
+        )
+        
+        # Prepare single message
+        user_message = ChatMessage(ChatRole.USER, user_prompt, [])
+        
+        print_request_info("EXPLAIN TOKEN", system_prompt, [user_message])
+        
+        messages = self._prepare_messages([user_message])
+
+        # Call API directly (no need for complete_chat overhead)
+        response_parts = []
+        try:
+            for chunk in self._send_to_api(system_prompt, messages):
+                if chunk.content:
+                    response_parts.append(chunk.content)
+                    
+        except Exception as e:
+            logger.exception("Error requesting token explanation")
+            if lang == "ru":
+                return f"Ошибка при запросе к AI: {str(e)}"
+            else:
+                return f"Помилка при запиті до AI: {str(e)}"
+        
+        result = "".join(response_parts) if response_parts else ("Нет ответа от AI" if lang == "ru" else "Немає відповіді від AI")
         
         return result
 
