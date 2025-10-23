@@ -2014,3 +2014,6 @@ msgstr "Скидання сніпетів"
 
 msgid "Reset all snippets to default values?"
 msgstr "Скинути всі сніпети до значень за замовчуванням?"
+
+msgid "Enable inline code suggestions (AI-powered, press Tab to accept)"
+msgstr "Увімкнути AI-підказки коду (сірим текстом, Tab для вставки)"

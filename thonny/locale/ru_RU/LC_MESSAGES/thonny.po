@@ -2032,3 +2032,6 @@ msgstr "Сброс сниппетов"
 
 msgid "Reset all snippets to default values?"
 msgstr "Сбросить все сниппеты к значениям по умолчанию?"
+
+msgid "Enable inline code suggestions (AI-powered, press Tab to accept)"
+msgstr "Включить AI-подсказки кода (серым текстом, Tab для вставки)"

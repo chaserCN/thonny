@@ -755,10 +755,11 @@ class ChatView(tktextext.TextFrame):
         self._cancel_analysis()
         self._cancel_completion()
 
-        text_after_last_analysis = self.text.get(self._last_analysis_end_index, "end")
-        if not text_after_last_analysis.strip():
-            # No question was asked after the last analysis, let's forget that analysis.
-            self.text.direct_delete(self._last_analysis_start_index, "end-1c")
+        # Don't delete chat history on program run - preserve conversation
+        # text_after_last_analysis = self.text.get(self._last_analysis_end_index, "end")
+        # if not text_after_last_analysis.strip():
+        #     # No question was asked after the last analysis, let's forget that analysis.
+        #     self.text.direct_delete(self._last_analysis_start_index, "end-1c")
 
         self._last_analysis_start_index = self.text.index("end-1c")
         self._last_analysis_end_index = self.text.index("end-1c")
