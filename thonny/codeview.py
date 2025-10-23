@@ -620,6 +620,9 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                 explanation = self._request_selection_explanation(assistant, selected_code)
                 
                 def show_result():
+                    # Check if popup still exists
+                    if not popup.winfo_exists():
+                        return
                     explanation_text.delete("1.0", "end")
                     render_markdown(explanation_text, explanation)
                 popup.after(0, show_result)
@@ -628,6 +631,9 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                 traceback.print_exc()
                 
                 def show_error():
+                    # Check if popup still exists
+                    if not popup.winfo_exists():
+                        return
                     err_label = error_label
                     
                     from thonny.markdown_utils import render_markdown
