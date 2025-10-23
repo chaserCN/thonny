@@ -1991,3 +1991,44 @@ msgstr "Предупреждать, если пользовательский м
 msgid "Search micropython-lib and PyPI"
 msgstr "Поиск в micropython-lib и PyPI"
 
+
+# AI Models configuration page
+msgid "AI Models"
+msgstr "AI Модели"
+
+msgid "API Key:"
+msgstr "API Ключ:"
+
+msgid "Model name:"
+msgstr "Название модели:"
+
+# Code Snippets plugin
+msgid "Edit Snippet"
+msgstr "Редактировать сниппет"
+
+msgid "Code Snippets"
+msgstr "Сниппеты кода"
+
+msgid "Code Preview"
+msgstr "Предпросмотр кода"
+
+msgid "Invalid Input"
+msgstr "Неверный ввод"
+
+msgid "Name cannot be empty"
+msgstr "Имя не может быть пустым"
+
+msgid "(No snippets configured)"
+msgstr "(Нет настроенных сниппетов)"
+
+msgid "Insert snippet"
+msgstr "Вставить сниппет"
+
+msgid "Reset"
+msgstr "Сбросить"
+
+msgid "Reset Snippets"
+msgstr "Сброс сниппетов"
+
+msgid "Reset all snippets to default values?"
+msgstr "Сбросить все сниппеты к значениям по умолчанию?"

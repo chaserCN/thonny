@@ -1973,3 +1973,44 @@ msgstr "Попереджати, якщо модуль користувача п�
 msgid "Search micropython-lib and PyPI"
 msgstr "Пошук у micropython-lib і PyPI"
 
+
+# AI Models configuration page
+msgid "AI Models"
+msgstr "AI Моделі"
+
+msgid "API Key:"
+msgstr "API Ключ:"
+
+msgid "Model name:"
+msgstr "Назва моделі:"
+
+# Code Snippets plugin
+msgid "Edit Snippet"
+msgstr "Редагувати сніпет"
+
+msgid "Code Snippets"
+msgstr "Сніпети коду"
+
+msgid "Code Preview"
+msgstr "Попередній перегляд коду"
+
+msgid "Invalid Input"
+msgstr "Неправильне введення"
+
+msgid "Name cannot be empty"
+msgstr "Ім'я не може бути порожнім"
+
+msgid "(No snippets configured)"
+msgstr "(Немає налаштованих сніпетів)"
+
+msgid "Insert snippet"
+msgstr "Вставити сніпет"
+
+msgid "Reset"
+msgstr "Скинути"
+
+msgid "Reset Snippets"
+msgstr "Скидання сніпетів"
+
+msgid "Reset all snippets to default values?"
+msgstr "Скинути всі сніпети до значень за замовчуванням?"

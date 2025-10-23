@@ -1422,8 +1422,6 @@ class EditorNotebook(CustomNotebook):
                 assert isinstance(editor_, Editor)
                 if not editor_.save_file():
                     return False
-                else:
-                    return False
             return True
 
         elif confirm is None:

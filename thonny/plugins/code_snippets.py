@@ -130,7 +130,8 @@ class CodeSnippetsConfigPage(ConfigurationPage):
         
         ttk.Button(button_frame, text=tr("Add"), command=self._add_snippet, width=12).grid(row=0, column=0, pady=(0, 5))
         ttk.Button(button_frame, text=tr("Edit"), command=self._edit_snippet, width=12).grid(row=1, column=0, pady=(0, 5))
-        ttk.Button(button_frame, text=tr("Remove"), command=self._remove_snippet, width=12).grid(row=2, column=0)
+        ttk.Button(button_frame, text=tr("Remove"), command=self._remove_snippet, width=12).grid(row=2, column=0, pady=(0, 5))
+        ttk.Button(button_frame, text=tr("Reset"), command=self._reset_snippets, width=12).grid(row=3, column=0)
         
         # Store snippets data
         self.snippets_data = {}  # {tree_id: (name, code)}
@@ -213,6 +214,42 @@ class CodeSnippetsConfigPage(ConfigurationPage):
         # Mark as changed to trigger apply()
         import time
         get_workbench().set_option("snippets._dummy_trigger", str(time.time()))
+    
+    def _reset_snippets(self):
+        """Reset snippets to default values"""
+        from tkinter import messagebox
+        
+        if messagebox.askyesno(
+            tr("Reset Snippets"),
+            tr("Reset all snippets to default values?"),
+            master=self
+        ):
+            # Clear current snippets
+            for item_id in self.tree.get_children():
+                self.tree.delete(item_id)
+            self.snippets_data.clear()
+            
+            # Load default snippets
+            default_snippets = [
+                "input ryad:ryad=input(\"ryad=\")\\n",
+                "input n:n=int(input(\"n=\"))\\n",
+                "input mas:mas=list(map(int, input(\"mas=\").split()))\\n",
+            ]
+            
+            for snippet_str in default_snippets:
+                if ":" in snippet_str:
+                    name, code = snippet_str.split(":", 1)
+                    # Decode newlines and tabs
+                    code = code.replace("\\n", "\n").replace("\\t", "\t")
+                    
+                    # Add to tree
+                    code_preview = code.replace("\n", " ")[:50]
+                    item_id = self.tree.insert("", "end", values=(name, code_preview))
+                    self.snippets_data[item_id] = (name, code)
+            
+            # Mark as changed to trigger apply()
+            import time
+            get_workbench().set_option("snippets._dummy_trigger", str(time.time()))
     
     def apply(self, changed_options: List[str]) -> bool:
         """Save snippets to config"""
@@ -327,9 +364,9 @@ def _populate_editor_menu(menu: tk.Menu):
 def load_plugin():
     # Register default snippets
     default_snippets = [
-        "ryad:ryad=input(\"ryad=\")",
-        "n:n=int(input(\"n=\"))",
-        "mas:mas=list(map(int, input().split()))",
+        "input ryad:ryad=input(\"ryad=\")\\n",
+        "input n:n=int(input(\"n=\"))\\n",
+        "input mas:mas=list(map(int, input(\"mas=\").split()))\\n",
     ]
     get_workbench().set_default("snippets.items", default_snippets)
     
