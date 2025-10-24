@@ -44,10 +44,6 @@ class BaseAIAssistant(Assistant):
     
     def _complete_normal(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         """Normal mode: user text with optional image (history already compressed in chat.py)"""
-        
-        import time
-        time.sleep(2)  # Simulate API delay
-        return [ChatResponseChunk("test\ntest\ntest")]
 
         # Get appropriate prompt based on whether image is present
         lang = self._get_language()

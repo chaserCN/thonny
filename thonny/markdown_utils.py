@@ -266,13 +266,14 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
     insert_method = getattr(text_widget, 'direct_insert', text_widget.insert)
     
     # Configure tags (always update to apply new settings)
-    text_widget.tag_configure("md_heading", font=("TkDefaultFont", 10, "bold"), spacing1=4, spacing3=4)
-    text_widget.tag_configure("md_normal_text", font=("TkDefaultFont", 10), spacing1=4, spacing3=4)
-    text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=4, spacing3=4, lmargin1=10, lmargin2=10, selectbackground="#4A90E2", selectforeground="white")
+    # Note: spacing1=0 because spacing is controlled by message tags (user_message/bot_message)
+    text_widget.tag_configure("md_heading", font=("TkDefaultFont", 10, "bold"), spacing1=0, spacing3=0)
+    text_widget.tag_configure("md_normal_text", font=("TkDefaultFont", 10), spacing1=0, spacing3=0)
+    text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, selectbackground="#4A90E2", selectforeground="white")
     text_widget.tag_configure("md_inline_code", font=("TkFixedFont", 9), background="#f5f5f5", selectbackground="#4A90E2", selectforeground="white")
     text_widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
     text_widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
-    text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=4, spacing3=4)
+    text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=0)
     
     # Syntax highlighting tags for code blocks (vibrant colors for visibility)
     text_widget.tag_configure("code_keyword", font=("TkFixedFont", 9, "bold"), foreground="#0000FF", background="#f5f5f5")  # Bright Blue Bold

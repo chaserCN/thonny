@@ -115,35 +115,28 @@ class ChatView(tktextext.TextFrame):
         message_margin = ems_to_pixels(0.5)  # Одинаковый отступ слева для всех сообщений
         
         self.text.tag_configure(
-            "user_message",
-            lmargin1=8,   # Левый отступ
-            lmargin2=8,   # Левый отступ для остальных строк
-            rmargin=8,    # Правый отступ
-            spacing1=4,   # Отступ сверху
-            spacing3=4,   # Отступ снизу
-            foreground="#0D47A1",      # Насыщенный тёмно-синий текст
-            background="#F0F8FF",      # Светло-голубой фон
+            "bubble_message",
+            lmargin1=12,   # Левый отступ (+50%)
+            lmargin2=12,   # Левый отступ для остальных строк (+50%)
+            rmargin=12,    # Правый отступ (+50%)
+            # spacing handled manually to avoid gaps between lines
         )
         
+        # Vertical padding tag (spacing at top/bottom of bubble)
         self.text.tag_configure(
-            "bot_message",
-            lmargin1=8,   # Левый отступ (такой же как у пользователя)
-            lmargin2=8,   # Левый отступ для остальных строк
-            rmargin=8,    # Правый отступ
-            spacing1=4,   # Отступ сверху
-            spacing3=4,   # Отступ снизу
-            # foreground - default (black) - не задаём, чтобы markdown мог раскрашивать
-            # background - default (white) - не задаём
+            "bubble_padding",
+            font=("TkDefaultFont", 1),  # Tiny font
+            lmargin1=12,
+            lmargin2=12,
+            rmargin=12,
+            spacing1=6,  # Half of desired padding (top)
+            spacing3=6,  # Half of desired padding (bottom)
         )
         
         # Avatar styles
         self.text.tag_configure(
-            "user_avatar",
-            foreground="#4A90E2",  # Blue for user
-        )
-        self.text.tag_configure(
-            "bot_avatar",
-            foreground="#50C878",  # Green for bot
+            "bubble_avatar",
+            foreground="#4A90E2",  # Blue for user and bot
         )
         self.text.tag_configure(
             "typing_indicator",
@@ -359,7 +352,7 @@ class ChatView(tktextext.TextFrame):
             self._insert_message_bubble(
                 avatar="🤖",
                 content=fragment.content,
-                message_tag="bot_message",
+                message_tag="bubble_message",
                 bg_color="white",
                 image_data=None,
                 is_markdown=True
@@ -379,7 +372,7 @@ class ChatView(tktextext.TextFrame):
             # Create bot message
             bot_msg = ChatMessage(
                 ChatRole.ASSISTANT, 
-                fragment.content, 
+                fragment.content,
                 [], 
                 self._current_pending_message.is_debug_related, 
                 self._current_pending_message.debug_session_id
@@ -768,10 +761,12 @@ class ChatView(tktextext.TextFrame):
             dots = ["·", "··", "···"]
             current_dots = dots[self._typing_animation_step % 3]
             
-            # Update the text
-            self.text.direct_delete(self._typing_indicator_start, "end")
-            self.text.direct_insert(self._typing_indicator_start, current_dots, ("typing_indicator",))
-            self.text.direct_insert("end", "\n", ())  # Bottom spacing
+            # Find end of typing indicator (before bottom padding)
+            typing_end = self.text.index(f"{self._typing_indicator_start}+1c")
+            
+            # Update only the dots, keep padding intact
+            self.text.direct_delete(self._typing_indicator_start, typing_end)
+            self.text.direct_insert(self._typing_indicator_start, current_dots, ("typing_indicator", "bubble_message"))
             
             # Next frame
             self._typing_animation_step += 1
@@ -1032,7 +1027,7 @@ class ChatView(tktextext.TextFrame):
             
             # Insert spaces before image (with user_message tag for background)
             spaces_start = current_pos
-            insert_method(current_pos, spaces, "user_message")
+            insert_method(current_pos, spaces, "bubble_message")
             
             # Now insert image right after the spaces (without padx)
             image_pos = self.text.index(f"{spaces_start}+{num_spaces}c")
@@ -1040,54 +1035,15 @@ class ChatView(tktextext.TextFrame):
             
             # Apply user_message tag to the image for background color
             image_end = self.text.index(f"{image_pos}+1c")
-            self.text.tag_add("user_message", image_pos, image_end)
+            self.text.tag_add("bubble_message", image_pos, image_end)
             
         except Exception as e:
             logger.error(f"Failed to insert image preview in chat: {e}")
             # Fallback to text indicator
             import os
             image_name = os.path.basename(image_data['path'])
-            self._append_text(f"[🖼️ {image_name}]", tags=("user_message",))
+            self._append_text(f"[🖼️ {image_name}]", tags=("bubble_message",))
 
-    def _add_message_bubble_top_frame(self, bg_color: str) -> int:
-        """Add top padding frame for a message bubble. Returns chat_width."""
-        # Get chat width
-        try:
-            chat_width = self.text.winfo_width() - 20
-        except:
-            chat_width = 380
-        chat_width = max(chat_width, 380)
-        
-        # Top padding frame
-        top_frame = tk.Frame(self.text, height=8, bg=bg_color)
-        self.text.window_create("end", window=top_frame, stretch=True)
-        top_frame.configure(width=chat_width)
-        
-        return chat_width
-    
-    def _close_message_bubble_with_separator(self, bg_color: str) -> None:
-        """Add bottom padding frame and separator for a message bubble."""
-        # Get chat width
-        try:
-            chat_width = self.text.winfo_width() - 20
-        except:
-            chat_width = 380
-        chat_width = max(chat_width, 380)
-        
-        # Bottom padding frame
-        bottom_frame = tk.Frame(self.text, height=8, bg=bg_color)
-        self.text.window_create("end", window=bottom_frame, stretch=True)
-        bottom_frame.configure(width=chat_width)
-        
-        # Separator
-        separator = tk.Frame(self.text, height=1, bg="#F0F0F0", relief="flat")
-        self.text.window_create("end", window=separator, stretch=True)
-        separator.configure(width=chat_width)
-        
-        # Add 1px white frame after separator
-        final_frame = tk.Frame(self.text, height=1, bg="white")
-        self.text.window_create("end", window=final_frame, stretch=True)
-        final_frame.configure(width=chat_width)
     
     def _insert_message_bubble(
         self, 
@@ -1095,6 +1051,7 @@ class ChatView(tktextext.TextFrame):
         content: str, 
         message_tag: str,
         bg_color: str,
+        fg_color: str = None,
         image_data: Optional[dict] = None,
         is_markdown: bool = False
     ) -> None:
@@ -1103,39 +1060,49 @@ class ChatView(tktextext.TextFrame):
         Args:
             avatar: Avatar emoji ("👧" for user, "🤖" for bot)
             content: Message text content
-            message_tag: Tag name ("user_message" or "bot_message")
-            bg_color: Background color ("#F0F8FF" for user, "white" for bot)
+            message_tag: Tag name (always "bubble_message" for both user and bot)
+            bg_color: Background color for this message
+            fg_color: Foreground (text) color for this message (optional, default is black)
             image_data: Optional image attachment
             is_markdown: If True, render content as markdown
         """
-        # Add top padding frame
-        self._add_message_bubble_top_frame(bg_color)
+        # Create a unique color tag for this message
+        import time
+        color_tag = f"color_{int(time.time() * 1000000)}"
+        tag_config = {
+            "background": bg_color,
+            "spacing1": 0,  # Don't add spacing, let bubble_message handle it
+            "spacing3": 0,
+        }
+        if fg_color:
+            tag_config["foreground"] = fg_color
+        self.text.tag_configure(color_tag, **tag_config)
         
-        # Avatar + content
-        if is_markdown:
-            # For bot: add avatar, then render markdown
-            self._append_text(f"{avatar} ", tags=(message_tag,))
-            
-            # Mark position before markdown
-            content_start = self.text.index("end-1c")
-            
-            # Render markdown
-            try:
-                from thonny.markdown_utils import render_markdown
-                render_markdown(self.text, content)
-            except Exception as e:
-                logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
-                self.text.direct_insert("end", content)
-            
-            # Apply message tag to all markdown content
-            content_end = self.text.index("end-1c")
-            self.text.tag_add(message_tag, content_start, content_end)
-            # Raise priority so margins apply
-            self.text.tag_raise(message_tag)
-        else:
-            # For user: simple text with tag
-            message_content = f"{avatar} {content}"
-            self._append_text(message_content, tags=(message_tag,))
+        # Mark position before avatar
+        bubble_start = self.text.index("end-1c")
+        
+        # Top padding
+        self._append_text("\n", tags=("bubble_padding",))
+        
+        # Avatar with message tag (same for both user and bot)
+        self._append_text(f"{avatar} ", tags=(message_tag,))
+        
+        # Mark position before markdown content
+        content_start = self.text.index("end-1c")
+        
+        # Render markdown for both user and bot
+        try:
+            from thonny.markdown_utils import render_markdown
+            render_markdown(self.text, content)
+        except Exception as e:
+            logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
+            self.text.direct_insert("end", content)
+        
+        # Apply message tag to markdown content
+        content_end = self.text.index("end-1c")
+        self.text.tag_add(message_tag, content_start, content_end)
+        # Raise priority so margins apply
+        self.text.tag_raise(message_tag)
         
         # Image preview (if any)
         if image_data:
@@ -1143,16 +1110,25 @@ class ChatView(tktextext.TextFrame):
             self._append_image_preview_in_chat(image_data)
             self._append_text("\n", tags=(message_tag,))
         
-        # Close message bubble (bottom frame + separator)
-        self._close_message_bubble_with_separator(bg_color)
+        # Bottom padding
+        self._append_text("\n", tags=("bubble_padding",))
+        
+        # Apply colors to entire bubble (from avatar to end of content)
+        bubble_end = self.text.index("end-1c")
+        self.text.tag_add(color_tag, bubble_start, bubble_end)
+        # Lower priority so background is behind text formatting
+        self.text.tag_lower(color_tag)
+        
+        # No separator needed - markdown already adds \n at the end
     
     def _insert_user_bubble(self, display_text: str, image_data: Optional[dict]) -> None:
         """Insert a user message with full-width blue background."""
         self._insert_message_bubble(
             avatar="👧",
             content=display_text if display_text else "",
-            message_tag="user_message",
+            message_tag="bubble_message",
             bg_color="#F0F8FF",
+            fg_color="#0D47A1",  # Dark blue text for user
             image_data=image_data,
             is_markdown=False
         )
@@ -1216,7 +1192,7 @@ class ChatView(tktextext.TextFrame):
             )
             self._append_text(
                 " 📎",
-                tags=("attachments_link", f"att_{self._active_chat_request_id}", "user_message"),
+                tags=("attachments_link", f"att_{self._active_chat_request_id}", "bubble_message"),
             )
 
         for warning in warnings:
@@ -1236,26 +1212,27 @@ class ChatView(tktextext.TextFrame):
         self._current_pending_message = new_user_message
         
         # Show bot avatar and typing indicator immediately (before AI response starts)
-        # Store position BEFORE adding frame (to delete everything later)
-        self._typing_line_start = self.text.index("end-1c")
-        
-        # Add top padding frame for typing indicator
-        try:
-            chat_width = self.text.winfo_width() - 20
-        except:
-            chat_width = 380
-        chat_width = max(chat_width, 380)
-        
-        top_frame = tk.Frame(self.text, height=8, bg="white")
-        self.text.window_create("end", window=top_frame, stretch=True)
-        top_frame.configure(width=chat_width)
-        self._append_text("🤖 ", tags=("bot_avatar", "bot_message"))
+        typing_bubble_start = self.text.index("end-1c")
+        # Top padding for typing indicator
+        self._append_text("\n", tags=("bubble_padding",))
+        self._append_text("🤖 ", tags=("bubble_avatar", "bubble_message"))
         typing_start = self.text.index("end-1c")
-        self._append_text("·", tags=("typing_indicator", "bot_message"))
-        self._append_text("\n", tags=("bot_message",))  # Bottom spacing with same tag
+        self._append_text("·", tags=("typing_indicator", "bubble_message"))
+        # Bottom padding for typing indicator
+        self._append_text("\n", tags=("bubble_padding",))
+        
+        # Apply white background to typing indicator bubble
+        typing_bubble_end = self.text.index("end-1c")
+        import time
+        typing_bg_tag = f"typing_bg_{int(time.time() * 1000000)}"
+        self.text.tag_configure(typing_bg_tag, background="white", spacing1=0, spacing3=0)
+        self.text.tag_add(typing_bg_tag, typing_bubble_start, typing_bubble_end)
+        self.text.tag_lower(typing_bg_tag)
+        
         self._bot_avatar_added = True
         # Store position to update typing indicator (just the dots, not avatar)
         self._typing_indicator_start = typing_start
+        self._typing_line_start = typing_bubble_start  # Store start for deletion
         # Start animation
         self._start_typing_animation()
         
