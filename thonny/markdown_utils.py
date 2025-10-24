@@ -140,6 +140,80 @@ def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: s
         highlight_python_syntax_simple(text_widget, start_index, end_index)
 
 
+def _make_inline_code_clickable(text_widget: tk.Text, code_start: str, code_end: str, code_text: str) -> None:
+    """Make inline code clickable to copy"""
+    try:
+        # Create a unique tag for this inline code
+        tag_name = f"clickable_inline_{id(code_text)}_{code_start.replace('.', '_')}"
+        
+        # Configure the tag (no background change, just clickable)
+        text_widget.tag_configure(tag_name, foreground=None)
+        
+        # Apply the tag
+        text_widget.tag_add(tag_name, code_start, code_end)
+        text_widget.tag_raise(tag_name)
+        
+        # Bind click event
+        def copy_on_click(event):
+            try:
+                text_widget.clipboard_clear()
+                text_widget.clipboard_append(code_text)
+                
+                # Show small toast
+                import tkinter as tk
+                toast = tk.Toplevel(text_widget)
+                toast.withdraw()
+                toast.overrideredirect(True)
+                toast.attributes('-topmost', True)
+                
+                try:
+                    toast.attributes('-alpha', 0.92)
+                except:
+                    pass
+                
+                label = tk.Label(
+                    toast,
+                    text="✓",
+                    font=("TkDefaultFont", 10, "bold"),
+                    bg="#EEEEEE",
+                    fg="#666666",
+                    padx=8,
+                    pady=4,
+                    relief="flat",
+                    borderwidth=0
+                )
+                label.pack()
+                
+                toast.update()
+                
+                # Position near the inline code
+                bbox = text_widget.bbox(code_start)
+                if bbox:
+                    x = text_widget.winfo_rootx() + bbox[0]
+                    y = text_widget.winfo_rooty() + bbox[1] - 25  # Above the code
+                    toast.geometry(f"+{x}+{y}")
+                    toast.deiconify()
+                else:
+                    toast.destroy()
+                    return
+                
+                # Destroy after 1 second
+                def destroy_toast():
+                    try:
+                        toast.destroy()
+                    except:
+                        pass
+                text_widget.after(1000, destroy_toast)
+                
+            except Exception as e:
+                logger.warning(f"Failed to copy inline code: {e}")
+        
+        text_widget.tag_bind(tag_name, "<Button-1>", copy_on_click)
+        
+    except Exception as e:
+        logger.warning(f"Failed to make inline code clickable: {e}", exc_info=True)
+
+
 def _add_copy_button(text_widget: tk.Text, block_start: str, block_end: str, code_start: str, code_end: str, code_text: str) -> None:
     """Make code block clickable to copy (no embedded widgets)"""
     try:
@@ -355,6 +429,9 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                     highlight_python_syntax(text_widget, code_start, code_end)
                 except Exception as e:
                     pass  # Fallback to plain inline code if highlighting fails
+                
+                # Make inline code clickable to copy
+                _make_inline_code_clickable(text_widget, code_start, code_end, code_content)
             else:
                 # Handle bold and italic
                 # Bold: **text**
