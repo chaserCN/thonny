@@ -1068,20 +1068,11 @@ class EnhancedTextFrame(TextFrame):
                 delta = text_line_count - gutter_line_count
                 start = gutter_line_count + self._first_line_number - 1
 
-                if not clean and text_line_count > 10 and gutter_line_count < 3:
-                    # probably initial load, do bulk insert
-                    parts = []
-                    for i in range(start, start + delta):
-                        parts.append("\n")
-                        for content, tags in self.compute_gutter_line(i, plain=True):
-                            parts.append(content)
-
-                    self._gutter.insert("end-1c", "".join(parts), self._get_gutter_tags("".join(parts), tags))
-                else:
-                    for i in range(start, start + delta):
-                        self._gutter.insert("end-1c", "\n", self._get_gutter_tags("\n", ()))
-                        for content, tags in self.compute_gutter_line(i):
-                            self._gutter.insert("end-1c", content, self._get_gutter_tags(content, tags))
+                # Always use the normal path with proper tags to ensure info buttons are rendered correctly
+                for i in range(start, start + delta):
+                    self._gutter.insert("end-1c", "\n", self._get_gutter_tags("\n", ()))
+                    for content, tags in self.compute_gutter_line(i):
+                        self._gutter.insert("end-1c", content, self._get_gutter_tags(content, tags))
             else:
                 self._gutter.delete(line2index(text_line_count) + "-1c", "end-1c")
 
