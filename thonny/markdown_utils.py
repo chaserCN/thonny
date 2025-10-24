@@ -140,6 +140,79 @@ def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: s
         highlight_python_syntax_simple(text_widget, start_index, end_index)
 
 
+def _show_copy_toast(text_widget: tk.Text, text: str, x: int, y: int, duration_ms: int = 700) -> None:
+    import time
+
+    root = text_widget.winfo_toplevel()
+
+    # 1) Если уже есть активный тост — отменяем его таймер и закрываем
+    prev = getattr(root, "_active_toast", None)
+    if prev and prev.winfo_exists():
+        # отменяем таймер старого тоста, если он ещё жив
+        after_id = getattr(prev, "_after_id", None)
+        if after_id:
+            try:
+                prev.after_cancel(after_id)
+            except tk.TclError:
+                pass
+        try:
+            prev.destroy()
+        except tk.TclError:
+            pass
+
+    # 2) Создаём новый тост (скрытый, чтобы не мигал)
+    toast = tk.Toplevel(root)
+    toast.withdraw()
+    toast.overrideredirect(True)
+    toast.attributes('-topmost', True)
+
+    label = tk.Label(
+        toast,
+        text=text,
+        font=("TkDefaultFont", 9),
+        bg="#EEEEEE",
+        fg="#555555",
+        padx=12,
+        pady=6,
+        relief="flat",
+        borderwidth=0
+    )
+    label.pack()
+    label.update_idletasks()
+
+    toast.geometry(f"+{x}+{y}")
+    try:
+        toast.attributes('-alpha', 0.92)
+    except tk.TclError:
+        pass
+
+    # помечаем этот тост как текущий активный
+    root._active_toast = toast
+
+    # 3) Показ + запуск таймера, который гарантированно уничтожит ИМЕННО ЭТОТ экземпляр
+    def show_and_arm():
+        if not toast.winfo_exists():  # на всякий случай
+            return
+        toast.deiconify()
+        toast.lift()
+        toast.update_idletasks()
+        toast._shown_at = time.perf_counter()
+
+        # привязываем коллбек к конкретному окну через аргумент по умолчанию
+        # (никаких self.toast внутри — только локальная ссылка w)
+        def safe_destroy(w=toast):
+            if w.winfo_exists():
+                try:
+                    w.destroy()
+                except tk.TclError:
+                    pass
+
+        # сохраняем id таймера на самом тосте, чтобы иметь возможность отменить его при следующем показе
+        toast._after_id = toast.after(duration_ms, safe_destroy)
+
+    toast.after_idle(show_and_arm)
+
+
 def _make_inline_code_clickable(text_widget: tk.Text, code_start: str, code_end: str, code_text: str) -> None:
     """Make inline code clickable to copy"""
     try:
@@ -159,51 +232,10 @@ def _make_inline_code_clickable(text_widget: tk.Text, code_start: str, code_end:
                 text_widget.clipboard_clear()
                 text_widget.clipboard_append(code_text)
                 
-                # Show small toast
-                import tkinter as tk
-                toast = tk.Toplevel(text_widget)
-                toast.withdraw()
-                toast.overrideredirect(True)
-                toast.attributes('-topmost', True)
-                
-                try:
-                    toast.attributes('-alpha', 0.92)
-                except:
-                    pass
-                
-                label = tk.Label(
-                    toast,
-                    text="✓",
-                    font=("TkDefaultFont", 10, "bold"),
-                    bg="#EEEEEE",
-                    fg="#666666",
-                    padx=8,
-                    pady=4,
-                    relief="flat",
-                    borderwidth=0
-                )
-                label.pack()
-                
-                toast.update()
-                
-                # Position near the inline code
-                bbox = text_widget.bbox(code_start)
-                if bbox:
-                    x = text_widget.winfo_rootx() + bbox[0]
-                    y = text_widget.winfo_rooty() + bbox[1] - 25  # Above the code
-                    toast.geometry(f"+{x}+{y}")
-                    toast.deiconify()
-                else:
-                    toast.destroy()
-                    return
-                
-                # Destroy after 1 second
-                def destroy_toast():
-                    try:
-                        toast.destroy()
-                    except:
-                        pass
-                text_widget.after(1000, destroy_toast)
+                # Show toast near the click position
+                x = event.x_root + 10  # Slightly to the right of cursor
+                y = event.y_root - 10  # Slightly above cursor
+                _show_copy_toast(text_widget, "✓ Copied", x, y)
                 
             except Exception as e:
                 logger.warning(f"Failed to copy inline code: {e}")
@@ -244,78 +276,10 @@ def _add_copy_button(text_widget: tk.Text, block_start: str, block_end: str, cod
                 text_widget.clipboard_clear()
                 text_widget.clipboard_append(code_text.rstrip('\n'))
                 
-                # Show toast notification
-                import tkinter as tk
-                
-                # Create a borderless top-level window
-                toast = tk.Toplevel(text_widget)
-                toast.withdraw()  # Hide initially
-                toast.overrideredirect(True)  # Remove window decorations
-                toast.attributes('-topmost', True)  # Always on top
-                
-                # Try to add transparency on macOS
-                try:
-                    toast.attributes('-alpha', 0.92)  # Slight transparency
-                except:
-                    pass
-                
-                # Create label with message (no frame, direct on toast)
-                label = tk.Label(
-                    toast,
-                    text="✓ Copied",
-                    font=("TkDefaultFont", 9),
-                    bg="#EEEEEE",  # Very light grey
-                    fg="#666666",  # Medium grey text
-                    padx=12,
-                    pady=6,
-                    relief="flat",
-                    borderwidth=0
-                )
-                label.pack()
-                
-                # Position toast in the center of the code block
-                toast.update()  # Force geometry update
-                
-                # Use ACTUAL CODE boundaries (code_start/code_end) for positioning
-                # Padding lines have font size 1 and Tkinter doesn't handle their bbox correctly
-                toast_width = toast.winfo_reqwidth()
-                toast_height = toast.winfo_reqheight()
-                
-                # Get bbox of first and last actual code positions (not padding)
-                bbox_top = text_widget.bbox(code_start)
-                bbox_bottom = text_widget.bbox(f"{code_end}-1c")  # Last actual character
-                
-                if bbox_top and bbox_bottom:
-                    # Calculate vertical boundaries
-                    y_top = bbox_top[1]  # Top Y
-                    y_bottom = bbox_bottom[1] + bbox_bottom[3]  # Bottom Y + height
-                    y_middle = (y_top + y_bottom) // 2
-                    
-                    # Get X coordinate
-                    x = text_widget.winfo_rootx() + bbox_top[0]
-                    y = text_widget.winfo_rooty() + y_middle - toast_height // 2
-                    
-                    toast.geometry(f"+{x}+{y}")
-                    toast.deiconify()  # Now show it in the correct position
-                else:
-                    # Fallback to center of widget if bbox fails
-                    widget_x = text_widget.winfo_rootx()
-                    widget_y = text_widget.winfo_rooty()
-                    widget_width = text_widget.winfo_width()
-                    widget_height = text_widget.winfo_height()
-                    x = widget_x + (widget_width - toast_width) // 2
-                    y = widget_y + (widget_height - toast_height) // 2
-                    toast.geometry(f"+{x}+{y}")
-                    toast.deiconify()
-                
-                # Fade out and destroy after 1.5 seconds
-                def fade_out():
-                    try:
-                        toast.destroy()
-                    except:
-                        pass
-                        
-                text_widget.after(1500, fade_out)
+                # Show toast near the click position
+                x = event.x_root + 10  # Slightly to the right of cursor
+                y = event.y_root - 10  # Slightly above cursor
+                _show_copy_toast(text_widget, "✓ Copied", x, y)
                 
             except Exception as e:
                 logger.warning(f"Failed to show toast: {e}")
