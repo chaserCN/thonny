@@ -206,6 +206,11 @@ class ShellView(tk.PanedWindow):
             tooltip_text = "Пояснити вивід Shell"
         
         create_tooltip(self.explain_button, tooltip_text)
+        
+        # Hide/show button on screenshot events
+        self._explain_button_place_info = None
+        self.explain_button.bind("<<BeforeScreenshot>>", self._hide_explain_button, True)
+        self.explain_button.bind("<<AfterScreenshot>>", self._show_explain_button, True)
 
         self.notice = ttk.Label(self, text="", background="#ffff99", padding=3)
 
@@ -380,6 +385,28 @@ class ShellView(tk.PanedWindow):
                         parent.select(chat_view)
         except Exception as e:
             logger.exception("Failed to send error to chat", exc_info=e)
+
+    def _hide_explain_button(self, event=None):
+        """Hide explain button for screenshot (event handler)"""
+        self.hide_for_screenshot()
+    
+    def _show_explain_button(self, event=None):
+        """Show explain button after screenshot (event handler)"""
+        self.show_after_screenshot()
+    
+    def hide_for_screenshot(self):
+        """Hide UI elements for screenshot"""
+        if hasattr(self, 'explain_button') and self.explain_button.winfo_ismapped():
+            # Save current placement info
+            self._explain_button_place_info = self.explain_button.place_info()
+            # Move button far off-screen (more reliable than place_forget() on macOS)
+            self.explain_button.place(x=-10000, y=-10000)
+    
+    def show_after_screenshot(self):
+        """Show UI elements after screenshot"""
+        if hasattr(self, '_explain_button_place_info') and self._explain_button_place_info:
+            # Restore placement
+            self.explain_button.place(**self._explain_button_place_info)
 
     def explain_shell_output(self):
         """Explain shell output or error"""

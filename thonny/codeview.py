@@ -757,6 +757,11 @@ class CodeView(tktextext.EnhancedTextFrame):
         self._gutter.tag_bind("info_button", "<Enter>", lambda e: self._gutter.config(cursor="hand2"))
         self._gutter.tag_bind("info_button", "<Leave>", lambda e: self._gutter.config(cursor="arrow"))
         
+        # Hide/show info buttons on screenshot events
+        self._gutter.bind("<<BeforeScreenshot>>", self._hide_info_buttons, True)
+        self._gutter.bind("<<AfterScreenshot>>", self._show_info_buttons, True)
+        self._info_buttons_hidden = False
+        
         # Hide right info gutter (not needed anymore)
         self.create_right_gutter(width=3)
         self.set_right_gutter_visibility(False)
@@ -1099,6 +1104,29 @@ class CodeView(tktextext.EnhancedTextFrame):
         # Show explanation popup positioned relative to the clicked button
         self._show_line_explanation_popup(line_num, line_content, event)
         return "break"  # Prevent breakpoint toggle
+    
+    def _hide_info_buttons(self, event=None):
+        """Hide info buttons ('i' icons) in gutter for screenshot (event handler)"""
+        self.hide_for_screenshot()
+    
+    def _show_info_buttons(self, event=None):
+        """Show info buttons after screenshot (event handler)"""
+        self.show_after_screenshot()
+    
+    def hide_for_screenshot(self):
+        """Hide UI elements for screenshot"""
+        if not self._info_buttons_hidden:
+            # Change foreground to match background (effectively hiding them)
+            bg_color = self._gutter.cget("background")
+            self._gutter.tag_configure("info_button", foreground=bg_color)
+            self._info_buttons_hidden = True
+    
+    def show_after_screenshot(self):
+        """Show UI elements after screenshot"""
+        if self._info_buttons_hidden:
+            # Restore original color
+            self._gutter.tag_configure("info_button", foreground="#0066cc")
+            self._info_buttons_hidden = False
     
     def _show_line_explanation_popup(self, line_num, line_content, event):
         """Show popup with AI explanation of the code line"""

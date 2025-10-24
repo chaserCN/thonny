@@ -2573,7 +2573,36 @@ class Workbench(tk.Tk):
                 tooltip_text += " (" + accelerator + ")"
             create_tooltip(button, tooltip_text)
 
+        # Hide screenshot button itself during screenshot
+        if command_id == "take_screenshot":
+            button._pack_info = None
+            button.bind("<<BeforeScreenshot>>", lambda e: self._hide_screenshot_button(button), True)
+            button.bind("<<AfterScreenshot>>", lambda e: self._show_screenshot_button(button), True)
+
         self._toolbar_buttons[command_id] = button
+
+    def _hide_screenshot_button(self, button):
+        """Hide screenshot button for screenshot (event handler)"""
+        self.hide_screenshot_button_for_screenshot()
+    
+    def _show_screenshot_button(self, button):
+        """Show screenshot button after screenshot (event handler)"""
+        self.show_screenshot_button_after_screenshot()
+    
+    def hide_screenshot_button_for_screenshot(self):
+        """Hide screenshot button for screenshot"""
+        if "take_screenshot" in self._toolbar_buttons:
+            button = self._toolbar_buttons["take_screenshot"]
+            if button.winfo_ismapped():
+                button._pack_info = button.pack_info()
+                button.pack_forget()
+    
+    def show_screenshot_button_after_screenshot(self):
+        """Show screenshot button after screenshot"""
+        if "take_screenshot" in self._toolbar_buttons:
+            button = self._toolbar_buttons["take_screenshot"]
+            if hasattr(button, '_pack_info') and button._pack_info:
+                button.pack(**button._pack_info)
 
     def get_toolbar_button(self, command_id):
         return self._toolbar_buttons[command_id]

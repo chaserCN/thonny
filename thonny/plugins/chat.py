@@ -1563,6 +1563,12 @@ class ChatView(tktextext.TextFrame):
 
 def take_screenshot_without_chat():
     """Global function to take screenshot while hiding Chat panel"""
+    # Variables for finally block
+    shell = None
+    chat_view = None
+    notebook = None
+    was_visible = False
+    
     try:
         import time
         from datetime import datetime
@@ -1571,10 +1577,6 @@ def take_screenshot_without_chat():
         workbench = get_workbench()
         
         # Get ChatView instance
-        chat_view = None
-        notebook = None
-        was_visible = False
-        
         try:
             chat_view = workbench.get_view("ChatView", create=False)
             notebook = getattr(chat_view, 'containing_notebook', None)
@@ -1582,42 +1584,59 @@ def take_screenshot_without_chat():
             if notebook:
                 # Check if chat is visible as a tab
                 tabs = notebook.tabs()
-                # If there are tabs and chat is managed, it's visible
                 was_visible = len(tabs) > 0 and chat_view.winfo_manager() != ''
                 
                 if was_visible:
-                    # Temporarily remove the chat tab from notebook
                     try:
                         notebook.forget(chat_view)
-                        # Force UI update to apply changes
-                        workbench.update_idletasks()
-                        workbench.update()
-                        
-                        # Wait for UI to stabilize - check that chat is actually unmapped
-                        max_wait = 1.0  # Maximum 1 second
-                        wait_step = 0.05  # Check every 50ms
-                        waited = 0.0
-                        
-                        while waited < max_wait:
-                            # Check if widget is unmapped (not visible)
-                            if not chat_view.winfo_ismapped():
-                                # Widget is hidden, wait a bit more for rendering
-                                time.sleep(0.1)
-                                break
-                            time.sleep(wait_step)
-                            workbench.update()
-                            waited += wait_step
-                        
-                        # If still mapped after max_wait, just proceed anyway
-                        if chat_view.winfo_ismapped():
-                            logger.warning("Chat panel still visible after timeout")
-                            
                     except Exception as e:
                         logger.warning(f"Could not hide chat panel: {e}")
-                        was_visible = False  # Don't try to restore if we couldn't hide
+                        was_visible = False
         except (RuntimeError, KeyError):
-            # ChatView not created yet or not found
             pass
+        
+        # Hide Shell UI elements
+        try:
+            shell = workbench.get_view("ShellView", create=False)
+            if shell and hasattr(shell, 'hide_for_screenshot'):
+                shell.hide_for_screenshot()
+        except:
+            pass
+        
+        # Hide screenshot button
+        if hasattr(workbench, 'hide_screenshot_button_for_screenshot'):
+            try:
+                workbench.hide_screenshot_button_for_screenshot()
+            except:
+                pass
+        
+        # Hide info buttons in all open editors
+        try:
+            editor_notebook = workbench.get_editor_notebook()
+            if editor_notebook:
+                for editor_tab in editor_notebook.winfo_children():
+                    if hasattr(editor_tab, 'get_code_view'):
+                        code_view = editor_tab.get_code_view()
+                        if code_view and hasattr(code_view, 'hide_for_screenshot'):
+                            code_view.hide_for_screenshot()
+        except:
+            pass
+        
+        # Single unified update cycle for all hidden elements
+        # Exit early if chat is hidden and we've waited at least 150ms
+        start_time = time.time()
+        max_iterations = 10  # Maximum ~500ms (10 * 50ms)
+        min_wait_time = 0.15  # Minimum 150ms
+        
+        for i in range(max_iterations):
+            workbench.update_idletasks()
+            workbench.update()
+            time.sleep(0.05)
+            
+            elapsed = time.time() - start_time
+            # Exit ONLY if BOTH conditions are met: elapsed >= 150ms AND chat is hidden
+            if elapsed >= min_wait_time and (not was_visible or not chat_view.winfo_ismapped()):
+                break
         
         # Prepare filename
         desktop_path = Path.home() / "Desktop"
@@ -1674,6 +1693,34 @@ def take_screenshot_without_chat():
         print(f"✗ Ошибка при создании скриншота: {e}")
         
     finally:
+        # Restore Shell UI elements after screenshot
+        if shell and hasattr(shell, 'show_after_screenshot'):
+            try:
+                shell.show_after_screenshot()
+            except:
+                pass
+        
+        # Restore screenshot button
+        try:
+            workbench = get_workbench()
+            if hasattr(workbench, 'show_screenshot_button_after_screenshot'):
+                workbench.show_screenshot_button_after_screenshot()
+        except:
+            pass
+        
+        # Restore info buttons in all open editors
+        try:
+            workbench = get_workbench()
+            editor_notebook = workbench.get_editor_notebook()
+            if editor_notebook:
+                for editor_tab in editor_notebook.winfo_children():
+                    if hasattr(editor_tab, 'get_code_view'):
+                        code_view = editor_tab.get_code_view()
+                        if code_view and hasattr(code_view, 'show_after_screenshot'):
+                            code_view.show_after_screenshot()
+        except:
+            pass
+        
         # Always restore chat panel if it was visible
         if was_visible and notebook and chat_view:
             try:
@@ -1706,5 +1753,5 @@ def load_plugin():
         include_in_toolbar=True,
         image="camera",
         caption=None,  # No caption - icon-only button
-        group=200,
+        group=210,  # Last button in toolbar (max used is 200)
     )
