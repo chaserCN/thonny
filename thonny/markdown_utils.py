@@ -140,7 +140,7 @@ def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: s
         highlight_python_syntax_simple(text_widget, start_index, end_index)
 
 
-def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, code_text: str) -> None:
+def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, start: str, end: str, code_text: str) -> None:
     """Make code block clickable to copy (no embedded widgets)"""
     try:
         # Create a unique tag for this specific code block
@@ -202,21 +202,27 @@ def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, code_
                 # Position toast in the center of the code block
                 toast.update()  # Force geometry update
                 
-                # Get code block start and end positions
-                bbox_start = text_widget.bbox(code_start)
-                bbox_end = text_widget.bbox(code_end)
-                toast_width = toast.winfo_reqwidth()  # Use requested width
-                toast_height = toast.winfo_reqheight()  # Use requested height
+                # Use ACTUAL CODE boundaries (start/end) for positioning
+                # Padding lines have font size 1 and Tkinter doesn't handle their bbox correctly
+                toast_width = toast.winfo_reqwidth()
+                toast_height = toast.winfo_reqheight()
                 
-                if bbox_start and bbox_end:
-                    # Position: left edge at start, center vertically between start and end
-                    x = text_widget.winfo_rootx() + bbox_start[0]
-                    
-                    # Calculate middle Y position
-                    y_top = bbox_start[1]
-                    y_bottom = bbox_end[1]
+                # Get bbox of first and last actual code positions (not padding)
+                bbox_top = text_widget.bbox(start)
+                bbox_bottom = text_widget.bbox(f"{end}-1c")  # Last actual character
+                
+                if bbox_top and bbox_bottom:
+                    # Calculate vertical boundaries
+                    y_top = bbox_top[1]  # Top Y
+                    y_bottom = bbox_bottom[1] + bbox_bottom[3]  # Bottom Y + height
                     y_middle = (y_top + y_bottom) // 2
+                    
+                    # Get X coordinate
+                    x = text_widget.winfo_rootx() + bbox_top[0]
                     y = text_widget.winfo_rooty() + y_middle - toast_height // 2
+                    
+                    toast.geometry(f"+{x}+{y}")
+                    toast.deiconify()  # Now show it in the correct position
                 else:
                     # Fallback to center of widget if bbox fails
                     widget_x = text_widget.winfo_rootx()
@@ -225,9 +231,8 @@ def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, code_
                     widget_height = text_widget.winfo_height()
                     x = widget_x + (widget_width - toast_width) // 2
                     y = widget_y + (widget_height - toast_height) // 2
-                
-                toast.geometry(f"+{x}+{y}")
-                toast.deiconify()  # Now show it in the correct position
+                    toast.geometry(f"+{x}+{y}")
+                    toast.deiconify()
                 
                 # Fade out and destroy after 1.5 seconds
                 def fade_out():
@@ -438,7 +443,7 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                 # Pass the entire block range (including internal padding) for hover effects
                 if show_copy_button:
                     try:
-                        _add_copy_button(text_widget, block_start, block_end, code_text)
+                        _add_copy_button(text_widget, block_start, block_end, start, end, code_text)
                     except Exception as e:
                         logger.warning(f"Failed to add copy button: {e}", exc_info=True)
             continue
@@ -505,7 +510,7 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                         # Add copy button (if enabled)
                         if show_copy_button:
                             try:
-                                _add_copy_button(text_widget, block_start, block_end, var_text)
+                                _add_copy_button(text_widget, block_start, block_end, start, end, var_text)
                             except Exception as e:
                                 logger.warning(f"Failed to add copy button: {e}", exc_info=True)
             continue

@@ -48,8 +48,6 @@ class BaseAIAssistant(Assistant):
         yield ChatResponseChunk("""
 test-
 ```python
-print("Hello, World1!")
-print("Hello, World2!")
 print("Hello, World!")  
 ```
 -test
