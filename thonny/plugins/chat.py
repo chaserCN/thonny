@@ -1177,6 +1177,10 @@ class ChatView(tktextext.TextFrame):
                 message = "Опиши зображення та розв'яжи задачу, якщо вона зображена."
                 display_message = ""  # Don't show any text, only image preview
         
+        # Don't send empty messages without attachments
+        if not message and not self._attached_image:
+            return
+        
         attachments, warnings = self.compile_attachments(message)
         self._prepare_new_completion()
 
