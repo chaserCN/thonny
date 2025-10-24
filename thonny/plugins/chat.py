@@ -761,8 +761,14 @@ class ChatView(tktextext.TextFrame):
             dots = ["·", "··", "···"]
             current_dots = dots[self._typing_animation_step % 3]
             
-            # Find end of typing indicator (before bottom padding)
-            typing_end = self.text.index(f"{self._typing_indicator_start}+1c")
+            # Delete ALL existing dots (find end by checking for "·" character)
+            typing_end = self._typing_indicator_start
+            for i in range(5):  # Max 5 iterations to prevent infinite loop
+                next_char = self.text.get(typing_end, f"{typing_end}+1c")
+                if next_char == "·":
+                    typing_end = self.text.index(f"{typing_end}+1c")
+                else:
+                    break
             
             # Update only the dots, keep padding intact
             self.text.direct_delete(self._typing_indicator_start, typing_end)
