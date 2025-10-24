@@ -374,301 +374,60 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
     
     def _show_token_explanation_popup(self, line_num, line_content, token_info):
         """Show popup with AI explanation of the token/construct"""
-        from tkinter import messagebox
-        import threading
-        from thonny import get_workbench
+        from thonny.codeview_popup_utils import get_ai_assistant, get_localization, create_explanation_popup
         
-        # Check assistant readiness BEFORE creating popup/thread
-        try:
-            model = get_workbench().get_option("ai.model", "gpt")
-        except:
-            model = "gpt"
-        
-        assistants = get_workbench().assistants
-        if model == "gpt":
-            assistant = assistants.get("openai")
-        elif model == "gemini":
-            assistant = assistants.get("gemini")
-        elif model == "claude":
-            assistant = assistants.get("claude")
-        else:
-            assistant = assistants.get("openai")
-        
+        assistant = get_ai_assistant()
         if not assistant:
-            messagebox.showerror("AI Error", tr("AI assistant unavailable. Check API key settings."))
             return
         
-        if not assistant.get_ready():
-            return
+        loc = get_localization("token")
         
-        # Get language preference
-        try:
-            lang = get_workbench().get_option("ai.language", "uk")
-        except:
-            lang = "uk"
-        
-        # Localized strings
-        if lang == "ru":
-            title_text = f"Объяснение: {token_info['token']}"
-            code_line_label = "Строка кода:"
-            token_label = "Элемент:"
-            explanation_label = "Объяснение:"
-            loading_text = "⏳ *Запрашиваю AI для объяснения...*"
-            error_label = "Ошибка:"
-        else:  # uk
-            title_text = f"Пояснення: {token_info['token']}"
-            code_line_label = "Рядок коду:"
-            token_label = "Елемент:"
-            explanation_label = "Пояснення:"
-            loading_text = "⏳ *Запитую AI для пояснення...*"
-            error_label = "Помилка:"
-        
-        # Create popup dialog
-        popup = tk.Toplevel(self)
-        popup.title(title_text)
-        popup.withdraw()
-        popup.transient(self.winfo_toplevel())
-        
-        # Set size
-        popup_width = 600
-        popup_height = 520
-        popup.geometry(f"{popup_width}x{popup_height}")
-        
-        root = self.winfo_toplevel()
-        root_x = root.winfo_rootx()
-        root_w = root.winfo_width()
-        root_h = root.winfo_height()
-        
-        # Center horizontally
-        popup_x = root_x + (root_w - popup_width) // 2
-        popup_y = root.winfo_rooty() + (root_h - popup_height) // 2
-        
-        # Screen boundaries
-        screen_width = popup.winfo_screenwidth()
-        screen_height = popup.winfo_screenheight()
-        if popup_x < 0:
-            popup_x = 0
-        elif popup_x + popup_width > screen_width:
-            popup_x = screen_width - popup_width
-        if popup_y < 0:
-            popup_y = 0
-        elif popup_y + popup_height > screen_height:
-            popup_y = screen_height - popup_height
-        
-        popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
-        popup.deiconify()
-        
-        # Add Text widget
-        text_frame = tk.Frame(popup)
-        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        explanation_text = tk.Text(
-            text_frame,
-            wrap=tk.WORD,
-            font="TkDefaultFont",
-            background="white",
-            foreground="black",
-            state="normal"
+        create_explanation_popup(
+            parent=self,
+            title=loc["title"].format(token=token_info['token']),
+            width=600,
+            height=520,
+            loading_markdown=(
+                f"**{loc['token_label']}** `{token_info['token']}`\n\n"
+                f"{loc['loading']}\n"
+            ),
+            request_func=lambda: self._request_token_explanation(
+                assistant, line_num, line_content, token_info
+            ),
+            format_result_func=lambda expl: expl,  # Just the explanation, no duplication
+            error_label=loc["error_label"],
+            position_mode="center",
         )
-        
-        scrollbar = ttk.Scrollbar(text_frame, command=explanation_text.yview)
-        explanation_text.configure(yscrollcommand=scrollbar.set)
-        
-        explanation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Show loading message
-        from thonny.markdown_utils import render_markdown
-        render_markdown(explanation_text, loading_text, show_copy_button=False)
-        
-        # Get AI explanation in thread
-        def get_explanation():
-            try:
-                explanation = self._request_token_explanation(
-                    assistant, line_num, line_content, token_info
-                )
-                
-                def update_ui():
-                    if not popup.winfo_exists():
-                        return
-                    
-                    from thonny.markdown_utils import render_markdown
-                    explanation_text.delete("1.0", "end")
-                    
-                    md_content = f"**{code_line_label}**\n\n{line_content}\n\n"
-                    md_content += f"**{token_label}** `{token_info['token']}`\n\n"
-                    md_content += f"**{explanation_label}**\n\n"
-                    md_content += explanation
-                    
-                    render_markdown(explanation_text, md_content, show_copy_button=False)
-                
-                popup.after(0, update_ui)
-            except Exception as e:
-                def show_error(err_label=error_label, error=e):
-                    if not popup.winfo_exists():
-                        return
-                    
-                    from thonny.markdown_utils import render_markdown
-                    explanation_text.delete("1.0", "end")
-                    error_md = f"**{err_label}**\n\n{str(error)}"
-                    render_markdown(explanation_text, error_md, show_copy_button=False)
-                popup.after(0, show_error)
-        
-        threading.Thread(target=get_explanation, daemon=True).start()
     
     def _show_selection_explanation_popup(self, selected_code, start_line, end_line):
         """Show popup with AI explanation of selected code fragment"""
-        from tkinter import messagebox
-        import threading
-        from thonny import get_workbench
+        from thonny.codeview_popup_utils import get_ai_assistant, get_localization, create_explanation_popup
         
-        # Check assistant readiness BEFORE creating popup/thread
-        try:
-            model = get_workbench().get_option("ai.model", "gpt")
-        except:
-            model = "gpt"
-        
-        assistants = get_workbench().assistants
-        if model == "gpt":
-            assistant = assistants.get("openai")
-        elif model == "gemini":
-            assistant = assistants.get("gemini")
-        elif model == "claude":
-            assistant = assistants.get("claude")
-        else:
-            assistant = assistants.get("openai")
-        
+        assistant = get_ai_assistant()
         if not assistant:
-            messagebox.showerror("AI Error", tr("AI assistant unavailable. Check API key settings."))
             return
         
-        if not assistant.get_ready():
-            return
+        loc = get_localization("selection")
         
-        # Get language preference
-        try:
-            lang = get_workbench().get_option("ai.language", "uk")
-        except:
-            lang = "uk"
+        # Format selected code for display
+        code_display = selected_code if len(selected_code) <= 500 else selected_code[:500] + "\n..."
         
-        # Localized strings
-        if lang == "ru":
-            title_text = "Объяснение выделенного кода"
-            code_label = "Выделенный код:"
-            explanation_label = "Объяснение:"
-            loading_text = "⏳ *Запрашиваю AI для объяснения...*"
-            error_label = "Ошибка:"
-        else:  # uk
-            title_text = "Пояснення виділеного коду"
-            code_label = "Виділений код:"
-            explanation_label = "Пояснення:"
-            loading_text = "⏳ *Запитую AI для пояснення...*"
-            error_label = "Помилка:"
-        
-        # Create popup dialog
-        popup = tk.Toplevel(self)
-        popup.title(title_text)
-        popup.withdraw()
-        popup.transient(self.winfo_toplevel())
-        
-        # Set size
-        popup_width = 700
-        popup_height = 600
-        popup.geometry(f"{popup_width}x{popup_height}")
-        
-        root = self.winfo_toplevel()
-        root_x = root.winfo_rootx()
-        root_w = root.winfo_width()
-        root_h = root.winfo_height()
-        
-        # Center horizontally
-        popup_x = root_x + (root_w - popup_width) // 2
-        popup_y = root.winfo_rooty() + (root_h - popup_height) // 2
-        
-        # Screen boundaries
-        screen_width = popup.winfo_screenwidth()
-        screen_height = popup.winfo_screenheight()
-        if popup_x < 0:
-            popup_x = 0
-        elif popup_x + popup_width > screen_width:
-            popup_x = screen_width - popup_width
-        if popup_y < 0:
-            popup_y = 0
-        elif popup_y + popup_height > screen_height:
-            popup_y = screen_height - popup_height
-        
-        popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
-        popup.deiconify()
-        
-        # Add Text widget
-        text_frame = tk.Frame(popup)
-        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        explanation_text = tk.Text(
-            text_frame,
-            wrap=tk.WORD,
-            font="TkDefaultFont",
-            background="white",
-            foreground="black",
-            state="normal"
+        create_explanation_popup(
+            parent=self,
+            title=loc["title"],
+            width=700,
+            height=600,
+            loading_markdown=(
+                f"**{loc['code_label']}**\n\n```python\n{code_display}\n```\n\n"
+                f"{loc['loading']}\n"
+            ),
+            request_func=lambda: self._request_selection_explanation(
+                assistant, selected_code, start_line, end_line
+            ),
+            format_result_func=lambda expl: expl,  # Already formatted by request
+            error_label=loc["error_label"],
+            position_mode="center",
         )
-        explanation_text.pack(fill=tk.BOTH, expand=True)
-        
-        # Show loading message
-        from thonny.markdown_utils import render_markdown
-        render_markdown(explanation_text, loading_text, show_copy_button=False)
-        
-        # Request explanation in background
-        def get_explanation():
-            try:
-                explanation = self._request_selection_explanation(assistant, selected_code, start_line, end_line)
-                
-                def show_result():
-                    # Check if popup still exists
-                    if not popup.winfo_exists():
-                        return
-                    explanation_text.delete("1.0", "end")
-                    render_markdown(explanation_text, explanation, show_copy_button=False)
-                popup.after(0, show_result)
-            except Exception as error:
-                import traceback
-                traceback.print_exc()
-                
-                def show_error():
-                    # Check if popup still exists
-                    if not popup.winfo_exists():
-                        return
-                    err_label = error_label
-                    
-                    from thonny.markdown_utils import render_markdown
-                    explanation_text.delete("1.0", "end")
-                    error_md = f"**{err_label}**\n\n{str(error)}"
-                    render_markdown(explanation_text, error_md, show_copy_button=False)
-                popup.after(0, show_error)
-        
-        threading.Thread(target=get_explanation, daemon=True).start()
-    
-    def _get_program_context(self):
-        """Get program context: debug info with variables if available, or formatted code otherwise"""
-        from thonny.plugins.debug_common import get_debug_context, format_code_context
-        
-        # Try to get debug context first (includes variable values)
-        program_context = None
-        try:
-            program_context = get_debug_context()
-        except:
-            pass
-        
-        # If not in debug mode, format the code
-        if not program_context:
-            full_code = self.get("1.0", "end-1c")
-            try:
-                filename = self.master.get_filename() if hasattr(self.master, 'get_filename') else "program.py"
-                program_context = format_code_context(full_code, filename or "program.py")
-            except:
-                program_context = format_code_context(full_code)
-        
-        return program_context
     
     def _request_token_explanation(self, assistant, line_num, line_content, token_info):
         """Request AI explanation for a token with full program context
@@ -676,9 +435,10 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         Note: assistant.get_ready() must be called BEFORE this method in the main thread!
         """
         from thonny.assistance import TokenContext
+        from thonny.codeview_popup_utils import get_program_context
         
         # Get program context (debug if available, or formatted code)
-        program_context = self._get_program_context()
+        program_context = get_program_context(self)
         
         # Create context with token info and program context
         context = TokenContext(
@@ -699,9 +459,10 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         Note: assistant.get_ready() must be called BEFORE this method in the main thread!
         """
         from thonny.assistance import SelectionContext
+        from thonny.codeview_popup_utils import get_program_context
         
         # Get program context (debug if available, or formatted code)
-        program_context = self._get_program_context()
+        program_context = get_program_context(self)
         
         # Create context with selected code and program context
         context = SelectionContext(
@@ -1130,162 +891,28 @@ class CodeView(tktextext.EnhancedTextFrame):
     
     def _show_line_explanation_popup(self, line_num, line_content, event):
         """Show popup with AI explanation of the code line"""
-        from tkinter import messagebox
-        import threading
-        from thonny import rst_utils
-        from thonny import get_workbench
+        from thonny.codeview_popup_utils import get_ai_assistant, get_localization, create_explanation_popup
         
-        # Check assistant readiness BEFORE creating popup/thread (must be in main thread!)
-        try:
-            model = get_workbench().get_option("ai.model", "gpt")
-        except:
-            model = "gpt"
-        
-        assistants = get_workbench().assistants
-        if model == "gpt":
-            assistant = assistants.get("openai")  # lowercase!
-        elif model == "gemini":
-            assistant = assistants.get("gemini")  # lowercase!
-        elif model == "claude":
-            assistant = assistants.get("claude")  # lowercase!
-        else:
-            assistant = assistants.get("openai")  # default fallback
-        
+        assistant = get_ai_assistant()
         if not assistant:
-            messagebox.showerror("AI Error", "AI ассистент недоступен. Проверьте настройки API ключа.")
             return
         
-        if not assistant.get_ready():
-            # User cancelled API key dialog
-            return
+        loc = get_localization("line")
         
-        # Get language preference
-        try:
-            lang = get_workbench().get_option("ai.language", "uk")
-        except:
-            lang = "uk"
-        
-        # Localized strings
-        if lang == "ru":
-            title_text = f"Строка {line_num}: Пояснение"
-            code_line_label = "Строка кода:"
-            explanation_label = "Пояснение:"
-            loading_text = "⏳ *Запрашиваю AI для пояснения...*"
-            error_label = "Ошибка:"
-        else:  # uk
-            title_text = f"Рядок {line_num}: Пояснення"
-            code_line_label = "Рядок коду:"
-            explanation_label = "Пояснення:"
-            loading_text = "⏳ *Запитую AI для пояснення...*"
-            error_label = "Помилка:"
-        
-        # Create popup dialog
-        popup = tk.Toplevel(self)
-        popup.title(title_text)
-        popup.withdraw()  # Hide initially to position it first
-        popup.transient(self.winfo_toplevel())
-        
-        # Set size
-        popup_width = 600
-        popup_height = 520  # Increased by 30% (was 400)
-        popup.geometry(f"{popup_width}x{popup_height}")
-                
-        root = self.winfo_toplevel()
-        root_x = root.winfo_rootx()
-        root_w = root.winfo_width()
-
-        # Горизонтально — центр относительно всего окна Thonny
-        popup_x = root_x + (root_w - popup_width) // 2
-
-        # Вертикально — под текущей строкой
-        # Берём экранные координаты левой границы текущей строки
-        line_index = f"{line_num}.0"
-        line_y = self.text.dlineinfo(line_index)[1] + self.text.winfo_rooty()  # верх строки
-        line_height = self.text.dlineinfo(line_index)[3]
-        popup_y = line_y + line_height + 8  # на 8px ниже строки
-
-        # Страховка от выхода за экран
-        screen_width = popup.winfo_screenwidth()
-        screen_height = popup.winfo_screenheight()
-        if popup_x < 0:
-            popup_x = 0
-        elif popup_x + popup_width > screen_width:
-            popup_x = screen_width - popup_width
-
-        if popup_y + popup_height > screen_height:
-            # если вниз не влезает — появляемся непосредственно над строкой
-            popup_y = max(0, line_y - popup_height - 8)
-        
-        # Set position and show
-        popup.geometry(f"{popup_width}x{popup_height}+{popup_x}+{popup_y}")
-        popup.deiconify()  # Show the window
-        
-        # Add Text widget with markdown formatting
-        text_frame = tk.Frame(popup)
-        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Use regular Text widget with markdown rendering
-        explanation_text = tk.Text(
-            text_frame, 
-            wrap=tk.WORD, 
-            font="TkDefaultFont",
-            background="white",
-            foreground="black",
-            state="normal"  # Allow selection for copying
+        create_explanation_popup(
+            parent=self,
+            title=loc["title"].format(line_num=line_num),
+            width=600,
+            height=520,
+            loading_markdown=f"**{loc['code_line_label']}** `{line_content}`\n\n{loc['loading']}\n",
+            request_func=lambda: self._request_line_explanation(
+                assistant, line_num, line_content
+            ),
+            format_result_func=lambda expl: expl,  # Just the explanation, no duplication
+            error_label=loc["error_label"],
+            position_mode="below_line",
+            line_num=line_num,
         )
-        explanation_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        scrollbar = ttk.Scrollbar(text_frame, command=explanation_text.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        explanation_text.config(yscrollcommand=scrollbar.set)
-        
-        # Enable copy shortcuts
-        explanation_text.bind("<Control-c>", lambda e: explanation_text.event_generate("<<Copy>>"))
-        explanation_text.bind("<Command-c>", lambda e: explanation_text.event_generate("<<Copy>>"))  # Mac
-        explanation_text.bind("<Control-a>", lambda e: explanation_text.tag_add("sel", "1.0", "end"))
-        explanation_text.bind("<Command-a>", lambda e: explanation_text.tag_add("sel", "1.0", "end"))  # Mac
-        
-        # Show loading message
-        from thonny.markdown_utils import render_markdown
-        loading_msg = f"**{code_line_label}**\n\n{line_content}\n\n{loading_text}\n"
-        render_markdown(explanation_text, loading_msg, show_copy_button=False)
-        
-        # Get AI explanation in thread
-        def get_explanation():
-            try:
-                explanation = self._request_line_explanation(assistant, line_num, line_content)
-                
-                # Update UI in main thread
-                def update_ui():
-                    # Check if popup still exists
-                    if not popup.winfo_exists():
-                        return
-                    
-                    from thonny.markdown_utils import render_markdown
-                    # Clear and show formatted explanation
-                    explanation_text.delete("1.0", "end")
-                    
-                    # Format as markdown
-                    md_content = f"**{code_line_label}**\n\n{line_content}\n\n"
-                    md_content += f"**{explanation_label}**\n\n"
-                    md_content += explanation
-                    
-                    render_markdown(explanation_text, md_content, show_copy_button=False)
-                
-                popup.after(0, update_ui)
-            except Exception as e:
-                def show_error(err_label=error_label, error=e):
-                    # Check if popup still exists
-                    if not popup.winfo_exists():
-                        return
-                    
-                    from thonny.markdown_utils import render_markdown
-                    explanation_text.delete("1.0", "end")
-                    error_md = f"**{err_label}**\n\n{str(error)}"
-                    render_markdown(explanation_text, error_md, show_copy_button=False)
-                popup.after(0, show_error)
-        
-        threading.Thread(target=get_explanation, daemon=True).start()
     
     def _request_line_explanation(self, assistant, line_num, line_content):
         """Request AI explanation for a line of code with full context
@@ -1293,9 +920,10 @@ class CodeView(tktextext.EnhancedTextFrame):
         Note: assistant.get_ready() must be called BEFORE this method in the main thread!
         """
         from thonny.assistance import CodeViewContext
+        from thonny.codeview_popup_utils import get_program_context
         
         # Get program context (debug if available, or formatted code)
-        program_context = self._get_program_context()
+        program_context = get_program_context(self.text, self)
         
         # Create context with line info and code context
         context = CodeViewContext(
