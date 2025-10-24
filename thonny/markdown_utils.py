@@ -141,73 +141,120 @@ def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: s
 
 
 def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, code_text: str) -> None:
-    """Add a copy button next to a code block"""
+    """Make code block clickable to copy (no embedded widgets)"""
     try:
-        # Get the background color from text_widget
-        try:
-            bg_color = str(text_widget.cget("background"))
-            # Convert system colors to actual colors if needed
-            if bg_color.startswith("system"):
-                bg_color = "white"
-        except:
-            bg_color = "white"
+        # Create a unique tag for this specific code block
+        tag_name = f"clickable_code_{id(code_text)}_{code_start.replace('.', '_')}"
         
-        # Create a clickable label instead of button (no borders/shadows)
-        button = tk.Label(
-            text_widget,
-            text="Copy 📋",
-            font=("TkDefaultFont", 8),
-            bg=bg_color,  # Match text widget background
-            fg="#666",
-            cursor="hand2",
-            padx=0,  # No padding
-            pady=0,  # No padding
-        )
+        # Store original background
+        original_bg = "#f5f5f5"
+        hover_bg = "#e8e8e8"
         
-        # Make it clickable
-        button.bind("<Button-1>", lambda e: _copy_code_to_clipboard(text_widget, code_text, button))
+        # Create hover tag for this block
+        hover_tag = f"{tag_name}_hover"
         
-        # Add hover effects
-        def on_enter(e):
-            button.config(fg="#333")
-        def on_leave(e):
-            button.config(fg="#666")
+        # Configure the tags
+        text_widget.tag_configure(tag_name, background=original_bg)
+        text_widget.tag_configure(hover_tag, background=hover_bg)
         
-        button.bind("<Enter>", on_enter)
-        button.bind("<Leave>", on_leave)
+        # Apply the tag to the entire code block (including internal padding)
+        text_widget.tag_add(tag_name, code_start, code_end)
         
-        # Create a tag for right alignment with matching background
-        tag_name = f"copy_button_{id(button)}"
-        text_widget.tag_configure(tag_name, justify="right", background=bg_color, spacing1=0, spacing3=0)
+        # Raise priority so it's above md_code_block and code_block_internal_padding
+        text_widget.tag_raise(tag_name)
+        text_widget.tag_raise(hover_tag)
         
-        # Insert a newline at the END of code block for the button
-        insert_method = getattr(text_widget, 'direct_insert', text_widget.insert)
-        insert_method(code_end, "\n")
+        # Bind click event to copy code
+        def copy_on_click(event):
+            try:
+                text_widget.clipboard_clear()
+                text_widget.clipboard_append(code_text.rstrip('\n'))
+                
+                # Show toast notification
+                import tkinter as tk
+                
+                # Create a borderless top-level window
+                toast = tk.Toplevel(text_widget)
+                toast.withdraw()  # Hide initially
+                toast.overrideredirect(True)  # Remove window decorations
+                toast.attributes('-topmost', True)  # Always on top
+                
+                # Try to add transparency on macOS
+                try:
+                    toast.attributes('-alpha', 0.92)  # Slight transparency
+                except:
+                    pass
+                
+                # Create label with message (no frame, direct on toast)
+                label = tk.Label(
+                    toast,
+                    text="✓ Copied",
+                    font=("TkDefaultFont", 9),
+                    bg="#EEEEEE",  # Very light grey
+                    fg="#666666",  # Medium grey text
+                    padx=12,
+                    pady=6,
+                    relief="flat",
+                    borderwidth=0
+                )
+                label.pack()
+                
+                # Position toast in the center of the code block
+                toast.update()  # Force geometry update
+                
+                # Get code block start and end positions
+                bbox_start = text_widget.bbox(code_start)
+                bbox_end = text_widget.bbox(code_end)
+                toast_width = toast.winfo_reqwidth()  # Use requested width
+                toast_height = toast.winfo_reqheight()  # Use requested height
+                
+                if bbox_start and bbox_end:
+                    # Position: left edge at start, center vertically between start and end
+                    x = text_widget.winfo_rootx() + bbox_start[0]
+                    
+                    # Calculate middle Y position
+                    y_top = bbox_start[1]
+                    y_bottom = bbox_end[1]
+                    y_middle = (y_top + y_bottom) // 2
+                    y = text_widget.winfo_rooty() + y_middle - toast_height // 2
+                else:
+                    # Fallback to center of widget if bbox fails
+                    widget_x = text_widget.winfo_rootx()
+                    widget_y = text_widget.winfo_rooty()
+                    widget_width = text_widget.winfo_width()
+                    widget_height = text_widget.winfo_height()
+                    x = widget_x + (widget_width - toast_width) // 2
+                    y = widget_y + (widget_height - toast_height) // 2
+                
+                toast.geometry(f"+{x}+{y}")
+                toast.deiconify()  # Now show it in the correct position
+                
+                # Fade out and destroy after 1.5 seconds
+                def fade_out():
+                    try:
+                        toast.destroy()
+                    except:
+                        pass
+                        
+                text_widget.after(1500, fade_out)
+                
+            except Exception as e:
+                logger.warning(f"Failed to show toast: {e}")
         
-        # Add some spaces before button to push it to the right and fill the line
-        insert_method(code_end, "                                                                              ")
+        # Hover effects
+        def on_enter(event):
+            text_widget.tag_add(hover_tag, code_start, code_end)
+            text_widget.tag_raise(hover_tag)
         
-        # Now the button will be on its own line at the bottom
-        button_pos = text_widget.index(f"{code_end} lineend")
+        def on_leave(event):
+            text_widget.tag_remove(hover_tag, code_start, code_end)
         
-        # Insert the button
-        text_widget.window_create(button_pos, window=button)
-        
-        # Apply right alignment tag to the entire line with the button
-        line_start = f"{code_end} linestart"
-        line_end = f"{button_pos} lineend +1c"
-        text_widget.tag_add(tag_name, line_start, line_end)
-        
-        # Remove md_code_block and all syntax highlighting tags from button line to avoid gray background
-        text_widget.tag_remove("md_code_block", line_start, line_end)
-        text_widget.tag_remove("code_keyword", line_start, line_end)
-        text_widget.tag_remove("code_string", line_start, line_end)
-        text_widget.tag_remove("code_comment", line_start, line_end)
-        text_widget.tag_remove("code_number", line_start, line_end)
-        text_widget.tag_remove("code_builtin", line_start, line_end)
+        text_widget.tag_bind(tag_name, "<Button-1>", copy_on_click)
+        text_widget.tag_bind(tag_name, "<Enter>", on_enter)
+        text_widget.tag_bind(tag_name, "<Leave>", on_leave)
         
     except Exception as e:
-        logger.warning(f"Failed to create copy button: {e}", exc_info=True)
+        logger.warning(f"Failed to make code block clickable: {e}", exc_info=True)
 
 
 def _copy_code_to_clipboard(text_widget: tk.Text, code_text: str, button: tk.Label) -> None:
@@ -270,6 +317,8 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
     text_widget.tag_configure("md_heading", font=("TkDefaultFont", 10, "bold"), spacing1=0, spacing3=0)
     text_widget.tag_configure("md_normal_text", font=("TkDefaultFont", 10), spacing1=0, spacing3=0)
     text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, selectbackground="#4A90E2", selectforeground="white")
+    text_widget.tag_configure("code_block_padding", font=("TkDefaultFont", 1), spacing1=6, spacing3=0)  # Padding before code blocks
+    text_widget.tag_configure("code_block_internal_padding", font=("TkDefaultFont", 1), background="#f5f5f5", spacing1=4, spacing3=0, lmargin1=10, lmargin2=10)  # Internal padding inside code blocks
     text_widget.tag_configure("md_inline_code", font=("TkFixedFont", 9), background="#f5f5f5", selectbackground="#4A90E2", selectforeground="white")
     text_widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
     text_widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
@@ -353,11 +402,29 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
             
             # Insert code block
             if code_lines:
+                # Add padding before code block
+                insert_method("end", "\n", ("code_block_padding",))
+                
+                # Remember start of the entire block (including internal padding)
+                block_start = text_widget.index("end-1c")
+                
+                # Add internal padding at top
+                insert_method("end", "\n", ("code_block_internal_padding",))
+                
                 code_text = "\n".join(code_lines) + "\n"
                 start = text_widget.index("end-1c")
                 insert_method("end", code_text)
                 end = text_widget.index("end-1c")
                 text_widget.tag_add("md_code_block", start, end)
+                
+                # Add internal padding at bottom
+                insert_method("end", "\n", ("code_block_internal_padding",))
+                
+                # Remember end of the entire block (including internal padding)
+                block_end = text_widget.index("end-1c")
+                
+                # Add padding after code block
+                insert_method("end", "\n", ("code_block_padding",))
                 
                 # Apply Python syntax highlighting if language is python or not specified
                 if not lang or lang == "python" or lang == "py":
@@ -368,9 +435,10 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                         pass  # Fallback to plain code block if highlighting fails
                 
                 # Add copy button at the end of code block (if enabled)
+                # Pass the entire block range (including internal padding) for hover effects
                 if show_copy_button:
                     try:
-                        _add_copy_button(text_widget, start, end, code_text)
+                        _add_copy_button(text_widget, block_start, block_end, code_text)
                     except Exception as e:
                         logger.warning(f"Failed to add copy button: {e}", exc_info=True)
             continue
@@ -410,10 +478,36 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                     
                     # Insert as code block
                     if var_lines:
+                        # Add padding before code block
+                        insert_method("end", "\n", ("code_block_padding",))
+                        
+                        # Remember start of the entire block (including internal padding)
+                        block_start = text_widget.index("end-1c")
+                        
+                        # Add internal padding at top
+                        insert_method("end", "\n", ("code_block_internal_padding",))
+                        
                         var_text = "\n".join(var_lines) + "\n"
                         start = text_widget.index("end-1c")
                         insert_method("end", var_text)
-                        text_widget.tag_add("md_code_block", start, text_widget.index("end-1c"))
+                        end = text_widget.index("end-1c")
+                        text_widget.tag_add("md_code_block", start, end)
+                        
+                        # Add internal padding at bottom
+                        insert_method("end", "\n", ("code_block_internal_padding",))
+                        
+                        # Remember end of the entire block (including internal padding)
+                        block_end = text_widget.index("end-1c")
+                        
+                        # Add padding after code block
+                        insert_method("end", "\n", ("code_block_padding",))
+                        
+                        # Add copy button (if enabled)
+                        if show_copy_button:
+                            try:
+                                _add_copy_button(text_widget, block_start, block_end, var_text)
+                            except Exception as e:
+                                logger.warning(f"Failed to add copy button: {e}", exc_info=True)
             continue
         
         # Check for list items: - or * or numbers 1.

@@ -45,6 +45,19 @@ class BaseAIAssistant(Assistant):
     def _complete_normal(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         """Normal mode: user text with optional image (history already compressed in chat.py)"""
 
+        yield ChatResponseChunk("""
+test-
+```python
+print("Hello, World1!")
+print("Hello, World2!")
+print("Hello, World!")  
+```
+-test
+
+inline: `print("Hello, World3!")`
+
+""")
+
         # Get appropriate prompt based on whether image is present
         lang = self._get_language()
         

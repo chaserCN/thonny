@@ -1093,7 +1093,7 @@ class ChatView(tktextext.TextFrame):
         # Render markdown for both user and bot
         try:
             from thonny.markdown_utils import render_markdown
-            render_markdown(self.text, content)
+            render_markdown(self.text, content, show_copy_button=True)
         except Exception as e:
             logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
             self.text.direct_insert("end", content)
