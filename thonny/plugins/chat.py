@@ -78,7 +78,6 @@ class ChatView(tktextext.TextFrame):
         self._bot_avatar_added = False  # Track if bot avatar was added for current response
         self._typing_animation_id = None  # For typing indicator animation
         self._typing_animation_step = 0  # Current animation frame
-        self._last_query_text_height = 3  # Cache last height to avoid unnecessary updates
         self._captured_program_context: Optional[str] = None  # Pre-captured debug context to avoid race conditions
 
         main_font = tk.font.nametofont("TkDefaultFont")
@@ -279,17 +278,17 @@ class ChatView(tktextext.TextFrame):
         clear_button.pack(side="left", padx=(5, 0))
 
         # Input field (full width)
-        # White background container to prevent gray flash when resizing
+        # White background container
         # sticky="sew" makes it grow upward (bottom-anchored like Cursor)
         white_container = tk.Frame(panel, background="white")
         white_container.grid(row=2, column=1, columnspan=3, sticky="sew", padx=(pad_small, pad_small), pady=(pad//4, pad_small))
         white_container.rowconfigure(0, weight=1)
         white_container.columnconfigure(0, weight=1)
         
-        # Simple Text widget without visible border
+        # Simple Text widget with FIXED height (no auto-resize to prevent flickering)
         self.query_text = tk.Text(
             white_container,
-            height=3,
+            height=7,  # FIXED height - never changes to prevent flickering
             font="TkDefaultFont",
             borderwidth=0,
             relief="flat",
@@ -301,8 +300,7 @@ class ChatView(tktextext.TextFrame):
             pady=4,
         )
         self.query_text.bind("<Return>", self._on_press_enter_in_chat_entry, True)
-        # Use <<Modified>> event to catch ALL text changes (including Shift+Enter)
-        self.query_text.bind("<<Modified>>", self._on_query_text_modified, True)
+        # NO auto-resize - fixed height to prevent flickering
         
         # Bind paste event (works on ALL keyboard layouts, including Russian/Ukrainian)
         self.query_text.bind("<<Paste>>", self._on_paste_in_query, True)
@@ -917,7 +915,6 @@ class ChatView(tktextext.TextFrame):
             logger.debug(f"Failed to paste image from clipboard: {e}")
         
         # If no image in clipboard or error, allow default text paste
-        # Height will be updated automatically by <<Modified>> event
         return None
     
     def _load_image_from_file(self, filepath: str) -> None:
@@ -1119,30 +1116,6 @@ class ChatView(tktextext.TextFrame):
     #     if self._current_assistant.get_ready():
     #         self.submit_user_chat_message(self.query_text.get("1.0", "end"))
 
-    def _on_query_text_modified(self, event: tk.Event):
-        # <<Modified>> event fires after ANY text change (including Shift+Enter)
-        # Must reset the modified flag to prevent infinite loop
-        if self.query_text.edit_modified():
-            self.query_text.edit_modified(False)
-            # Update height immediately after modification
-            self._update_query_text_height()
-    
-    def _update_query_text_height(self):
-        """Update query text height to fit content (instant)"""
-        # Calculate required height
-        if self.query_text.winfo_width() < 10:
-            return
-        
-        required_height = self.query_text.tk.call(
-            (self.query_text, "count", "-update", "-displaylines", "1.0", "end")
-        )
-        new_height = min(max(required_height, 3), 10)
-        
-        # Only update if height actually changed
-        if new_height != self._last_query_text_height:
-            self.query_text.configure(height=new_height)
-            self._last_query_text_height = new_height
-
     def _on_press_enter_in_chat_entry(self, event: tk.Event):
         if shift_is_pressed(event):
             return None
@@ -1232,10 +1205,6 @@ class ChatView(tktextext.TextFrame):
         self._start_typing_animation()
         
         self.query_text.delete("1.0", "end")
-        
-        # Reset query text height to initial size (instant, since text is cleared)
-        self.query_text.configure(height=3)
-        self._last_query_text_height = 3
         
         # Clear attached image and preview after sending
         self._clear_attached_image()
