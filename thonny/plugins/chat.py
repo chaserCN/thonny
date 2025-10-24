@@ -64,7 +64,6 @@ class ChatView(tktextext.TextFrame):
         self._last_tagged_attachments: Dict[str, Attachment] = {}
         self._active_chat_request_id: Optional[str] = None
         self._current_pending_message: Optional[ChatMessage] = None  # User message pending AI response
-        self._current_chat_response_buffer: str = ""  # Buffer for streaming RST
 
         self._snapshots_per_main_file = {}
         self._current_snapshot = None
@@ -117,11 +116,24 @@ class ChatView(tktextext.TextFrame):
         
         self.text.tag_configure(
             "user_message",
-            rmargin=0,
-            spacing1=4,  # Небольшой отступ внутри
-            spacing3=4,  # Небольшой отступ внутри
-            # font=italic_font,
-            foreground="#1565C0",     # Тёмно-синий текст (без фона)
+            lmargin1=8,   # Левый отступ
+            lmargin2=8,   # Левый отступ для остальных строк
+            rmargin=8,    # Правый отступ
+            spacing1=4,   # Отступ сверху
+            spacing3=4,   # Отступ снизу
+            foreground="#0D47A1",      # Насыщенный тёмно-синий текст
+            background="#F0F8FF",      # Светло-голубой фон
+        )
+        
+        self.text.tag_configure(
+            "bot_message",
+            lmargin1=8,   # Левый отступ (такой же как у пользователя)
+            lmargin2=8,   # Левый отступ для остальных строк
+            rmargin=8,    # Правый отступ
+            spacing1=4,   # Отступ сверху
+            spacing3=4,   # Отступ снизу
+            # foreground - default (black) - не задаём, чтобы markdown мог раскрашивать
+            # background - default (white) - не задаём
         )
         
         # Avatar styles
@@ -332,70 +344,40 @@ class ChatView(tktextext.TextFrame):
 
         fragment = fragment_with_request_id.fragment
         
-        # For RstText, accumulate and render at the end
+        # We always receive one final fragment (no streaming)
         if isinstance(self.text, rst_utils.RstText):
-            if not fragment.is_final:
-                # Just accumulate the content
-                # Add typing indicator before first fragment
-                if not self._bot_avatar_added:
-                    # Add bot avatar and typing indicator
-                    self._append_text("🤖 ", tags=("bot_avatar",))
-                    typing_start = self.text.index("end-1c")
-                    self._append_text("·", tags=("typing_indicator",))
-                    self._append_text("\n", tags=())  # Bottom spacing
-                    self._bot_avatar_added = True
-                    # Store position to update typing indicator (just the dots, not avatar)
-                    self._typing_indicator_start = typing_start
-                    # Start animation
-                    self._start_typing_animation()
-                
-                self._current_chat_response_buffer += fragment.content
-            else:
-                # Stop animation and remove typing indicator (dots only, keep avatar)
-                self._stop_typing_animation()
-                if hasattr(self, '_typing_indicator_start'):
-                    try:
-                        # Delete only the typing indicator (dots), not the avatar
-                        self.text.direct_delete(self._typing_indicator_start, "end-1c")
-                    except:
-                        pass
-                
-                # Render accumulated content at the end (avatar already added above)
+            # Stop animation and remove entire typing indicator line
+            self._stop_typing_animation()
+            if hasattr(self, '_typing_line_start'):
                 try:
-                    # Use markdown renderer for all messages
-                    from thonny.markdown_utils import render_markdown
-                    render_markdown(self.text, self._current_chat_response_buffer)
-                except Exception as e:
-                    # Fallback to plain text if formatting fails
-                    logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
-                    self.text.direct_insert("end", self._current_chat_response_buffer)
-                
-                # Add separator after bot message
-                self._append_text("\n")
-                try:
-                    chat_width = self.text.winfo_width() - 20  # padx=10 слева и справа
+                    # Delete entire typing line (avatar + dots + newline)
+                    self.text.direct_delete(self._typing_line_start, "end-1c")
                 except:
-                    chat_width = 380
-                separator = tk.Frame(self.text, height=0.5, bg="#CCCCCC", relief="flat")
-                self.text.window_create("end", window=separator, pady=16, stretch=True)
-                separator.configure(width=max(chat_width, 380))
+                    pass
                 
-                self._current_chat_response_buffer = ""  # Clear buffer
-                self._bot_avatar_added = False  # Reset for next response
+            # Insert complete bot message using universal method
+            self._insert_message_bubble(
+                avatar="🤖",
+                content=fragment.content,
+                message_tag="bot_message",
+                bg_color="white",
+                image_data=None,
+                is_markdown=True
+            )
+            
+            self._bot_avatar_added = False
         else:
-            # For regular text, use streaming
+            # For regular text
             self._append_text(fragment.content, source="chat")
         
-        # Add pending user message to both histories on first fragment
+        # Add pending user message and bot response to histories
         if self._current_pending_message:
-            # Add to UI history (always)
+            # Add user message to both histories
             self._chat_messages.append(self._current_pending_message)
-            
-            # Add to AI history (always, will be cleaned later if debug)
             self._ai_messages.append(self._current_pending_message)
             
-            # Create new assistant message
-            current_msg = ChatMessage(
+            # Create bot message
+            bot_msg = ChatMessage(
                 ChatRole.ASSISTANT, 
                 fragment.content, 
                 [], 
@@ -403,34 +385,19 @@ class ChatView(tktextext.TextFrame):
                 self._current_pending_message.debug_session_id
             )
             
-            # Add to both histories
-            self._chat_messages.append(current_msg)
-            self._ai_messages.append(current_msg)
+            # Add bot message to both histories
+            self._chat_messages.append(bot_msg)
+            self._ai_messages.append(bot_msg)
             
-            # Clear pending message (only add once)
+            # Clear pending message
             self._current_pending_message = None
-        else:
-            # Update existing assistant message in both histories
-            if self._chat_messages and self._chat_messages[-1].role == ChatRole.ASSISTANT:
-                # Update UI history
-                last_msg = self._chat_messages.pop()
-                current_msg = replace(last_msg, content=last_msg.content + fragment.content)
-                self._chat_messages.append(current_msg)
-                
-                # Update AI history
-                if self._ai_messages and self._ai_messages[-1].role == ChatRole.ASSISTANT:
-                    last_ai_msg = self._ai_messages.pop()
-                    current_ai_msg = replace(last_ai_msg, content=last_ai_msg.content + fragment.content)
-                    self._ai_messages.append(current_ai_msg)
         
-        if fragment.is_final:
+        # Finalize
             self._active_chat_request_id = None
-            # self._hide_loading_indicator()  # Removed submit button
             self._update_suggestions()
             self.text.see("end")
             
             # Remove image from history after AI has processed it
-            # Find the last user message with an image and clear it
             for i in range(len(self._chat_messages) - 1, -1, -1):
                 msg = self._chat_messages[i]
                 if msg.role == ChatRole.USER and msg.image is not None:
@@ -506,7 +473,6 @@ class ChatView(tktextext.TextFrame):
         # Clear other state
         self._formatted_attachmets_per_message.clear()
         self._last_tagged_attachments.clear()
-        self._current_chat_response_buffer = ""
         self._last_auto_explained_step = None
         self._clear_attached_image()  # Clear image and hide preview
         self._bot_avatar_added = False
@@ -837,8 +803,6 @@ class ChatView(tktextext.TextFrame):
                     pass
             
             #self._append_text("... [cancelled]", source="chat")
-            # Clear RST streaming buffer if any
-            self._current_chat_response_buffer = ""
             self._bot_avatar_added = False  # Reset avatar flag
 
             self._current_assistant.cancel_completion()
@@ -1085,31 +1049,113 @@ class ChatView(tktextext.TextFrame):
             image_name = os.path.basename(image_data['path'])
             self._append_text(f"[🖼️ {image_name}]", tags=("user_message",))
 
-    def _insert_user_bubble(self, display_text: str, image_data: Optional[dict]) -> None:
-        """Insert a user message using simple text with tags (like bot messages)."""
-        # Avatar + Text content
-        message_content = "👧 " + (display_text if display_text else "")
-        self._append_text(message_content, tags=("user_message",))
-        self._append_text("\n")  # После сообщения пользователя
-        
-        # Image preview
-        if image_data:
-            self._append_text("\n")
-            self._append_image_preview_in_chat(image_data)
-            self._append_text("\n")
-        
-        # Add separator line after user message using Frame
-        self._append_text("\n")
-        # Get chat width to make separator span full width (accounting for padx)
+    def _add_message_bubble_top_frame(self, bg_color: str) -> int:
+        """Add top padding frame for a message bubble. Returns chat_width."""
+        # Get chat width
         try:
-            chat_width = self.text.winfo_width() - 20  # padx=10 слева и справа
+            chat_width = self.text.winfo_width() - 20
         except:
             chat_width = 380
+        chat_width = max(chat_width, 380)
         
-        separator = tk.Frame(self.text, height=0.5, bg="#E0E0E0", relief="flat")
-        self.text.window_create("end", window=separator, pady=16, stretch=True)
-        # Force separator to expand to full width
-        separator.configure(width=max(chat_width, 380))
+        # Top padding frame
+        top_frame = tk.Frame(self.text, height=8, bg=bg_color)
+        self.text.window_create("end", window=top_frame, stretch=True)
+        top_frame.configure(width=chat_width)
+        
+        return chat_width
+    
+    def _close_message_bubble_with_separator(self, bg_color: str) -> None:
+        """Add bottom padding frame and separator for a message bubble."""
+        # Get chat width
+        try:
+            chat_width = self.text.winfo_width() - 20
+        except:
+            chat_width = 380
+        chat_width = max(chat_width, 380)
+        
+        # Bottom padding frame
+        bottom_frame = tk.Frame(self.text, height=8, bg=bg_color)
+        self.text.window_create("end", window=bottom_frame, stretch=True)
+        bottom_frame.configure(width=chat_width)
+        
+        # Separator
+        separator = tk.Frame(self.text, height=1, bg="#F0F0F0", relief="flat")
+        self.text.window_create("end", window=separator, stretch=True)
+        separator.configure(width=chat_width)
+        
+        # Add 1px white frame after separator
+        final_frame = tk.Frame(self.text, height=1, bg="white")
+        self.text.window_create("end", window=final_frame, stretch=True)
+        final_frame.configure(width=chat_width)
+    
+    def _insert_message_bubble(
+        self, 
+        avatar: str, 
+        content: str, 
+        message_tag: str,
+        bg_color: str,
+        image_data: Optional[dict] = None,
+        is_markdown: bool = False
+    ) -> None:
+        """Universal method to insert a message bubble (user or bot).
+        
+        Args:
+            avatar: Avatar emoji ("👧" for user, "🤖" for bot)
+            content: Message text content
+            message_tag: Tag name ("user_message" or "bot_message")
+            bg_color: Background color ("#F0F8FF" for user, "white" for bot)
+            image_data: Optional image attachment
+            is_markdown: If True, render content as markdown
+        """
+        # Add top padding frame
+        self._add_message_bubble_top_frame(bg_color)
+        
+        # Avatar + content
+        if is_markdown:
+            # For bot: add avatar, then render markdown
+            self._append_text(f"{avatar} ", tags=(message_tag,))
+            
+            # Mark position before markdown
+            content_start = self.text.index("end-1c")
+            
+            # Render markdown
+            try:
+                from thonny.markdown_utils import render_markdown
+                render_markdown(self.text, content)
+            except Exception as e:
+                logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
+                self.text.direct_insert("end", content)
+            
+            # Apply message tag to all markdown content
+            content_end = self.text.index("end-1c")
+            self.text.tag_add(message_tag, content_start, content_end)
+            # Raise priority so margins apply
+            self.text.tag_raise(message_tag)
+        else:
+            # For user: simple text with tag
+            message_content = f"{avatar} {content}"
+            self._append_text(message_content, tags=(message_tag,))
+        
+        # Image preview (if any)
+        if image_data:
+            self._append_text("\n", tags=(message_tag,))
+            self._append_image_preview_in_chat(image_data)
+            self._append_text("\n", tags=(message_tag,))
+        
+        # Close message bubble (bottom frame + separator)
+        self._close_message_bubble_with_separator(bg_color)
+    
+    def _insert_user_bubble(self, display_text: str, image_data: Optional[dict]) -> None:
+        """Insert a user message with full-width blue background."""
+        self._insert_message_bubble(
+            avatar="👧",
+            content=display_text if display_text else "",
+            message_tag="user_message",
+            bg_color="#F0F8FF",
+            image_data=image_data,
+            is_markdown=False
+        )
 
     # Removed submit button - use Enter key instead
     # def _on_click_submit(self) -> None:
@@ -1160,10 +1206,6 @@ class ChatView(tktextext.TextFrame):
         self._active_chat_request_id = str(uuid.uuid4())
         # self._show_loading_indicator()  # Removed submit button
         
-        # Add initial padding if this is the first message
-        if self.text.get("1.0", "end-1c").strip() == "":
-            self._append_text("\n")  # Начальный отступ сверху
-
         # Render using window_create-based bubble
         text_to_display = (display_message if display_message else message).strip()
         self._insert_user_bubble(text_to_display, self._attached_image if self._attached_image else None)
@@ -1194,10 +1236,23 @@ class ChatView(tktextext.TextFrame):
         self._current_pending_message = new_user_message
         
         # Show bot avatar and typing indicator immediately (before AI response starts)
-        self._append_text("🤖 ", tags=("bot_avatar",))
+        # Store position BEFORE adding frame (to delete everything later)
+        self._typing_line_start = self.text.index("end-1c")
+        
+        # Add top padding frame for typing indicator
+        try:
+            chat_width = self.text.winfo_width() - 20
+        except:
+            chat_width = 380
+        chat_width = max(chat_width, 380)
+        
+        top_frame = tk.Frame(self.text, height=8, bg="white")
+        self.text.window_create("end", window=top_frame, stretch=True)
+        top_frame.configure(width=chat_width)
+        self._append_text("🤖 ", tags=("bot_avatar", "bot_message"))
         typing_start = self.text.index("end-1c")
-        self._append_text("·", tags=("typing_indicator",))
-        self._append_text("\n", tags=())  # Bottom spacing
+        self._append_text("·", tags=("typing_indicator", "bot_message"))
+        self._append_text("\n", tags=("bot_message",))  # Bottom spacing with same tag
         self._bot_avatar_added = True
         # Store position to update typing indicator (just the dots, not avatar)
         self._typing_indicator_start = typing_start
@@ -1443,10 +1498,6 @@ class ChatView(tktextext.TextFrame):
                     "AiChatResponseFragment",
                     ChatResponseFragmentWithRequestId(fragment, request_id=request_id),
                 )
-
-                if fragment.is_final:
-                    logger.debug("Finishing chat completion thread after final fragment")
-                    break
         except Exception as e:
             logger.exception("Error when completing chat in thread")
 
@@ -1477,7 +1528,6 @@ class ChatView(tktextext.TextFrame):
                 ChatResponseFragmentWithRequestId(
                     ChatResponseChunk(
                         content=user_message,
-                        is_final=True,
                         is_interal_error=True,
                     ),
                     request_id=request_id,

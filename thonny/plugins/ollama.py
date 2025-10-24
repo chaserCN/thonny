@@ -16,16 +16,14 @@ class OllamaAssistant(Assistant):
             all_messages.append(context.current_message)
         
         api_messages = [{"role": msg.role.value, "content": msg.content} for msg in all_messages]
-        stream = ollama.chat(
+        response = ollama.chat(
             model="codellama:7b-instruct",
             messages=api_messages,
-            stream=True,
+            stream=False,
         )
 
-        for chunk in stream:
-            yield ChatResponseChunk(chunk["message"]["content"], is_final=False)
-
-        yield ChatResponseChunk("", is_final=True)
+        content = response["message"]["content"] if response.get("message") else ""
+        yield ChatResponseChunk(content)
 
     def cancel_completion(self) -> None:
         pass

@@ -126,7 +126,7 @@ class GeminiAssistant(BaseAIAssistant):
             
             # Separate last message from history
             if not messages:
-                yield ChatResponseChunk("", is_final=True)
+                yield ChatResponseChunk("")
                 return
             
             chat_history = messages[:-1]  # All except last
@@ -135,42 +135,29 @@ class GeminiAssistant(BaseAIAssistant):
             # Start chat with history
             chat = model.start_chat(history=chat_history)
             
-            # Stream response for last message
-            response = chat.send_message(last_message_parts, stream=True)
+            # Get complete response (no streaming to UI)
+            response = chat.send_message(last_message_parts, stream=False)
             
-            has_content = False
-            for chunk in response:
-                try:
-                    text = chunk.text
-                    if text:
-                        has_content = True
-                        yield ChatResponseChunk(text, is_final=False)
-                except (ValueError, AttributeError) as e:
-                    # chunk.text может вызвать ошибку, если нет валидных частей
-                    if not has_content:
-                        error_msg = f"❌ **Помилка відповіді**\n\n{str(e)}"
-                        yield ChatResponseChunk(error_msg, is_final=False)
-                        has_content = True
-                    break
-            
-            if not has_content:
-                error_msg = "❌ **AI не повернув відповідь**\n\nСпробуйте перефразувати питання."
-                yield ChatResponseChunk(error_msg, is_final=False)
-            
-            yield ChatResponseChunk("", is_final=True)
+            try:
+                full_text = response.text
+                if full_text:
+                    yield ChatResponseChunk(full_text)
+                else:
+                    error_msg = "❌ **AI не повернув відповідь**\n\nСпробуйте перефразувати питання."
+                    yield ChatResponseChunk(error_msg)
+            except (ValueError, AttributeError) as e:
+                error_msg = f"❌ **Помилка відповіді**\n\n{str(e)}"
+                yield ChatResponseChunk(error_msg)
             
         except google_exceptions.ServiceUnavailable as e:
             error_msg = "❌ **Помилка з'єднання з Gemini API**\n\nПеревірте підключення до інтернету."
-            yield ChatResponseChunk(error_msg, is_final=False)
-            yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk(error_msg)
         except google_exceptions.GoogleAPIError as e:
             error_msg = f"❌ **Помилка Gemini API**\n\n{str(e)}"
-            yield ChatResponseChunk(error_msg, is_final=False)
-            yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk(error_msg)
         except Exception as e:
             error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
-            yield ChatResponseChunk(error_msg, is_final=False)
-            yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk(error_msg)
 
 
 def load_plugin():

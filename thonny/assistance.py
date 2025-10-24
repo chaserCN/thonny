@@ -71,7 +71,6 @@ class ChatMessage:
 @dataclass
 class ChatResponseChunk:
     content: str
-    is_final: bool
     is_interal_error: bool = False
 
 
@@ -182,12 +181,11 @@ class EchoAssistant(Assistant):
 Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
 
 """,
-            is_final=False,
             is_interal_error=False,
         )
 
         yield ChatResponseChunk(
-            self.format_message(context.messages[-1]), is_final=True, is_interal_error=False
+            self.format_message(context.messages[-1]), is_interal_error=False
         )
 
     def cancel_completion(self) -> None:

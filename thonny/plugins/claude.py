@@ -142,27 +142,22 @@ class ClaudeAssistant(BaseAIAssistant):
                 messages=messages,
             )
 
-            # Get full response at once
+            # Get full response at once (single final chunk)
             content = response.content[0].text if response.content else ""
             if content:
-                yield ChatResponseChunk(content, is_final=False)
+                yield ChatResponseChunk(content)
             else:
-                yield ChatResponseChunk("❌ **AI не повернув відповідь**", is_final=False)
-
-            yield ChatResponseChunk("", is_final=True)
+                yield ChatResponseChunk("❌ **AI не повернув відповідь**")
             
         except APIConnectionError as e:
             error_msg = "❌ **Помилка з'єднання з Claude API**\n\nПеревірте підключення до інтернету."
-            yield ChatResponseChunk(error_msg, is_final=False)
-            yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk(error_msg)
         except APIError as e:
             error_msg = f"❌ **Помилка Claude API**\n\n{str(e)}"
-            yield ChatResponseChunk(error_msg, is_final=False)
-            yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk(error_msg)
         except Exception as e:
             error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
-            yield ChatResponseChunk(error_msg, is_final=False)
-            yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk(error_msg)
 
 
 def load_plugin():

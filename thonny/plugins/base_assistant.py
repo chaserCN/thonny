@@ -45,6 +45,10 @@ class BaseAIAssistant(Assistant):
     def _complete_normal(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         """Normal mode: user text with optional image (history already compressed in chat.py)"""
         
+        import time
+        time.sleep(2)  # Simulate API delay
+        return [ChatResponseChunk("test\ntest\ntest")]
+
         # Get appropriate prompt based on whether image is present
         lang = self._get_language()
         
@@ -122,8 +126,7 @@ class BaseAIAssistant(Assistant):
         # Check API key is configured
         if not self.get_ready():
             # API key not configured, return error
-            yield ChatResponseChunk("API key not configured", is_final=False)
-            yield ChatResponseChunk("", is_final=True)
+            yield ChatResponseChunk("API key not configured")
             return
         
         # Check if this is a debug step explanation request
@@ -187,8 +190,6 @@ class BaseAIAssistant(Assistant):
             for chunk in self._send_to_api(system_prompt, messages):
                 if chunk.content:
                     response_parts.append(chunk.content)
-                if chunk.is_final:
-                    break
         except Exception as e:
             logger.exception("Error getting AI summary")
             raise
