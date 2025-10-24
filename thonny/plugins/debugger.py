@@ -1419,21 +1419,46 @@ def load_plugin() -> None:
         group=30,
     )
 
-    # Step with explanation: set one-time flag on debugger and step over
-    def _step_over_with_explanation():
+    # Explain current state without stepping  
+    def _explain_current_state():
         dbg = get_current_debugger()
-        if dbg is not None:
+        if dbg is None or not dbg._last_progress_message:
+            return
+        
+        # Get ChatView
+        try:
+            chat_view = get_workbench().get_view("ChatView")
+            if chat_view is None:
+                return
+        except Exception:
+            return
+        
+        # Call the same handler that processes step explanations, but without setting flag or stepping
+        # This reuses all the existing logic in ChatView._handle_debugger_step
+        try:
+            # Temporarily set a special flag to indicate manual explain (not auto after step)
+            setattr(dbg, "_manual_explain", True)
+            # Set the flag that triggers explanation
+            setattr(dbg, "_explain_next_step", True)
+            
+            # Call the handler directly with the current message
+            chat_view._handle_debugger_step(dbg._last_progress_message)
+            
+        except Exception as e:
+            logger.error(f"Error in explain current state: {e}", exc_info=True)
+        finally:
+            # Clean up flags
             try:
-                setattr(dbg, "_explain_next_step", True)
+                setattr(dbg, "_manual_explain", False)
+                setattr(dbg, "_explain_next_step", False)
             except Exception:
                 pass
-        _issue_debugger_command("step_over")
 
     get_workbench().add_command(
         "step_over_explain",
         "run",
-        tr("Step with explanation"),
-        _step_over_with_explanation,
+        tr("Explain current state"),
+        _explain_current_state,
         caption=tr("Explain"),
         tester=lambda: _debugger_command_enabled("step_over"),
         default_sequence=None,

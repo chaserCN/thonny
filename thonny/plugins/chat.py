@@ -574,10 +574,12 @@ class ChatView(tktextext.TextFrame):
         if self._current_debug_session_id is None:
             self._current_debug_session_id = str(uuid.uuid4())
         
-        # Проверяем что была команда step_over или step_into
-        last_cmd = getattr(debugger, '_last_debugger_command', None)
-        if not last_cmd or last_cmd.name not in ['step_over', 'step_into']:
-            return
+        # Проверяем что была команда step_over или step_into (или ручной explain)
+        manual_explain = bool(getattr(debugger, '_manual_explain', False))
+        if not manual_explain:
+            last_cmd = getattr(debugger, '_last_debugger_command', None)
+            if not last_cmd or last_cmd.name not in ['step_over', 'step_into']:
+                return
         
         # Определяем, какую модель использовать (GPT/Gemini/Claude)
         # и получаем соответствующий Debug assistant для авто-объяснений
@@ -600,16 +602,17 @@ class ChatView(tktextext.TextFrame):
             logger.warning(f"Debug assistant not found for model {current_model}")
             return
         
-        # Избегаем повторной генерации для того же шага
+        # Избегаем повторной генерации для того же шага (но не для ручного explain)
         # Используем информацию о текущей строке кода
-        if hasattr(msg, 'stack') and msg.stack:
-            current_frame = msg.stack[-1]
-            step_id = (current_frame.filename, current_frame.lineno, current_frame.event)
-            
-            if step_id == self._last_auto_explained_step:
-                return
-            
-            self._last_auto_explained_step = step_id
+        if not manual_explain:
+            if hasattr(msg, 'stack') and msg.stack:
+                current_frame = msg.stack[-1]
+                step_id = (current_frame.filename, current_frame.lineno, current_frame.event)
+                
+                if step_id == self._last_auto_explained_step:
+                    return
+                
+                self._last_auto_explained_step = step_id
         
         # Проверяем одноразовый флаг "объяснить следующий шаг"
         explain_next = bool(getattr(debugger, '_explain_next_step', False))
@@ -643,28 +646,56 @@ class ChatView(tktextext.TextFrame):
         debug_ctx = get_debug_context_from_msg(msg)
         
         # Короткое сообщение для отображения в UI (что видит ребенок)
-        if lang == "ru":
-            if current_line:
-                display_prompt = f"[auto] Что выполнится на строке {current_line}?"
+        if manual_explain:
+            # For manual explain, don't show [auto] prefix
+            if lang == "ru":
+                if current_line:
+                    display_prompt = f"Что выполнится на строке {current_line}?"
+                else:
+                    display_prompt = "Что дальше?"
             else:
-                display_prompt = "[auto] Что дальше?"
+                if current_line:
+                    display_prompt = f"Що виконається на рядку {current_line}?"
+                else:
+                    display_prompt = "Що далі?"
         else:
-            if current_line:
-                display_prompt = f"[auto] Що виконається на рядку {current_line}?"
+            # For auto explain after step, show [auto] prefix
+            if lang == "ru":
+                if current_line:
+                    display_prompt = f"[auto] Что выполнится на строке {current_line}?"
+                else:
+                    display_prompt = "[auto] Что дальше?"
             else:
-                display_prompt = "[auto] Що далі?"
+                if current_line:
+                    display_prompt = f"[auto] Що виконається на рядку {current_line}?"
+                else:
+                    display_prompt = "[auto] Що далі?"
         
         # Полный промпт для AI с инструкциями и контекстом
-        if lang == "ru":
-            if current_line:
-                full_prompt = f"Поясни что произошло на последнем шаге и что выполнится на строке {current_line}"
+        if manual_explain:
+            # For manual explain, ask about current state only
+            if lang == "ru":
+                if current_line:
+                    full_prompt = f"Поясни что выполнится на строке {current_line}"
+                else:
+                    full_prompt = "Поясни что выполнится дальше"
             else:
-                full_prompt = "Поясни что произошло на последнем шаге и что выполнится дальше"
+                if current_line:
+                    full_prompt = f"Поясни що виконається на рядку {current_line}"
+                else:
+                    full_prompt = "Поясни що виконається далі"
         else:
-            if current_line:
-                full_prompt = f"Поясни що сталося на останньому кроці та що виконається на рядку {current_line}"
+            # For auto explain after step, mention what happened
+            if lang == "ru":
+                if current_line:
+                    full_prompt = f"Поясни что произошло на последнем шаге и что выполнится на строке {current_line}"
+                else:
+                    full_prompt = "Поясни что произошло на последнем шаге и что выполнится дальше"
             else:
-                full_prompt = "Поясни що сталося на останньому кроці та що виконається далі"
+                if current_line:
+                    full_prompt = f"Поясни що сталося на останньому кроці та що виконається на рядку {current_line}"
+                else:
+                    full_prompt = "Поясни що сталося на останньому кроці та що виконається далі"
         
         # Debug контекст НЕ добавляем к промпту здесь,
         # потому что он уже будет добавлен в _complete_debug_step через context.program_context
