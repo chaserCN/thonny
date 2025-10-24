@@ -140,7 +140,7 @@ def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: s
         highlight_python_syntax_simple(text_widget, start_index, end_index)
 
 
-def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, start: str, end: str, code_text: str) -> None:
+def _add_copy_button(text_widget: tk.Text, block_start: str, block_end: str, code_start: str, code_end: str, code_text: str) -> None:
     """Make code block clickable to copy (no embedded widgets)"""
     try:
         # Create a unique tag for this specific code block
@@ -157,8 +157,8 @@ def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, start
         text_widget.tag_configure(tag_name, background=original_bg)
         text_widget.tag_configure(hover_tag, background=hover_bg)
         
-        # Apply the tag to the entire code block (including internal padding)
-        text_widget.tag_add(tag_name, code_start, code_end)
+        # Apply the tag to the entire block (including internal padding)
+        text_widget.tag_add(tag_name, block_start, block_end)
         
         # Raise priority so it's above md_code_block and code_block_internal_padding
         text_widget.tag_raise(tag_name)
@@ -202,14 +202,14 @@ def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, start
                 # Position toast in the center of the code block
                 toast.update()  # Force geometry update
                 
-                # Use ACTUAL CODE boundaries (start/end) for positioning
+                # Use ACTUAL CODE boundaries (code_start/code_end) for positioning
                 # Padding lines have font size 1 and Tkinter doesn't handle their bbox correctly
                 toast_width = toast.winfo_reqwidth()
                 toast_height = toast.winfo_reqheight()
                 
                 # Get bbox of first and last actual code positions (not padding)
-                bbox_top = text_widget.bbox(start)
-                bbox_bottom = text_widget.bbox(f"{end}-1c")  # Last actual character
+                bbox_top = text_widget.bbox(code_start)
+                bbox_bottom = text_widget.bbox(f"{code_end}-1c")  # Last actual character
                 
                 if bbox_top and bbox_bottom:
                     # Calculate vertical boundaries
@@ -246,13 +246,13 @@ def _add_copy_button(text_widget: tk.Text, code_start: str, code_end: str, start
             except Exception as e:
                 logger.warning(f"Failed to show toast: {e}")
         
-        # Hover effects
+        # Hover effects (apply to entire block including padding)
         def on_enter(event):
-            text_widget.tag_add(hover_tag, code_start, code_end)
+            text_widget.tag_add(hover_tag, block_start, block_end)
             text_widget.tag_raise(hover_tag)
         
         def on_leave(event):
-            text_widget.tag_remove(hover_tag, code_start, code_end)
+            text_widget.tag_remove(hover_tag, block_start, block_end)
         
         text_widget.tag_bind(tag_name, "<Button-1>", copy_on_click)
         text_widget.tag_bind(tag_name, "<Enter>", on_enter)
