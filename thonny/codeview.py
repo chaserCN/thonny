@@ -479,7 +479,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         
         # Show loading message
         from thonny.markdown_utils import render_markdown
-        render_markdown(explanation_text, loading_text)
+        render_markdown(explanation_text, loading_text, show_copy_button=False)
         
         # Get AI explanation in thread
         def get_explanation():
@@ -500,7 +500,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                     md_content += f"**{explanation_label}**\n\n"
                     md_content += explanation
                     
-                    render_markdown(explanation_text, md_content)
+                    render_markdown(explanation_text, md_content, show_copy_button=False)
                 
                 popup.after(0, update_ui)
             except Exception as e:
@@ -511,7 +511,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                     from thonny.markdown_utils import render_markdown
                     explanation_text.delete("1.0", "end")
                     error_md = f"**{err_label}**\n\n{str(error)}"
-                    render_markdown(explanation_text, error_md)
+                    render_markdown(explanation_text, error_md, show_copy_button=False)
                 popup.after(0, show_error)
         
         threading.Thread(target=get_explanation, daemon=True).start()
@@ -616,7 +616,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
         
         # Show loading message
         from thonny.markdown_utils import render_markdown
-        render_markdown(explanation_text, loading_text)
+        render_markdown(explanation_text, loading_text, show_copy_button=False)
         
         # Request explanation in background
         def get_explanation():
@@ -628,7 +628,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                     if not popup.winfo_exists():
                         return
                     explanation_text.delete("1.0", "end")
-                    render_markdown(explanation_text, explanation)
+                    render_markdown(explanation_text, explanation, show_copy_button=False)
                 popup.after(0, show_result)
             except Exception as error:
                 import traceback
@@ -643,7 +643,7 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
                     from thonny.markdown_utils import render_markdown
                     explanation_text.delete("1.0", "end")
                     error_md = f"**{err_label}**\n\n{str(error)}"
-                    render_markdown(explanation_text, error_md)
+                    render_markdown(explanation_text, error_md, show_copy_button=False)
                 popup.after(0, show_error)
         
         threading.Thread(target=get_explanation, daemon=True).start()
@@ -1248,7 +1248,7 @@ class CodeView(tktextext.EnhancedTextFrame):
         # Show loading message
         from thonny.markdown_utils import render_markdown
         loading_msg = f"**{code_line_label}**\n\n{line_content}\n\n{loading_text}\n"
-        render_markdown(explanation_text, loading_msg)
+        render_markdown(explanation_text, loading_msg, show_copy_button=False)
         
         # Get AI explanation in thread
         def get_explanation():
@@ -1270,7 +1270,7 @@ class CodeView(tktextext.EnhancedTextFrame):
                     md_content += f"**{explanation_label}**\n\n"
                     md_content += explanation
                     
-                    render_markdown(explanation_text, md_content)
+                    render_markdown(explanation_text, md_content, show_copy_button=False)
                 
                 popup.after(0, update_ui)
             except Exception as e:
@@ -1282,7 +1282,7 @@ class CodeView(tktextext.EnhancedTextFrame):
                     from thonny.markdown_utils import render_markdown
                     explanation_text.delete("1.0", "end")
                     error_md = f"**{err_label}**\n\n{str(error)}"
-                    render_markdown(explanation_text, error_md)
+                    render_markdown(explanation_text, error_md, show_copy_button=False)
                 popup.after(0, show_error)
         
         threading.Thread(target=get_explanation, daemon=True).start()

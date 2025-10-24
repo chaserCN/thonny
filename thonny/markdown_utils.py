@@ -241,7 +241,7 @@ def _copy_code_to_clipboard(text_widget: tk.Text, code_text: str, button: tk.Lab
             pass
 
 
-def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
+def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: bool = True) -> None:
     """
     Render markdown directly in tk.Text widget with tags.
     
@@ -255,6 +255,11 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
     - Bullet lists: - or *
     - Numbered lists: 1., 2., etc.
     - Empty lines (preserved)
+    
+    Args:
+        text_widget: tk.Text widget to render in
+        markdown_text: Markdown text to render
+        show_copy_button: Whether to show Copy button for code blocks (default True)
     """
     
     # Determine which insert method to use (direct_insert for TweakableText, insert for regular Text)
@@ -361,11 +366,12 @@ def render_markdown(text_widget: tk.Text, markdown_text: str) -> None:
                         logger.warning(f"Syntax highlighting failed: {e}", exc_info=True)
                         pass  # Fallback to plain code block if highlighting fails
                 
-                # Add copy button at the end of code block
-                try:
-                    _add_copy_button(text_widget, start, end, code_text)
-                except Exception as e:
-                    logger.warning(f"Failed to add copy button: {e}", exc_info=True)
+                # Add copy button at the end of code block (if enabled)
+                if show_copy_button:
+                    try:
+                        _add_copy_button(text_widget, start, end, code_text)
+                    except Exception as e:
+                        logger.warning(f"Failed to add copy button: {e}", exc_info=True)
             continue
         
         # Check for headings with #
