@@ -112,10 +112,10 @@ RULES:
 BEFORE explaining, ask yourself:
   • Will this code even work?
   • Are the values logically correct?
+  • Don't make things up - always explain real behavior
 
 If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
-  → Explain real behavior, don't make things up
 
 ═══════════════════════════════════════════════════════════════════
 5. RESPONSE STRUCTURE
@@ -315,10 +315,10 @@ BEFORE explaining, ask yourself:
   • Will this code even work?
   • Will this line execute or be skipped?
   • Are variable values logically correct?
+  • Don't make things up - always explain real behavior
 
 If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
-  → Explain real behavior, don't make things up
 
 ═══════════════════════════════════════════════════════════════════
 4. RESPONSE STRUCTURE (strictly 3 sections)
@@ -461,10 +461,10 @@ BEFORE explaining, ask yourself:
   • Will this code even work?
   • Will this line execute or be skipped?
   • Are the values logically correct?
+  • Don't make things up - always explain real behavior
 
 If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
-  → Explain real behavior, don't make things up
 
 ═══════════════════════════════════════════════════════════════════
 3. RESPONSE STRUCTURE (maximum 5-6 sentences)
@@ -594,10 +594,10 @@ Technical constraints: DO NOT use LaTeX formulas
 BEFORE explaining, ask yourself:
   • Will this code even work?
   • Are the values logically correct?
+  • Don't make things up - always explain real behavior
 
 If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
-  → Explain real behavior, don't make things up
 
 ═══════════════════════════════════════════════════════════════════
 3. RESPONSE STRUCTURE FOR OPERATORS AND FUNCTIONS
@@ -783,10 +783,10 @@ Technical constraints: DO NOT use LaTeX formulas
 BEFORE explaining, ask yourself:
   • Will this code even work?
   • Are the values logically correct?
+  • Don't make things up - always explain real behavior
 
 If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
-  → Explain real behavior, don't make things up
 
 ═══════════════════════════════════════════════════════════════════
 3. RESPONSE STRUCTURE
