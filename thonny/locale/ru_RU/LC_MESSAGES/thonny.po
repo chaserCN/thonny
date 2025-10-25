@@ -2024,6 +2024,12 @@ msgstr "(Нет настроенных сниппетов)"
 msgid "Insert snippet"
 msgstr "Вставить сниппет"
 
+msgid "Add"
+msgstr "Добавить"
+
+msgid "Remove"
+msgstr "Удалить"
+
 msgid "Reset"
 msgstr "Сбросить"
 

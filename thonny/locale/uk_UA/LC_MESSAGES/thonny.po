@@ -2006,6 +2006,12 @@ msgstr "(Немає налаштованих сніпетів)"
 msgid "Insert snippet"
 msgstr "Вставити сніпет"
 
+msgid "Add"
+msgstr "Додати"
+
+msgid "Remove"
+msgstr "Видалити"
+
 msgid "Reset"
 msgstr "Скинути"
 
