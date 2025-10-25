@@ -1217,22 +1217,36 @@ class ChatView(tktextext.TextFrame):
             else:
                 start_line = end_line = int(lines_spec)
             
-            # Extract reason from text BEFORE the block
-            # Look for "**Что не так:**" or "**Що не так:**" before block
+            # Extract reason from text BEFORE the block (since last code block or start of message)
             before_fix = markdown_text[:match.start()]
             
-            # Try Russian first
-            reason_match = re.search(r'\*\*Что не так:\*\*\s*\n(.+?)(?=\n\*\*|$)', before_fix, re.DOTALL)
-            if not reason_match:
-                # Try Ukrainian
-                reason_match = re.search(r'\*\*Що не так:\*\*\s*\n(.+?)(?=\n\*\*|$)', before_fix, re.DOTALL)
+            # Find last code block before this fix (any ``` block)
+            last_code_block = None
+            for code_match in re.finditer(r'```[^\n]*\n.*?```', before_fix, re.DOTALL):
+                last_code_block = code_match
             
-            # If no reason found, skip this fix (don't show popup without explanation)
-            if not reason_match:
-                logger.warning(f"Fix suggestion at lines {start_line}-{end_line} has no reason, skipping")
-                continue
+            # Text between last code block and current fix (or from start if no previous code)
+            if last_code_block:
+                text_for_reason = before_fix[last_code_block.end():]
+            else:
+                text_for_reason = before_fix
             
-            reason = reason_match.group(1).strip()
+            # Try explicit "Що не так:" sections first
+            reason_match = re.search(r'\*\*Что не так:\*\*\s*\n(.+?)(?=\n\*\*|$)', text_for_reason, re.DOTALL)
+            if not reason_match:
+                reason_match = re.search(r'\*\*Що не так:\*\*\s*\n(.+?)(?=\n\*\*|$)', text_for_reason, re.DOTALL)
+            
+            if reason_match:
+                reason = reason_match.group(1).strip()
+            else:
+                # Fallback: use all text between code blocks (cleaned up)
+                reason = text_for_reason.strip()
+                # Remove leading/trailing newlines and excessive whitespace
+                reason = re.sub(r'\n{3,}', '\n\n', reason).strip()
+                
+                if not reason:
+                    logger.warning(f"Fix suggestion at lines {start_line}-{end_line} has no reason, skipping")
+                    continue
             
             fixes.append({
                 'start_line': start_line,
@@ -1924,9 +1938,19 @@ def _handle_show_fix_suggestion(event):
         start_line = fix['start_line']
         end_line = fix['end_line']
         
-        if start_line < 1 or start_line > max_line or end_line > max_line:
+        # Allow start_line to be max_line+1 for "append to end" suggestions
+        # This happens when AI suggests adding new code at the end of file
+        if start_line < 1 or start_line > max_line + 1 or end_line < start_line:
             logger.error(f"Invalid line numbers: {start_line}-{end_line}, file has {max_line} lines")
             return
+        
+        # If suggesting to add at the end (start_line > max_line), adjust to show at last line
+        if start_line > max_line:
+            logger.info(f"Fix suggestion for lines {start_line}-{end_line} is beyond file end ({max_line} lines), treating as append")
+            # Keep original line numbers in fix dict for display, but use last line for positioning
+            fix['_is_append'] = True
+            fix['_display_start'] = start_line
+            fix['_actual_start'] = max_line
     except Exception as e:
         logger.error(f"Failed to validate line numbers: {e}")
         return

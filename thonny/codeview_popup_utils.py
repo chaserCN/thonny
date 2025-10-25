@@ -434,15 +434,24 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     
     start_line = fix['start_line']
     end_line = fix['end_line']
+    is_append = fix.get('_is_append', False)
     
-    # Get old code from editor for diff comparison
-    start_index = f"{start_line}.0"
-    end_index = f"{end_line}.end"
-    old_code = text_widget.get(start_index, end_index)
+    # For append suggestions (adding to end of file), use last line for positioning
+    if is_append:
+        actual_line = fix['_actual_start']
+        start_index = f"{actual_line}.end"
+        end_index = start_index
+        old_code = ""  # No old code - this is an addition
+    else:
+        start_index = f"{start_line}.0"
+        end_index = f"{end_line}.end"
+        old_code = text_widget.get(start_index, end_index)
+    
     new_code = fix['new']
     
-    # Apply character-level diff highlighting
-    _apply_diff_highlighting(text_widget, start_index, end_index, old_code, new_code)
+    # Apply character-level diff highlighting (skip for append as there's no old code)
+    if not is_append:
+        _apply_diff_highlighting(text_widget, start_index, end_index, old_code, new_code)
     
     # Scroll to this line
     text_widget.see(start_index)
@@ -570,7 +579,10 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         lang = "uk"
     
     # Build markdown content: CODE FIRST, then explanation
-    label_text = "Правильний код:" if lang == "uk" else "Правильный код:"
+    if is_append:
+        label_text = "Додай цей код:" if lang == "uk" else "Добавь этот код:"
+    else:
+        label_text = "Правильний код:" if lang == "uk" else "Правильный код:"
     markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
     
     # Render everything through markdown (for_chat=False for white margins)
@@ -585,10 +597,14 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
             # Use fix code exactly as AI provided it (with correct indentation)
             fixed_code = fix['new']
             
+            # For append (adding to end of file), add newline before code
+            if is_append:
+                fixed_code = '\n' + fixed_code
+            
             # Delete old lines (use direct_delete if available for Thonny's editor)
-            if hasattr(text_widget, 'direct_delete'):
+            if hasattr(text_widget, 'direct_delete') and not is_append:
                 text_widget.direct_delete(start_index, end_index)
-            else:
+            elif not is_append:
                 text_widget.delete(start_index, end_index)
             
             # Insert new code (use direct_insert if available)

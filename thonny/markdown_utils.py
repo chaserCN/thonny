@@ -467,8 +467,10 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
         
         # Check for code block: ```
         if stripped.startswith("```"):
-            # Extract language hint (e.g., ```python)
-            lang = stripped[3:].strip().lower()
+            # Extract language hint (e.g., ```python or ```fix{lines:20-21})
+            lang_full = stripped[3:].strip().lower()
+            # Take only language name before { or whitespace
+            lang = lang_full.split('{')[0].split()[0] if lang_full else ""
             
             # Collect all lines until closing ```
             i += 1
@@ -506,10 +508,16 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                 # Add padding after code block
                 insert_method("end", "\n", ("code_block_padding",))
                 
-                # Apply Python syntax highlighting if language is python or not specified
-                if not lang or lang == "python" or lang == "py":
+                # Apply Python syntax highlighting if language is python or not specified or fix
+                if not lang or lang in ("python", "py", "fix"):
                     try:
                         highlight_python_syntax(text_widget, start, end)
+                        # Raise priority of syntax tags to ensure colors are visible
+                        for tag in ['code_keyword', 'code_string', 'code_comment', 'code_number', 'code_builtin']:
+                            try:
+                                text_widget.tag_raise(tag, 'md_code_block')
+                            except:
+                                pass
                     except Exception as e:
                         logger.warning(f"Syntax highlighting failed: {e}", exc_info=True)
                         pass  # Fallback to plain code block if highlighting fails
