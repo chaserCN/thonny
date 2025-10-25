@@ -36,22 +36,24 @@ class BaseAIAssistant(Assistant):
         return self._get_saved_api_key() is not None
     
     def _get_language(self) -> str:
-        """Get current language setting from workbench"""
+        """Get current language setting from workbench, returns full language name"""
         try:
-            return get_workbench().get_option("ai.language", "uk")
+            lang_code = get_workbench().get_option("ai.language", "uk")
+            # Convert short code to full language name for prompts
+            return "Ukrainian" if lang_code == "uk" else "Russian"
         except Exception:
-            return "uk"
+            return "Ukrainian"
     
     def _complete_normal(self, context: ChatContext) -> Iterator[ChatResponseChunk]:
         """Normal mode: user text with optional image (history already compressed in chat.py)"""
 
         # Get appropriate prompt based on whether image is present
-        lang = self._get_language()
+        language = self._get_language()
         
         if context.has_image_in_last_message():
-            system_prompt = get_prompt(PromptType.SYSTEM_NORMAL_WITH_IMAGE, lang)
+            system_prompt = get_prompt(PromptType.SYSTEM_NORMAL_WITH_IMAGE, language=language)
         else:
-            system_prompt = get_prompt(PromptType.SYSTEM_NORMAL, lang)
+            system_prompt = get_prompt(PromptType.SYSTEM_NORMAL, language=language)
         
         # Use messages from context (already compressed in chat.py)
         messages_to_send = list(context.messages)
@@ -89,8 +91,8 @@ class BaseAIAssistant(Assistant):
         logger = getLogger(__name__)
         
         # Get debug prompt (DON'T CHANGE)
-        lang = self._get_language()
-        system_prompt = get_prompt(PromptType.SYSTEM_DEBUG, lang)
+        language = self._get_language()
+        system_prompt = get_prompt(PromptType.SYSTEM_DEBUG, language=language)
         
         # Add current message with program_context
         # (Debug context already contains all needed info, no need for selected text)
@@ -161,17 +163,17 @@ class BaseAIAssistant(Assistant):
             conversation_text += f"{role_label}: {content}\n\n"
         
         # Get language
-        lang = self._get_language()
+        language = self._get_language()
         
         # Get summary prompt with conversation text
         summary_prompt = get_prompt(
             PromptType.SUMMARY_REQUEST,
-            lang,
+            language=language,
             conversation_text=conversation_text
         )
         
         # System prompt for summarization
-        system_prompt = get_prompt(PromptType.SYSTEM_NORMAL, lang)
+        system_prompt = get_prompt(PromptType.SYSTEM_NORMAL, language=language)
         
         # Create single message
         from thonny.assistance import ChatMessage
@@ -211,16 +213,16 @@ class BaseAIAssistant(Assistant):
         logger = getLogger(__name__)
         
         # Get language preference
-        lang = self._get_language()
+        language = self._get_language()
         
         # Get system prompt (instructions only)
-        system_prompt = get_prompt(PromptType.SYSTEM_LINE_EXPLANATION, lang)
+        system_prompt = get_prompt(PromptType.SYSTEM_LINE_EXPLANATION, language=language)
         
         # Build user prompt with all context (data)
         # Note: program_context always contains either debug context or formatted code
         user_prompt = get_prompt(
             PromptType.USER_EXPLAIN_LINE_WITH_CONTEXT,
-            lang,
+            language=language,
             full_code="",  # Code is now in program_context
             line_num=context.line_num,
             line_content=context.line_content,
@@ -265,15 +267,15 @@ class BaseAIAssistant(Assistant):
         logger = getLogger(__name__)
         
         # Get language preference
-        lang = self._get_language()
+        language = self._get_language()
         
         # Get system prompt (instructions only)
-        system_prompt = get_prompt(PromptType.SYSTEM_TOKEN_EXPLANATION, lang)
+        system_prompt = get_prompt(PromptType.SYSTEM_TOKEN_EXPLANATION, language=language)
         
         # Build user prompt with all context (data)
         user_prompt = get_prompt(
             PromptType.USER_EXPLAIN_TOKEN,
-            lang,
+            language=language,
             line_num=context.line_num,
             line_content=context.line_content,
             token=context.token,
@@ -322,15 +324,15 @@ class BaseAIAssistant(Assistant):
         logger = getLogger(__name__)
         
         # Get language preference
-        lang = self._get_language()
+        language = self._get_language()
         
         # Get system prompt (instructions only)
-        system_prompt = get_prompt(PromptType.SYSTEM_SELECTION_EXPLANATION, lang)
+        system_prompt = get_prompt(PromptType.SYSTEM_SELECTION_EXPLANATION, language=language)
         
         # Build user prompt with all context (data)
         user_prompt = get_prompt(
             PromptType.USER_EXPLAIN_SELECTION,
-            lang,
+            language=language,
             selected_code=context.selected_code,
             start_line=context.start_line,
             end_line=context.end_line,
