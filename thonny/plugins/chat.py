@@ -271,7 +271,7 @@ class ChatView(tktextext.TextFrame):
         
         # Add tooltip
         try:
-            lang = get_workbench().get_option("ai.language", "uk")
+            lang = get_workbench().get_option("general.language", "uk")
         except Exception:
             lang = "uk"
         tooltip_text = "Пояснити вивід Shell" if lang == "uk" else "Объяснить вывод Shell"

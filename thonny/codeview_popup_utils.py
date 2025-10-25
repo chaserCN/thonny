@@ -49,7 +49,7 @@ def get_localization(context: str) -> dict:
         dict with localized strings
     """
     try:
-        lang = get_workbench().get_option("ai.language", "uk")
+        lang = get_workbench().get_option("general.language", "uk")
     except:
         lang = "uk"
     
@@ -591,7 +591,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     
     # Get language
     try:
-        lang = get_workbench().get_option("ai.language", "uk")
+        lang = get_workbench().get_option("general.language", "uk")
     except Exception:
         lang = "uk"
     
