@@ -2030,6 +2030,9 @@ msgstr "Добавить"
 msgid "Remove"
 msgstr "Удалить"
 
+msgid "Send error to AI Chat"
+msgstr "Отправить ошибку в AI чат"
+
 msgid "Reset"
 msgstr "Сбросить"
 

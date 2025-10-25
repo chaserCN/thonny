@@ -2012,6 +2012,9 @@ msgstr "Додати"
 msgid "Remove"
 msgstr "Видалити"
 
+msgid "Send error to AI Chat"
+msgstr "Надіслати помилку до AI чату"
+
 msgid "Reset"
 msgstr "Скинути"
 
