@@ -9,6 +9,15 @@ from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
 from thonny import get_runner, get_shell, get_workbench, rst_utils, tktextext, ui_utils
+from thonny.markdown_utils import (
+    COLOR_BOT_MESSAGE_BG,
+    COLOR_USER_MESSAGE_BG,
+    COLOR_USER_MESSAGE_FG,
+    COLOR_SELECT_BG,
+    COLOR_SELECT_FG,
+    COLOR_AVATAR,
+    COLOR_TYPING_INDICATOR,
+)
 from thonny.assistance import (
     Assistant,
     Attachment,
@@ -49,12 +58,17 @@ class ChatView(tktextext.TextFrame):
             wrap="word",
             font="TkDefaultFont",
             # cursor="arrow",
-            padx=10,
-            pady=0,
+            padx=0,
+            pady=10,
             insertwidth=0,
             background="white",
+            selectbackground=COLOR_SELECT_BG,  # Blue selection background
+            selectforeground=COLOR_SELECT_FG,     # White selection text
             suppress_events=True,
         )
+        
+        # Explicitly set selection colors (in case RstText overrides them)
+        self.text.config(selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
 
         self._analyzer_instances = []
 
@@ -136,11 +150,22 @@ class ChatView(tktextext.TextFrame):
         # Avatar styles
         self.text.tag_configure(
             "bubble_avatar",
-            foreground="#4A90E2",  # Blue for user and bot
+            foreground=COLOR_AVATAR,  # Blue for user and bot
         )
         self.text.tag_configure(
             "typing_indicator",
-            foreground="#999999",  # Gray for typing indicator
+            foreground=COLOR_TYPING_INDICATOR,  # Gray for typing indicator
+            background=COLOR_BOT_MESSAGE_BG,  # Same as bot message background
+        )
+        
+        # Configure bubble_padding tag
+        self.text.tag_configure(
+            "bubble_padding",
+            font=("TkDefaultFont", 1),  # Small font for padding lines
+            lmargin1=12,
+            lmargin2=12,
+            spacing1=6,  # Spacing above
+            spacing3=6,  # Spacing below
         )
 
         # self.text.tag_configure("user_message_first_line", spacing1=ems_to_pixels(0.3))
@@ -294,7 +319,7 @@ class ChatView(tktextext.TextFrame):
         self.query_text = tk.Text(
             white_container,
             height=7,  # FIXED height - never changes to prevent flickering
-            font="TkDefaultFont",
+            font=("TkDefaultFont", 10),
             borderwidth=0,
             relief="flat",
             highlightthickness=0,
@@ -353,7 +378,7 @@ class ChatView(tktextext.TextFrame):
                 avatar="🤖",
                 content=fragment.content,
                 message_tag="bubble_message",
-                bg_color="white",
+                bg_color=COLOR_BOT_MESSAGE_BG,  # Very light greige background
                 image_data=None,
                 is_markdown=True
             )
@@ -1125,6 +1150,21 @@ class ChatView(tktextext.TextFrame):
         # Lower priority so background is behind text formatting
         self.text.tag_lower(color_tag)
         
+        # Raise code block tags to highest priority so their background (#E0E0E0) is visible over message background
+        try:
+            self.text.tag_raise("code_block_internal_padding")
+            self.text.tag_raise("md_code_block")
+            self.text.tag_raise("code_keyword")
+            self.text.tag_raise("code_string")
+            self.text.tag_raise("code_comment")
+            self.text.tag_raise("code_number")
+            self.text.tag_raise("code_builtin")
+        except Exception:
+            pass
+        
+        # Add spacing between messages (after color_tag was applied)
+        self._append_text("\n")
+        
         # No separator needed - markdown already adds \n at the end
     
     def _insert_user_bubble(self, display_text: str, image_data: Optional[dict]) -> None:
@@ -1133,8 +1173,8 @@ class ChatView(tktextext.TextFrame):
             avatar="👧",
             content=display_text if display_text else "",
             message_tag="bubble_message",
-            bg_color="#F0F8FF",
-            fg_color="#0D47A1",  # Dark blue text for user
+            bg_color=COLOR_USER_MESSAGE_BG,
+            fg_color=COLOR_USER_MESSAGE_FG,  # Dark blue text for user
             image_data=image_data,
             is_markdown=False
         )
@@ -1226,12 +1266,14 @@ class ChatView(tktextext.TextFrame):
         self._append_text("·", tags=("typing_indicator", "bubble_message"))
         # Bottom padding for typing indicator
         self._append_text("\n", tags=("bubble_padding",))
+        # Add extra line for spacing (will be included in bubble background)
+        self._append_text("\n", tags=("bubble_padding",))
         
-        # Apply white background to typing indicator bubble
+        # Apply light greige background to typing indicator bubble
         typing_bubble_end = self.text.index("end-1c")
         import time
         typing_bg_tag = f"typing_bg_{int(time.time() * 1000000)}"
-        self.text.tag_configure(typing_bg_tag, background="white", spacing1=0, spacing3=0)
+        self.text.tag_configure(typing_bg_tag, background=COLOR_BOT_MESSAGE_BG, spacing1=0, spacing3=0)
         self.text.tag_add(typing_bg_tag, typing_bubble_start, typing_bubble_end)
         self.text.tag_lower(typing_bg_tag)
         

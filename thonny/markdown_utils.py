@@ -17,6 +17,36 @@ except ImportError:
 # Track if we've logged the highlighting method
 _HIGHLIGHTING_LOGGED = False
 
+# Font configuration constants
+FONT_FAMILY_DEFAULT = "TkDefaultFont"
+FONT_FAMILY_CODE = "TkFixedFont"
+
+# Font sizes
+FONT_SIZE_HEADING = 11
+FONT_SIZE_NORMAL = 10
+FONT_SIZE_CODE = 10
+
+# Colors for chat message backgrounds
+COLOR_BOT_MESSAGE_BG = "#F0F8FF"   # Very light blue for bot messages (lighter)
+COLOR_USER_MESSAGE_BG = "#3D6FA3"  # Dark blue for user messages (Telegram-style, darker)
+COLOR_USER_MESSAGE_FG = "#FFFFFF"  # White text for user messages
+COLOR_CODE_BLOCK_BG = "#FAF8F5"    # Very light beige for code blocks
+
+# Syntax highlighting colors
+COLOR_KEYWORD = "#0000FF"    # Blue
+COLOR_STRING = "#008000"     # Green
+COLOR_COMMENT = "#999999"    # Gray
+COLOR_NUMBER = "#8B4513"     # Saddle Brown
+COLOR_BUILTIN = "#9900CC"    # Purple
+
+# Selection colors
+COLOR_SELECT_BG = "#4A90E2"  # Blue
+COLOR_SELECT_FG = "white"
+
+# UI colors
+COLOR_AVATAR = "#4A90E2"        # Blue for avatars
+COLOR_TYPING_INDICATOR = "#999999"  # Gray for typing animation
+
 
 def highlight_python_syntax_with_pygments(text_widget: tk.Text, start_index: str, end_index: str) -> None:
     """Apply Python syntax highlighting using Pygments library"""
@@ -357,22 +387,22 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
     
     # Configure tags (always update to apply new settings)
     # Note: spacing1=0 because spacing is controlled by message tags (user_message/bot_message)
-    text_widget.tag_configure("md_heading", font=("TkDefaultFont", 10, "bold"), spacing1=0, spacing3=0)
-    text_widget.tag_configure("md_normal_text", font=("TkDefaultFont", 10), spacing1=0, spacing3=0)
-    text_widget.tag_configure("md_code_block", font=("TkFixedFont", 9), background="#f5f5f5", spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, selectbackground="#4A90E2", selectforeground="white")
-    text_widget.tag_configure("code_block_padding", font=("TkDefaultFont", 1), spacing1=6, spacing3=0)  # Padding before code blocks
-    text_widget.tag_configure("code_block_internal_padding", font=("TkDefaultFont", 1), background="#f5f5f5", spacing1=4, spacing3=0, lmargin1=10, lmargin2=10)  # Internal padding inside code blocks
-    text_widget.tag_configure("md_inline_code", font=("TkFixedFont", 9), background="#f5f5f5", selectbackground="#4A90E2", selectforeground="white")
-    text_widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
-    text_widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
+    text_widget.tag_configure("md_heading", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_HEADING, "bold"), spacing1=0, spacing3=0)
+    text_widget.tag_configure("md_normal_text", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL), spacing1=0, spacing3=0)
+    text_widget.tag_configure("md_code_block", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=COLOR_BOT_MESSAGE_BG, rmargincolor=COLOR_BOT_MESSAGE_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("code_block_padding", font=(FONT_FAMILY_DEFAULT, 1), spacing1=6, spacing3=0)  # Padding before code blocks
+    text_widget.tag_configure("code_block_internal_padding", font=(FONT_FAMILY_DEFAULT, 1), background=COLOR_CODE_BLOCK_BG, spacing1=4, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=COLOR_BOT_MESSAGE_BG, rmargincolor=COLOR_BOT_MESSAGE_BG)  # Internal padding inside code blocks
+    text_widget.tag_configure("md_inline_code", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_bold", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "bold"))
+    text_widget.tag_configure("md_italic", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "italic"))
     text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=0)
     
     # Syntax highlighting tags for code blocks (vibrant colors for visibility)
-    text_widget.tag_configure("code_keyword", font=("TkFixedFont", 9, "bold"), foreground="#0000FF", background="#f5f5f5")  # Bright Blue Bold
-    text_widget.tag_configure("code_string", font=("TkFixedFont", 9), foreground="#008000", background="#f5f5f5")  # Green
-    text_widget.tag_configure("code_comment", font=("TkFixedFont", 9, "italic"), foreground="#999999", background="#f5f5f5")  # Gray Italic
-    text_widget.tag_configure("code_number", font=("TkFixedFont", 9), foreground="#FF6600", background="#f5f5f5")  # Orange
-    text_widget.tag_configure("code_builtin", font=("TkFixedFont", 9), foreground="#9900CC", background="#f5f5f5")  # Purple
+    text_widget.tag_configure("code_keyword", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE, "bold"), foreground=COLOR_KEYWORD, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Blue Bold
+    text_widget.tag_configure("code_string", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), foreground=COLOR_STRING, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Green
+    text_widget.tag_configure("code_comment", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE, "italic"), foreground=COLOR_COMMENT, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Gray Italic
+    text_widget.tag_configure("code_number", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), foreground=COLOR_NUMBER, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Saddle Brown
+    text_widget.tag_configure("code_builtin", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), foreground=COLOR_BUILTIN, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Purple
     
     def insert_formatted_text(text):
         """Insert text with inline formatting (bold, italic, code)"""
