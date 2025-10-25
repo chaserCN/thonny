@@ -372,16 +372,25 @@ class ChatView(tktextext.TextFrame):
                     self.text.direct_delete(self._typing_line_start, "end-1c")
                 except:
                     pass
+            
+            # Parse fix suggestions from markdown
+            clean_content, fixes = self._parse_fix_suggestions(fragment.content)
                 
             # Insert complete bot message using universal method
             self._insert_message_bubble(
                 avatar="🤖",
-                content=fragment.content,
+                content=clean_content,
                 message_tag="bubble_message",
                 bg_color=COLOR_BOT_MESSAGE_BG,  # Very light greige background
                 image_data=None,
                 is_markdown=True
             )
+            
+            # If there are fix suggestions, show popup in editor after a short delay
+            if fixes:
+                # Take only first fix (as instructed in prompt)
+                fix = fixes[0]
+                self.after(500, lambda: self._show_fix_popup_in_editor(fix))
             
             self._bot_avatar_added = False
         else:
@@ -1178,6 +1187,76 @@ class ChatView(tktextext.TextFrame):
             image_data=image_data,
             is_markdown=False
         )
+    
+    def _parse_fix_suggestions(self, markdown_text: str) -> tuple:
+        """Extract fix suggestions from markdown with ```fix{lines:N-M} blocks.
+        
+        Returns:
+            tuple: (clean_text, list of fix dicts)
+        """
+        import re
+        
+        fixes = []
+        
+        # Pattern: ```fix{lines:5} or ```fix{lines:5-7}
+        # Groups: (1) lines spec "5" or "5-7", (2) code inside block
+        pattern = r'```fix\{lines:([\d\-]+)\}\s*\n(.*?)```'
+        
+        for match in re.finditer(pattern, markdown_text, re.DOTALL):
+            lines_spec = match.group(1)  # "5" or "5-7"
+            code = match.group(2).rstrip()  # Fix code
+            
+            # Parse line numbers
+            if '-' in lines_spec:
+                start_line, end_line = map(int, lines_spec.split('-'))
+            else:
+                start_line = end_line = int(lines_spec)
+            
+            # Extract reason from text BEFORE the block
+            # Look for "**Что не так:**" or "**Що не так:**" before block
+            before_fix = markdown_text[:match.start()]
+            
+            # Try Russian first
+            reason_match = re.search(r'\*\*Что не так:\*\*\s*\n(.+?)(?=\n\*\*|$)', before_fix, re.DOTALL)
+            if not reason_match:
+                # Try Ukrainian
+                reason_match = re.search(r'\*\*Що не так:\*\*\s*\n(.+?)(?=\n\*\*|$)', before_fix, re.DOTALL)
+            
+            # If no reason found, skip this fix (don't show popup without explanation)
+            if not reason_match:
+                logger.warning(f"Fix suggestion at lines {start_line}-{end_line} has no reason, skipping")
+                continue
+            
+            reason = reason_match.group(1).strip()
+            
+            fixes.append({
+                'start_line': start_line,
+                'end_line': end_line,
+                'new': code,
+                'reason': reason
+            })
+        
+        # Keep ```fix blocks in text, but remove "**Как исправить:**" / "**Як виправити:**" headers
+        # This way the code stays visible in chat, but the redundant header is removed
+        clean_text = markdown_text
+        
+        # Remove "**Как исправить:**" or "**Як виправити:**" lines before fix blocks
+        clean_text = re.sub(r'\*\*Как исправить:\*\*\s*\n(?=```fix)', '', clean_text)
+        clean_text = re.sub(r'\*\*Як виправити:\*\*\s*\n(?=```fix)', '', clean_text)
+        
+        # Remove excessive empty lines
+        clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
+        
+        return clean_text, fixes
+    
+    def _show_fix_popup_in_editor(self, fix: dict) -> None:
+        """Generate event to show fix suggestion popup.
+        
+        The actual popup display is handled by the fix suggestion handler
+        registered in load_plugin(), maintaining separation of concerns.
+        """
+        # Generate event with fix data - handler will display the popup
+        get_workbench().event_generate("ShowFixSuggestion", fix=fix)
 
     # Removed submit button - use Enter key instead
     # def _on_click_submit(self) -> None:
@@ -1813,6 +1892,56 @@ def take_screenshot_without_chat():
                 logger.error(f"Failed to restore chat panel: {e}")
 
 
+# Global variable to track current fix popup (prevent multiple overlapping popups)
+_current_fix_popup = None
+
+
+def _handle_show_fix_suggestion(event):
+    """Handler for ShowFixSuggestion event.
+    
+    This handler is decoupled from ChatView and can be called from anywhere.
+    It gets the current editor and displays the fix popup.
+    """
+    from thonny.codeview_popup_utils import create_fix_popup
+    global _current_fix_popup
+    
+    fix = event.fix
+    editor = get_workbench().get_editor_notebook().get_current_editor()
+    if not editor:
+        logger.warning("No editor open to show fix popup")
+        return
+    
+    text_widget = editor.get_text_widget()
+    
+    # Validate line numbers
+    try:
+        max_line = int(text_widget.index('end-1c').split('.')[0])
+        start_line = fix['start_line']
+        end_line = fix['end_line']
+        
+        if start_line < 1 or start_line > max_line or end_line > max_line:
+            logger.error(f"Invalid line numbers: {start_line}-{end_line}, file has {max_line} lines")
+            return
+    except Exception as e:
+        logger.error(f"Failed to validate line numbers: {e}")
+        return
+    
+    # Close existing popup if any
+    if _current_fix_popup and _current_fix_popup.winfo_exists():
+        try:
+            _current_fix_popup.destroy()
+        except:
+            pass
+    
+    # Show new popup
+    _current_fix_popup = create_fix_popup(
+        parent=editor,
+        fix=fix,
+        text_widget=text_widget,
+        editor=editor
+    )
+
+
 def load_plugin():
     # Register AI options with defaults so they persist between sessions
     get_workbench().set_default("ai.model", "gemini")
@@ -1834,3 +1963,8 @@ def load_plugin():
         caption=None,  # No caption - icon-only button
         group=210,  # Last button in toolbar (max used is 200)
     )
+    
+    # Register handler for fix suggestions from AI
+    # This decouples ChatView from CodeView - chat only generates events,
+    # and this handler displays popups
+    get_workbench().bind("ShowFixSuggestion", _handle_show_fix_suggestion, True)
