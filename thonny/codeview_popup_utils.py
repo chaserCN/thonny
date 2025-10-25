@@ -251,7 +251,9 @@ def create_explanation_popup(
         font="TkDefaultFont",
         background="white",
         foreground="black",
-        state="normal"
+        state="normal",
+        selectbackground="#4A90E2",  # Blue selection background
+        selectforeground="white"      # White selection text
     )
     
     scrollbar = ttk.Scrollbar(text_frame, command=explanation_text.yview)
@@ -544,7 +546,9 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         foreground="black",
         relief="flat",
         borderwidth=0,
-        highlightthickness=0
+        highlightthickness=0,
+        selectbackground="#4A90E2",  # Blue selection background
+        selectforeground="white"      # White selection text
     )
     
     scrollbar = ttk.Scrollbar(text_frame, command=content_text.yview)

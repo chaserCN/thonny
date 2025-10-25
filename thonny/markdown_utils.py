@@ -387,15 +387,15 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
     
     # Configure tags (always update to apply new settings)
     # Note: spacing1=0 because spacing is controlled by message tags (user_message/bot_message)
-    text_widget.tag_configure("md_heading", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_HEADING, "bold"), spacing1=0, spacing3=0)
-    text_widget.tag_configure("md_normal_text", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL), spacing1=0, spacing3=0)
+    text_widget.tag_configure("md_heading", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_HEADING, "bold"), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_normal_text", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("md_code_block", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=COLOR_BOT_MESSAGE_BG, rmargincolor=COLOR_BOT_MESSAGE_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
-    text_widget.tag_configure("code_block_padding", font=(FONT_FAMILY_DEFAULT, 1), spacing1=6, spacing3=0)  # Padding before code blocks
-    text_widget.tag_configure("code_block_internal_padding", font=(FONT_FAMILY_DEFAULT, 1), background=COLOR_CODE_BLOCK_BG, spacing1=4, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=COLOR_BOT_MESSAGE_BG, rmargincolor=COLOR_BOT_MESSAGE_BG)  # Internal padding inside code blocks
+    text_widget.tag_configure("code_block_padding", font=(FONT_FAMILY_DEFAULT, 1), spacing1=6, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Padding before code blocks
+    text_widget.tag_configure("code_block_internal_padding", font=(FONT_FAMILY_DEFAULT, 1), background=COLOR_CODE_BLOCK_BG, spacing1=4, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=COLOR_BOT_MESSAGE_BG, rmargincolor=COLOR_BOT_MESSAGE_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Internal padding inside code blocks
     text_widget.tag_configure("md_inline_code", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
-    text_widget.tag_configure("md_bold", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "bold"))
-    text_widget.tag_configure("md_italic", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "italic"))
-    text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=0)
+    text_widget.tag_configure("md_bold", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "bold"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_italic", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "italic"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     
     # Syntax highlighting tags for code blocks (vibrant colors for visibility)
     text_widget.tag_configure("code_keyword", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE, "bold"), foreground=COLOR_KEYWORD, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Blue Bold
