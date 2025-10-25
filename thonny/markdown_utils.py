@@ -28,8 +28,8 @@ FONT_SIZE_CODE = 10
 
 # Colors for chat message backgrounds
 COLOR_BOT_MESSAGE_BG = "#F0F8FF"   # Very light blue for bot messages (lighter)
-COLOR_USER_MESSAGE_BG = "#E8F5E9"  # Very light green for user messages (same lightness as bot)
-COLOR_USER_MESSAGE_FG = "#1B5E20"  # Dark green text for user messages
+COLOR_USER_MESSAGE_BG = "#F3E5F5"  # Very light purple for user messages (same lightness as bot)
+COLOR_USER_MESSAGE_FG = "#4A148C"  # Dark purple text for user messages
 COLOR_CODE_BLOCK_BG = "#FAF8F5"    # Very light beige for code blocks
 
 # Syntax highlighting colors
