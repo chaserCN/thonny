@@ -17,6 +17,8 @@ from thonny.markdown_utils import (
     COLOR_SELECT_FG,
     COLOR_AVATAR,
     COLOR_TYPING_INDICATOR,
+    MessageType,
+    render_markdown,
 )
 from thonny.assistance import (
     Assistant,
@@ -1164,9 +1166,14 @@ class ChatView(tktextext.TextFrame):
         content_start = self.text.index("end-1c")
         
         # Render markdown for both user and bot
+        # Determine message type based on background color
+        if bg_color == COLOR_USER_MESSAGE_BG:
+            msg_type = MessageType.USER
+        else:
+            msg_type = MessageType.BOT
+        
         try:
-            from thonny.markdown_utils import render_markdown
-            render_markdown(self.text, content, show_copy_button=True)
+            render_markdown(self.text, content, show_copy_button=True, message_type=msg_type)
         except Exception as e:
             logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
             self.text.direct_insert("end", content)

@@ -2,8 +2,15 @@
 import re
 import tkinter as tk
 import logging
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+class MessageType(Enum):
+    """Type of message for markdown rendering"""
+    BOT = "bot"
+    USER = "user"
+    POPUP = "popup"
 
 # Try to import Pygments for better syntax highlighting
 try:
@@ -361,7 +368,7 @@ def _copy_code_to_clipboard(text_widget: tk.Text, code_text: str, button: tk.Lab
             pass
 
 
-def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: bool = True, for_chat: bool = True) -> None:
+def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: bool = True, message_type: MessageType = MessageType.BOT) -> None:
     """
     Render markdown directly in tk.Text widget with tags.
     
@@ -380,6 +387,7 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
         text_widget: tk.Text widget to render in
         markdown_text: Markdown text to render
         show_copy_button: Whether to show Copy button for code blocks (default True)
+        message_type: Type of message (BOT, USER, or POPUP) for styling
     """
     
     # Determine which insert method to use (direct_insert for TweakableText, insert for regular Text)
@@ -388,8 +396,13 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
     # Configure tags (always update to apply new settings)
     # Note: spacing1=0 because spacing is controlled by message tags (user_message/bot_message)
     # Note: inactiveselectbackground NOT supported for tags, only for Text widget itself
-    # Note: margin colors - blue for chat (bot message background), white for popups
-    margin_color = COLOR_BOT_MESSAGE_BG if for_chat else "white"
+    # Note: margin colors depend on message type
+    if message_type == MessageType.USER:
+        margin_color = COLOR_USER_MESSAGE_BG
+    elif message_type == MessageType.POPUP:
+        margin_color = "white"
+    else:  # MessageType.BOT
+        margin_color = COLOR_BOT_MESSAGE_BG
     
     text_widget.tag_configure("md_heading", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_HEADING, "bold"), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("md_normal_text", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
