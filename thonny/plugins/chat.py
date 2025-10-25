@@ -271,10 +271,11 @@ class ChatView(tktextext.TextFrame):
         
         # Add tooltip
         try:
-            lang = get_workbench().get_option("general.language", "uk")
+            lang = get_workbench().get_option("general.language", "uk_UA")
         except Exception:
-            lang = "uk"
-        tooltip_text = "Пояснити вивід Shell" if lang == "uk" else "Объяснить вывод Shell"
+            lang = "uk_UA"
+        is_ukrainian = lang.startswith("uk")
+        tooltip_text = "Пояснити вивід Shell" if is_ukrainian else "Объяснить вывод Shell"
         ui_utils.create_tooltip(explain_shell_button_frame, tooltip_text)
 
         # Right frame for language, model and clear buttons
@@ -1282,17 +1283,28 @@ class ChatView(tktextext.TextFrame):
                 # Remove leading/trailing newlines and excessive whitespace
                 reason = re.sub(r'\n{3,}', '\n\n', reason).strip()
             
+            # Remove trailing markdown headers (like "**Як виправити:**" or "**Как исправить:**")
+            # Remove any markdown bold header at the end: **anything:**
+            reason = re.sub(r'\*\*[^*]+:\*\*\s*$', '', reason).strip()
+            
             # Skip only if BOTH code and reason are empty
             if not code.strip() and not reason.strip():
                 logger.warning(f"Fix suggestion at lines {start_line}-{end_line} has no code and no reason, skipping")
                 continue
+            
+            # Get AI language for content
+            try:
+                ai_lang = get_workbench().get_option("ai.language", "uk")
+            except:
+                ai_lang = "uk"
             
             fixes.append({
                 'start_line': start_line,
                 'end_line': end_line,
                 'new': code,
                 'reason': reason,
-                'has_code': bool(code.strip())  # For showing/hiding Apply button
+                'has_code': bool(code.strip()),  # For showing/hiding Apply button
+                'ai_lang': ai_lang  # Language for content ("Правильний код:", etc.)
             })
         
         # Keep ```fix blocks in text, but remove "**Как исправить:**" / "**Як виправити:**" headers

@@ -49,12 +49,14 @@ def get_localization(context: str) -> dict:
         dict with localized strings
     """
     try:
-        lang = get_workbench().get_option("general.language", "uk")
+        lang = get_workbench().get_option("general.language", "uk_UA")
     except:
-        lang = "uk"
+        lang = "uk_UA"
+    
+    is_russian = lang.startswith("ru")
     
     if context == "token":
-        if lang == "ru":
+        if is_russian:
             return {
                 "title": "Объяснение: {token}",
                 "code_line_label": "Строка кода:",
@@ -74,7 +76,7 @@ def get_localization(context: str) -> dict:
             }
     
     elif context == "selection":
-        if lang == "ru":
+        if is_russian:
             return {
                 "title": "Объяснение выделенного кода",
                 "code_label": "Выделенный код:",
@@ -92,7 +94,7 @@ def get_localization(context: str) -> dict:
             }
     
     elif context == "line":
-        if lang == "ru":
+        if is_russian:
             return {
                 "title": "Строка {line_num}: Пояснение",
                 "code_line_label": "Строка кода:",
@@ -589,17 +591,23 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     content_text.bind("<Control-c>", lambda e: content_text.event_generate("<<Copy>>"))
     content_text.bind("<Command-c>", lambda e: content_text.event_generate("<<Copy>>"))
     
-    # Get language
+    # Get UI language for buttons (general.language returns "uk_UA" or "ru_RU", etc.)
     try:
-        lang = get_workbench().get_option("general.language", "uk")
+        ui_lang = get_workbench().get_option("general.language", "uk_UA")
     except Exception:
-        lang = "uk"
+        ui_lang = "uk_UA"
+    
+    is_ui_ukrainian = ui_lang.startswith("uk")
+    
+    # Get AI language for content (from fix dict, default to "uk")
+    ai_lang = fix.get('ai_lang', 'uk')
+    is_content_ukrainian = ai_lang == "uk"
     
     # Build markdown content: CODE FIRST, then explanation
     if is_append:
-        label_text = "Додай цей код:" if lang == "uk" else "Добавь этот код:"
+        label_text = "Додай цей код:" if is_content_ukrainian else "Добавь этот код:"
     else:
-        label_text = "Правильний код:" if lang == "uk" else "Правильный код:"
+        label_text = "Правильний код:" if is_content_ukrainian else "Правильный код:"
     markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
     
     # Render everything through markdown (message_type=POPUP for white margins)
@@ -717,7 +725,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     has_code = fix.get('has_code', True)  # Default True for backward compatibility
     
     if has_code:
-        apply_text = "Застосувати" if lang == "uk" else "Применить"
+        apply_text = "Застосувати" if is_ui_ukrainian else "Применить"
         apply_btn = ttk.Button(
             btn_frame,
             text=apply_text,
@@ -727,7 +735,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         apply_btn.pack(side=tk.LEFT, padx=(0, 5))
     
     # Cancel/Close button - always show
-    close_text = "Закрити" if lang == "uk" and not has_code else ("Скасувати" if lang == "uk" else "Отмена")
+    close_text = "Закрити" if is_ui_ukrainian and not has_code else ("Скасувати" if is_ui_ukrainian else "Отмена")
     cancel_btn = ttk.Button(
         btn_frame,
         text=close_text,
