@@ -468,34 +468,50 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     gap = 10  # Gap between line and popup
     
     try:
-        bbox = text_widget.bbox(start_index)
-        if bbox:
-            line_x = text_widget.winfo_rootx() + bbox[0]
-            line_y = text_widget.winfo_rooty() + bbox[1]
-            line_height = bbox[3]
+        if is_append:
+            # For append mode - center vertically and overlap codeview slightly from right
+            codeview_x = text_widget.winfo_rootx()
+            codeview_y = text_widget.winfo_rooty()
+            codeview_width = text_widget.winfo_width()
+            codeview_height = text_widget.winfo_height()
             
-            screen_height = popup.winfo_screenheight()
+            # Center vertically
+            y = codeview_y + (codeview_height // 2) - (popup_height // 2)
             
-            # Try to place below the line first
-            y_below = line_y + line_height + gap
-            
-            if y_below + popup_height <= screen_height:
-                # Fits below - use it
-                x = line_x
-                y = y_below
-            else:
-                # Doesn't fit below - place above the line
-                y_above = line_y - popup_height - gap
-                if y_above >= 0:
-                    # Fits above
-                    x = line_x
-                    y = y_above
-                else:
-                    # Doesn't fit above either - place to the right
-                    x = text_widget.winfo_rootx() + text_widget.winfo_width() - popup_width - 20
-                    y = max(0, line_y)
+            # Overlap codeview by 16% from right
+            x = codeview_x + int(codeview_width * 0.84)
             
             popup.geometry(f"{popup_width}x{popup_height}+{x}+{y}")
+        else:
+            # Normal mode - position near the line
+            bbox = text_widget.bbox(start_index)
+            if bbox:
+                line_x = text_widget.winfo_rootx() + bbox[0]
+                line_y = text_widget.winfo_rooty() + bbox[1]
+                line_height = bbox[3]
+                
+                screen_height = popup.winfo_screenheight()
+                
+                # Try to place below the line first
+                y_below = line_y + line_height + gap
+                
+                if y_below + popup_height <= screen_height:
+                    # Fits below - use it
+                    x = line_x
+                    y = y_below
+                else:
+                    # Doesn't fit below - place above the line
+                    y_above = line_y - popup_height - gap
+                    if y_above >= 0:
+                        # Fits above
+                        x = line_x
+                        y = y_above
+                    else:
+                        # Doesn't fit above either - place to the right
+                        x = text_widget.winfo_rootx() + text_widget.winfo_width() - popup_width - 20
+                        y = max(0, line_y)
+                
+                popup.geometry(f"{popup_width}x{popup_height}+{x}+{y}")
     except:
         popup.geometry(f"{popup_width}x{popup_height}")
     
