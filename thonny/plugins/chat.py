@@ -59,7 +59,7 @@ class ChatView(tktextext.TextFrame):
             font="TkDefaultFont",
             # cursor="arrow",
             padx=0,
-            pady=10,
+            pady=0,
             insertwidth=0,
             background="white",
             selectbackground=COLOR_SELECT_BG,  # Blue selection background
