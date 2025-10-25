@@ -1217,6 +1217,11 @@ class ChatView(tktextext.TextFrame):
             else:
                 start_line = end_line = int(lines_spec)
             
+            # Validate range
+            if end_line < start_line:
+                logger.error(f"Fix has invalid range {start_line}-{end_line} (end < start), skipping")
+                continue
+            
             # Extract reason from text BEFORE the block (since last code block or start of message)
             before_fix = markdown_text[:match.start()]
             
@@ -1243,16 +1248,18 @@ class ChatView(tktextext.TextFrame):
                 reason = text_for_reason.strip()
                 # Remove leading/trailing newlines and excessive whitespace
                 reason = re.sub(r'\n{3,}', '\n\n', reason).strip()
-                
-                if not reason:
-                    logger.warning(f"Fix suggestion at lines {start_line}-{end_line} has no reason, skipping")
-                    continue
+            
+            # Skip only if BOTH code and reason are empty
+            if not code.strip() and not reason.strip():
+                logger.warning(f"Fix suggestion at lines {start_line}-{end_line} has no code and no reason, skipping")
+                continue
             
             fixes.append({
                 'start_line': start_line,
                 'end_line': end_line,
                 'new': code,
-                'reason': reason
+                'reason': reason,
+                'has_code': bool(code.strip())  # For showing/hiding Apply button
             })
         
         # Keep ```fix blocks in text, but remove "**Как исправить:**" / "**Як виправити:**" headers

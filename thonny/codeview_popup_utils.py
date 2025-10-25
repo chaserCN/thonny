@@ -695,19 +695,24 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         text_widget.after(100, restore_focus)
     
     # Simple buttons with ttk (Thonny style)
-    apply_text = "Застосувати" if lang == "uk" else "Применить"
-    apply_btn = ttk.Button(
-        btn_frame,
-        text=apply_text,
-        command=apply_fix,
-        width=12
-    )
-    apply_btn.pack(side=tk.LEFT, padx=(0, 5))
+    # Show "Apply" button only if fix has code
+    has_code = fix.get('has_code', True)  # Default True for backward compatibility
     
-    cancel_text = "Скасувати" if lang == "uk" else "Отмена"
+    if has_code:
+        apply_text = "Застосувати" if lang == "uk" else "Применить"
+        apply_btn = ttk.Button(
+            btn_frame,
+            text=apply_text,
+            command=apply_fix,
+            width=12
+        )
+        apply_btn.pack(side=tk.LEFT, padx=(0, 5))
+    
+    # Cancel/Close button - always show
+    close_text = "Закрити" if lang == "uk" and not has_code else ("Скасувати" if lang == "uk" else "Отмена")
     cancel_btn = ttk.Button(
         btn_frame,
-        text=cancel_text,
+        text=close_text,
         command=cancel_fix,
         width=12
     )
