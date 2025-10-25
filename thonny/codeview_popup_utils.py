@@ -270,7 +270,7 @@ def create_explanation_popup(
     explanation_text.bind("<Command-a>", lambda e: explanation_text.tag_add("sel", "1.0", "end"))
     
     # Show loading message
-    render_markdown(explanation_text, loading_markdown, show_copy_button=False)
+    render_markdown(explanation_text, loading_markdown, show_copy_button=False, for_chat=False)
     
     # Get AI explanation in thread
     def get_explanation():
@@ -283,7 +283,7 @@ def create_explanation_popup(
                 
                 explanation_text.delete("1.0", "end")
                 md_content = format_result_func(explanation)
-                render_markdown(explanation_text, md_content, show_copy_button=False)
+                render_markdown(explanation_text, md_content, show_copy_button=False, for_chat=False)
             
             popup.after(0, update_ui)
         except Exception as e:
@@ -293,7 +293,7 @@ def create_explanation_popup(
                 
                 explanation_text.delete("1.0", "end")
                 error_md = f"**{error_label}**\n\n{str(error)}"
-                render_markdown(explanation_text, error_md, show_copy_button=False)
+                render_markdown(explanation_text, error_md, show_copy_button=False, for_chat=False)
             popup.after(0, show_error)
     
     threading.Thread(target=get_explanation, daemon=True).start()
@@ -573,12 +573,8 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     label_text = "Правильний код:" if lang == "uk" else "Правильный код:"
     markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
     
-    # Render everything through markdown
-    render_markdown(content_text, markdown_content, show_copy_button=False)
-    
-    # Fix code block margin colors for white background (not blue chat bubble)
-    content_text.tag_configure("md_code_block", lmargincolor="white", rmargincolor="white")
-    content_text.tag_configure("code_block_internal_padding", lmargincolor="white", rmargincolor="white")
+    # Render everything through markdown (for_chat=False for white margins)
+    render_markdown(content_text, markdown_content, show_copy_button=False, for_chat=False)
     
     # Define button functions
     def apply_fix():
