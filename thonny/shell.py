@@ -169,49 +169,6 @@ class ShellView(tk.PanedWindow):
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(1, weight=1)
 
-        # Add "Explain" button floating in the top-right corner of text widget
-        from PIL import Image, ImageTk
-        
-        # Load and resize icon to 24x24
-        icon_path = os.path.join(get_workbench().get_package_dir(), "res", "bot_explain.png")
-        pil_image = Image.open(icon_path)
-        pil_image = pil_image.resize((24, 24), Image.Resampling.LANCZOS)
-        explain_icon = ImageTk.PhotoImage(pil_image)
-        
-        # Use Label instead of Button to avoid gray background
-        self.explain_button = tk.Label(
-            main_frame, 
-            image=explain_icon,
-            cursor="hand2",
-            borderwidth=0,
-            relief="flat",
-            background=self.text["background"]  # Match text widget background
-        )
-        self.explain_button.image = explain_icon  # Keep reference to prevent garbage collection
-        self.explain_button.bind("<Button-1>", lambda e: self.explain_shell_output())
-        
-        # Position the button floating on top of the text widget in the top-right corner (before scrollbar)
-        # Using place to make it float above text
-        self.explain_button.place(in_=self.text, relx=1.0, y=2, x=-2, anchor="ne")
-        
-        # Add tooltip for the button
-        try:
-            lang = get_workbench().get_option("ai.language", "uk")
-        except Exception:
-            lang = "uk"
-        
-        if lang == "ru":
-            tooltip_text = "Объяснить вывод Shell"
-        else:  # uk
-            tooltip_text = "Пояснити вивід Shell"
-        
-        create_tooltip(self.explain_button, tooltip_text)
-        
-        # Hide/show button on screenshot events
-        self._explain_button_place_info = None
-        self.explain_button.bind("<<BeforeScreenshot>>", self._hide_explain_button, True)
-        self.explain_button.bind("<<AfterScreenshot>>", self._show_explain_button, True)
-
         self.notice = ttk.Label(self, text="", background="#ffff99", padding=3)
 
         self.init_plotter()
@@ -385,28 +342,6 @@ class ShellView(tk.PanedWindow):
                         parent.select(chat_view)
         except Exception as e:
             logger.exception("Failed to send error to chat", exc_info=e)
-
-    def _hide_explain_button(self, event=None):
-        """Hide explain button for screenshot (event handler)"""
-        self.hide_for_screenshot()
-    
-    def _show_explain_button(self, event=None):
-        """Show explain button after screenshot (event handler)"""
-        self.show_after_screenshot()
-    
-    def hide_for_screenshot(self):
-        """Hide UI elements for screenshot"""
-        if hasattr(self, 'explain_button') and self.explain_button.winfo_ismapped():
-            # Save current placement info
-            self._explain_button_place_info = self.explain_button.place_info()
-            # Move button far off-screen (more reliable than place_forget() on macOS)
-            self.explain_button.place(x=-10000, y=-10000)
-    
-    def show_after_screenshot(self):
-        """Show UI elements after screenshot"""
-        if hasattr(self, '_explain_button_place_info') and self._explain_button_place_info:
-            # Restore placement
-            self.explain_button.place(**self._explain_button_place_info)
 
     def explain_shell_output(self):
         """Explain shell output or error"""
