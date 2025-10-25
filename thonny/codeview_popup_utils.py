@@ -296,6 +296,118 @@ def create_explanation_popup(
     threading.Thread(target=get_explanation, daemon=True).start()
 
 
+def _calculate_diff_ranges(old_text: str, new_text: str) -> list:
+    """
+    Calculate character ranges to highlight based on diff.
+    
+    Returns:
+        List of tuples: [(start_pos, end_pos, tag_name), ...]
+        where tag_name is 'diff_delete' (red background for all changes)
+    """
+    import difflib
+    from thonny.assistance import logger
+    
+    logger.info(f"Diff calculation:")
+    logger.info(f"  Old: {repr(old_text)}")
+    logger.info(f"  New: {repr(new_text)}")
+    
+    ranges = []
+    
+    # Special handling for indent changes (whitespace at the beginning)
+    old_indent = len(old_text) - len(old_text.lstrip(' \t'))
+    new_indent = len(new_text) - len(new_text.lstrip(' \t'))
+    
+    if old_indent != new_indent:
+        # Indent changed - always highlight with red (wrong indent)
+        logger.info(f"  Indent change: {old_indent} → {new_indent}")
+        
+        if old_indent > new_indent:
+            # Removing indent - highlight extra spaces (from new_indent to old_indent)
+            ranges.append((new_indent, old_indent, 'diff_delete'))
+            logger.info(f"  → DELETE range: [{new_indent}:{old_indent}] (red)")
+        else:
+            # Adding indent - highlight 2 chars: last space + first char after indent
+            # Shows "insert spaces between these two"
+            if old_indent > 0 and old_indent < len(old_text):
+                ranges.append((old_indent - 1, old_indent + 1, 'diff_delete'))
+                logger.info(f"  → INSERT indicator: [{old_indent - 1}:{old_indent + 1}] (red - space + char)")
+            else:
+                # Fallback - highlight 2 chars at indent position
+                end_pos = min(old_indent + 2, len(old_text))
+                ranges.append((old_indent, end_pos, 'diff_delete'))
+                logger.info(f"  → INSERT indicator: [{old_indent}:{end_pos}] (red - 2 chars)")
+        
+        return ranges  # For indent-only changes, don't run generic diff
+    
+    # Use SequenceMatcher for character-level diff (uses LCS internally)
+    matcher = difflib.SequenceMatcher(None, old_text, new_text)
+    
+    current_pos = 0
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        old_part = old_text[i1:i2]
+        new_part = new_text[j1:j2]
+        logger.info(f"  Op: {tag}, old[{i1}:{i2}]={repr(old_part)}, new[{j1}:{j2}]={repr(new_part)}")
+        
+        if tag == 'equal':
+            # Unchanged - just advance position
+            current_pos += i2 - i1
+            
+        elif tag == 'delete':
+            # Deleted characters - mark for red highlighting
+            ranges.append((current_pos, current_pos + (i2 - i1), 'diff_delete'))
+            current_pos += i2 - i1
+            
+        elif tag == 'insert':
+            # Inserted characters - highlight 2 chars: one before and one after insertion point
+            # This shows "insert between these two chars"
+            if current_pos > 0 and current_pos < len(old_text):
+                # Highlight previous char + next char
+                ranges.append((current_pos - 1, current_pos + 1, 'diff_delete'))
+            elif current_pos == 0 and len(old_text) >= 2:
+                # Insert at beginning - highlight first 2 chars
+                ranges.append((0, 2, 'diff_delete'))
+            elif current_pos > 0:
+                # Insert at end - highlight last 2 chars
+                ranges.append((max(0, current_pos - 2), current_pos, 'diff_delete'))
+            # Don't advance current_pos (insertion is in new text, not old)
+            
+        elif tag == 'replace':
+            # Replaced characters - mark old as red
+            ranges.append((current_pos, current_pos + (i2 - i1), 'diff_delete'))
+            current_pos += i2 - i1
+    
+    logger.info(f"  Calculated {len(ranges)} ranges: {ranges}")
+    return ranges
+
+
+def _apply_diff_highlighting(text_widget, start_index, end_index, old_text, new_text):
+    """
+    Apply character-level diff highlighting.
+    
+    Uses _calculate_diff_ranges() to compute what to highlight,
+    then applies the tags to the text widget.
+    
+    All changes are highlighted in red (unified style for children).
+    """
+    from thonny.assistance import logger
+    
+    # Configure tag style - only red for all changes
+    text_widget.tag_configure("diff_delete", background="#FFCCCC", foreground="#CC0000")
+    
+    # Calculate which ranges to highlight
+    ranges = _calculate_diff_ranges(old_text, new_text)
+    
+    # Apply highlighting for each range
+    for start_pos, end_pos, tag_name in ranges:
+        pos1 = f"{start_index} + {start_pos}c"
+        pos2 = f"{start_index} + {end_pos}c"
+        text_widget.tag_add(tag_name, pos1, pos2)
+        logger.info(f"  Applied {tag_name}: {pos1} → {pos2}")
+    
+    if not ranges:
+        logger.info("  No changes to highlight")
+
+
 def create_fix_popup(parent, fix: dict, text_widget, editor):
     """
     Create popup for code fix suggestion.
@@ -320,18 +432,14 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     start_line = fix['start_line']
     end_line = fix['end_line']
     
-    # Highlight lines that need fixing with wavy underline effect
+    # Get old code from editor for diff comparison
     start_index = f"{start_line}.0"
     end_index = f"{end_line}.end"
+    old_code = text_widget.get(start_index, end_index)
+    new_code = fix['new']
     
-    # Light red background + wavy underline
-    text_widget.tag_add("fix_highlight", start_index, end_index)
-    text_widget.tag_configure(
-        "fix_highlight", 
-        background="#FFF3F3",  # Very light pink
-        underline=True,
-        underlinefg="#FF6B6B"  # Red wavy line (if supported)
-    )
+    # Apply character-level diff highlighting
+    _apply_diff_highlighting(text_widget, start_index, end_index, old_code, new_code)
     
     # Scroll to this line
     text_widget.see(start_index)
@@ -486,8 +594,9 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 text_widget.direct_insert(start_index, fixed_code)
             else:
                 text_widget.insert(start_index, fixed_code)
-            # Remove red highlight
-            text_widget.tag_remove("fix_highlight", "1.0", "end")
+            # Remove diff highlights
+            text_widget.tag_remove("diff_delete", "1.0", "end")
+            text_widget.tag_remove("diff_insert_marker", "1.0", "end")
             
             # Calculate new end position after insertion
             new_end_index = text_widget.index(f"{start_index} + {len(fixed_code)}c")
@@ -549,7 +658,9 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         """Cancel and close popup."""
         from thonny.assistance import logger
         popup._closing = True  # Mark as closing
-        text_widget.tag_remove("fix_highlight", "1.0", "end")
+        # Remove diff highlights
+        text_widget.tag_remove("diff_delete", "1.0", "end")
+        text_widget.tag_remove("diff_insert_marker", "1.0", "end")
         popup.destroy()
         
         # Return focus to editor with delay
@@ -597,7 +708,9 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     def on_editor_destroy(event=None):
         if popup.winfo_exists():
             try:
-                text_widget.tag_remove("fix_highlight", "1.0", "end")
+                # Remove diff highlights
+                text_widget.tag_remove("diff_delete", "1.0", "end")
+                text_widget.tag_remove("diff_insert_marker", "1.0", "end")
                 popup.destroy()
             except:
                 pass
