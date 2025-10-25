@@ -8,6 +8,12 @@ msgstr ""
 "Language: zh-CN\n"
 
 #: thonny/workbench.py:375
+
+
+msgid "Explain Shell output"
+msgstr ""
+msgid "Apply"
+msgstr ""
 msgid "File"
 msgstr "文件"
 

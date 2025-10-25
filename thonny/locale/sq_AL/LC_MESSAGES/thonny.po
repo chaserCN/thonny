@@ -8,6 +8,12 @@ msgstr ""
 "Language: sq\n"
 
 #: thonny/workbench.py:361
+
+
+msgid "Explain Shell output"
+msgstr ""
+msgid "Apply"
+msgstr ""
 msgid "File"
 msgstr "Kartelë"
 

@@ -8,6 +8,12 @@ msgstr ""
 "Language: en-us\n"
 
 #: thonny/workbench.py:355
+
+
+msgid "Explain Shell output"
+msgstr "Explain Shell output"
+msgid "Apply"
+msgstr "Apply"
 msgid "File"
 msgstr ""
 

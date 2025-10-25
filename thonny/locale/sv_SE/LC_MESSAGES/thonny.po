@@ -8,6 +8,12 @@ msgstr ""
 "Language: sv\n"
 
 #: thonny/workbench.py:355
+
+
+msgid "Explain Shell output"
+msgstr ""
+msgid "Apply"
+msgstr ""
 msgid "File"
 msgstr "Fil"
 
