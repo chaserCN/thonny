@@ -2015,6 +2015,12 @@ msgstr "Видалити"
 msgid "Send error to AI Chat"
 msgstr "Надіслати помилку до AI чату"
 
+msgid "Apply"
+msgstr "Застосувати"
+
+msgid "Explain Shell output"
+msgstr "Пояснити вивід Shell"
+
 msgid "Reset"
 msgstr "Скинути"
 

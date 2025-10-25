@@ -270,13 +270,7 @@ class ChatView(tktextext.TextFrame):
         explain_shell_button_frame.grid(row=1, column=2, sticky="w", padx=(pad_small//2, 0), pady=(pad//3, 0))
         
         # Add tooltip
-        try:
-            lang = get_workbench().get_option("general.language", "uk_UA")
-        except Exception:
-            lang = "uk_UA"
-        is_ukrainian = lang.startswith("uk")
-        tooltip_text = "Пояснити вивід Shell" if is_ukrainian else "Объяснить вывод Shell"
-        ui_utils.create_tooltip(explain_shell_button_frame, tooltip_text)
+        ui_utils.create_tooltip(explain_shell_button_frame, tr("Explain Shell output"))
 
         # Right frame for language, model and clear buttons
         right_buttons_frame = tk.Frame(panel, background=background)

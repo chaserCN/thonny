@@ -591,19 +591,12 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     content_text.bind("<Control-c>", lambda e: content_text.event_generate("<<Copy>>"))
     content_text.bind("<Command-c>", lambda e: content_text.event_generate("<<Copy>>"))
     
-    # Get UI language for buttons (general.language returns "uk_UA" or "ru_RU", etc.)
-    try:
-        ui_lang = get_workbench().get_option("general.language", "uk_UA")
-    except Exception:
-        ui_lang = "uk_UA"
-    
-    is_ui_ukrainian = ui_lang.startswith("uk")
-    
     # Get AI language for content (from fix dict, default to "uk")
     ai_lang = fix.get('ai_lang', 'uk')
     is_content_ukrainian = ai_lang == "uk"
     
     # Build markdown content: CODE FIRST, then explanation
+    # Note: label_text is AI content, not UI, so it uses ai_lang
     if is_append:
         label_text = "Додай цей код:" if is_content_ukrainian else "Добавь этот код:"
     else:
@@ -725,17 +718,17 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     has_code = fix.get('has_code', True)  # Default True for backward compatibility
     
     if has_code:
-        apply_text = "Застосувати" if is_ui_ukrainian else "Применить"
         apply_btn = ttk.Button(
             btn_frame,
-            text=apply_text,
+            text=tr("Apply"),
             command=apply_fix,
             width=12
         )
         apply_btn.pack(side=tk.LEFT, padx=(0, 5))
     
     # Cancel/Close button - always show
-    close_text = "Закрити" if is_ui_ukrainian and not has_code else ("Скасувати" if is_ui_ukrainian else "Отмена")
+    # Use "Close" if no code to apply, "Cancel" if there is code
+    close_text = tr("Close") if not has_code else tr("Cancel")
     cancel_btn = ttk.Button(
         btn_frame,
         text=close_text,

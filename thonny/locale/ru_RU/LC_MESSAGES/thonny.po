@@ -2033,6 +2033,12 @@ msgstr "Удалить"
 msgid "Send error to AI Chat"
 msgstr "Отправить ошибку в AI чат"
 
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Explain Shell output"
+msgstr "Объяснить вывод Shell"
+
 msgid "Reset"
 msgstr "Сбросить"
 
