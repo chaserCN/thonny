@@ -1968,19 +1968,3 @@ def load_plugin():
     # This decouples ChatView from CodeView - chat only generates events,
     # and this handler displays popups
     get_workbench().bind("ShowFixSuggestion", _handle_show_fix_suggestion, True)
-    
-    # TODO: REMOVE THIS - Test fix popup on startup
-    def show_test_popup():
-        editor = get_workbench().get_editor_notebook().get_current_editor()
-        if editor:
-            # Реальний кейс: в редакторі 12 пробілів (занадто багато), треба 8
-            test_fix = {
-                'start_line': 18,
-                'end_line': 18,
-                'new': '        оцінка = int(оцінка_текст)',  # 8 пробілів (правильно)
-                'reason': '**Що не так:**\n\nУ рядку 18 занадто великий відступ (12 пробілів). Має бути 8 пробілів (2 рівні по 4).\n\n**Як виправити:**\n\nПрибрати 4 зайві пробіли - залишити тільки 8.'
-            }
-            get_workbench().event_generate("ShowFixSuggestion", fix=test_fix)
-    
-    # Show test popup 2 seconds after startup
-    get_workbench().after(2000, show_test_popup)
