@@ -64,11 +64,16 @@ class ChatView(tktextext.TextFrame):
             background="white",
             selectbackground=COLOR_SELECT_BG,  # Blue selection background
             selectforeground=COLOR_SELECT_FG,     # White selection text
+            inactiveselectbackground=COLOR_SELECT_BG,  # Blue even during dragging
             suppress_events=True,
         )
         
         # Explicitly set selection colors (in case RstText overrides them)
-        self.text.config(selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+        self.text.config(
+            selectbackground=COLOR_SELECT_BG, 
+            selectforeground=COLOR_SELECT_FG,
+            inactiveselectbackground=COLOR_SELECT_BG
+        )
 
         self._analyzer_instances = []
 

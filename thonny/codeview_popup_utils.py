@@ -253,7 +253,8 @@ def create_explanation_popup(
         foreground="black",
         state="normal",
         selectbackground="#4A90E2",  # Blue selection background
-        selectforeground="white"      # White selection text
+        selectforeground="white",    # White selection text
+        inactiveselectbackground="#4A90E2"  # Blue even during dragging
     )
     
     scrollbar = ttk.Scrollbar(text_frame, command=explanation_text.yview)
@@ -548,7 +549,8 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         borderwidth=0,
         highlightthickness=0,
         selectbackground="#4A90E2",  # Blue selection background
-        selectforeground="white"      # White selection text
+        selectforeground="white",    # White selection text
+        inactiveselectbackground="#4A90E2"  # Blue even during dragging
     )
     
     scrollbar = ttk.Scrollbar(text_frame, command=content_text.yview)
