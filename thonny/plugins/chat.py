@@ -408,6 +408,7 @@ class ChatView(tktextext.TextFrame):
                 content=clean_content,
                 message_tag="bubble_message",
                 bg_color=COLOR_BOT_MESSAGE_BG,  # Very light greige background
+                message_type=MessageType.BOT,
                 image_data=None,
                 is_markdown=True
             )
@@ -1126,6 +1127,7 @@ class ChatView(tktextext.TextFrame):
         content: str, 
         message_tag: str,
         bg_color: str,
+        message_type: MessageType,
         fg_color: str = None,
         image_data: Optional[dict] = None,
         is_markdown: bool = False
@@ -1137,6 +1139,7 @@ class ChatView(tktextext.TextFrame):
             content: Message text content
             message_tag: Tag name (always "bubble_message" for both user and bot)
             bg_color: Background color for this message
+            message_type: Type of message (BOT or USER) for styling
             fg_color: Foreground (text) color for this message (optional, default is black)
             image_data: Optional image attachment
             is_markdown: If True, render content as markdown
@@ -1166,14 +1169,8 @@ class ChatView(tktextext.TextFrame):
         content_start = self.text.index("end-1c")
         
         # Render markdown for both user and bot
-        # Determine message type based on background color
-        if bg_color == COLOR_USER_MESSAGE_BG:
-            msg_type = MessageType.USER
-        else:
-            msg_type = MessageType.BOT
-        
         try:
-            render_markdown(self.text, content, show_copy_button=True, message_type=msg_type)
+            render_markdown(self.text, content, show_copy_button=True, message_type=message_type)
         except Exception as e:
             logger.warning(f"Markdown rendering failed: {e}", exc_info=True)
             self.text.direct_insert("end", content)
@@ -1223,7 +1220,8 @@ class ChatView(tktextext.TextFrame):
             content=display_text if display_text else "",
             message_tag="bubble_message",
             bg_color=COLOR_USER_MESSAGE_BG,
-            fg_color=COLOR_USER_MESSAGE_FG,  # Dark blue text for user
+            message_type=MessageType.USER,
+            fg_color=COLOR_USER_MESSAGE_FG,  # Dark purple text for user
             image_data=image_data,
             is_markdown=False
         )
