@@ -27,7 +27,7 @@ class PyrightProxy(LanguageServerProxy):
                 "analysis": {
                     "diagnosticMode": "openFilesOnly",
                     "diagnosticSeverityOverrides": {},
-                    "logLevel": "Trace",  # "Error", "Warning", "Information", "Trace"
+                    "logLevel": "Information",  # "Error", "Warning", "Information", "Trace"
                 }
             },
         }
