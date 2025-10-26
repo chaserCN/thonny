@@ -5,6 +5,7 @@ asttokens>=2.2.1
 Send2Trash>=1.8.0
 packaging>=23.0
 parso>=0.8.0
+ruff>=0.0.270
 
 # Syntax highlighting for AI chat code blocks
 Pygments>=2.19.0
