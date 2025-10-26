@@ -1,0 +1,78 @@
+========================================
+БЫСТРАЯ СБОРКА UNIVERSAL THONNY
+========================================
+
+🎯 ПЕРВАЯ СБОРКА (с нуля)
+========================================
+
+1. Установи Python 3.12.10 Universal2:
+   https://www.python.org/downloads/release/python-31210/
+   → Скачай "macOS 64-bit universal2 installer" (PKG)
+
+2. Подготовь universal пакеты:
+   cd packaging/mac
+   ./prepare_universal_packages.sh         # По умолчанию 4.1.7
+   # или: ./prepare_universal_packages.sh latest  # Последняя версия
+   # или: ./prepare_universal_packages.sh 4.1.8   # Конкретная версия
+
+3. Создай базовый шаблон:
+   ./prepare_base_bundle.sh
+
+4. Собери релиз:
+   ./create_release.sh
+
+5. Проверь:
+   ./verify_arm_support.sh build/Thonny.app
+
+Результат: dist/thonny-5.0.0b1.dev0.pkg
+
+========================================
+⚡ ПОВТОРНАЯ СБОРКА
+========================================
+
+Если Python и universal пакеты уже готовы:
+
+   cd packaging/mac
+   ./create_release.sh
+
+========================================
+✅ ПРОВЕРКА
+========================================
+
+Быстрая:
+   ./verify_arm_support.sh build/Thonny.app
+
+Детальная:
+   python3 find_single_arch_binaries.py
+
+========================================
+📖 ПОЛНАЯ ДОКУМЕНТАЦИЯ
+========================================
+
+См. файл: BUILD_MAC_UNIVERSAL.md в корне проекта
+
+========================================
+🔧 СТРУКТУРА СКРИПТОВ
+========================================
+
+ОСНОВНЫЕ:
+  prepare_universal_packages.sh  - Извлекает universal пакеты
+  prepare_base_bundle.sh         - Создаёт базовый шаблон
+  create_release.sh              - Собирает релиз
+  verify_arm_support.sh          - Проверяет ARM
+
+АВТОМАТИЧЕСКИЕ:
+  copy_python_framework.sh       - Копирует Python
+  prepare_dist_bundle.sh         - Устанавливает пакеты
+  create_installer_from_build.sh - Создаёт PKG
+
+УТИЛИТЫ:
+  find_single_arch_binaries.py   - Детальная проверка
+
+ОПЦИОНАЛЬНЫЕ:
+  sign_bundle_in_build.sh        - Подпись
+  notarize_all.sh                - Нотаризация
+  staple_all.sh                  - Stapling
+
+========================================
+

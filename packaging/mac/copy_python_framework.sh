@@ -42,95 +42,128 @@ install_name_tool -id @rpath/Python.framework/Versions/$VERSION/Python $NEW_MAIN
 install_name_tool -change $ORIG_MAIN_LIB $MAIN_LIB_LOCAL_NAME $BUNDLE_EXE
 install_name_tool -add_rpath @executable_path/../../../../../../../ $BUNDLE_EXE
 
-# update tkinter links
-chmod 0755 $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtcl8.6.dylib
-install_name_tool -change \
-    /Library/Frameworks/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtcl8.6.dylib
+# update tkinter links (Python 3.12 uses Frameworks instead of lib dylibs, so these may not exist)
+if [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtcl8.6.dylib" ]; then
+    chmod 0755 $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtcl8.6.dylib
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtcl8.6.dylib
+fi
 
-chmod 0755 $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtk8.6.dylib
-install_name_tool -change \
-    /Library/Frameworks/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtk8.6.dylib
+if [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtk8.6.dylib" ]; then
+    chmod 0755 $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtk8.6.dylib
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libtk8.6.dylib
+fi
 
-install_name_tool -change \
-    /Library/Frameworks/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/_tkinter.cpython-312-darwin.so
+# Find the correct _tkinter module (version may vary)
+TKINTER_SO=$(find $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload -name "_tkinter*.so" | head -1)
+if [ -n "$TKINTER_SO" ] && [ -f "$TKINTER_SO" ]; then
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libtcl8.6.dylib \
+        "$TKINTER_SO" 2>/dev/null || true
 
-install_name_tool -change \
-    /Library/Frameworks/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/_tkinter.cpython-312-darwin.so
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libtk8.6.dylib \
+        "$TKINTER_SO" 2>/dev/null || true
+fi
 
-# update libcrypto and libssl links
-install_name_tool -id \
-	@rpath/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib
+# update libcrypto and libssl links (may not exist in Python 3.12)
+if [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib" ]; then
+    install_name_tool -id \
+        @rpath/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib
+fi
 
-install_name_tool -id \
-	@rpath/Python.framework/Versions/3.12/lib/libssl.1.1.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libssl.1.1.dylib
+if [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libssl.1.1.dylib" ]; then
+    install_name_tool -id \
+        @rpath/Python.framework/Versions/3.12/lib/libssl.1.1.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libssl.1.1.dylib
+    
+    if [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib" ]; then
+        install_name_tool -change \
+            /Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
+            @rpath/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
+            $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libssl.1.1.dylib
+    fi
+fi
 
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libssl.1.1.dylib
+SSL_SO=$(find $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload -name "_ssl*.so" | head -1)
+if [ -n "$SSL_SO" ] && [ -f "$SSL_SO" ]; then
+    if [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib" ]; then
+        install_name_tool -change \
+            /Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
+            @rpath/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
+            "$SSL_SO" 2>/dev/null || true
+    fi
+    
+    if [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libssl.1.1.dylib" ]; then
+        install_name_tool -change \
+            /Library/Frameworks/Python.framework/Versions/3.12/lib/libssl.1.1.dylib \
+            @rpath/Python.framework/Versions/3.12/lib/libssl.1.1.dylib \
+            "$SSL_SO" 2>/dev/null || true
+    fi
+fi
 
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libcrypto.1.1.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so
+# update curses links (wrap in checks)
+[ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libncursesw.5.dylib" ] && \
+    install_name_tool -id \
+        @rpath/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libncursesw.5.dylib || true
 
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libssl.1.1.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libssl.1.1.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so
+[ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libformw.5.dylib" ] && \
+    install_name_tool -id \
+        @rpath/Python.framework/Versions/3.12/lib/libformw.5.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libformw.5.dylib && \
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libformw.5.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libformw.5.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libformw.5.dylib || true
 
-# update curses links
-install_name_tool -id \
-	@rpath/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libncursesw.5.dylib
+[ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libmenuw.5.dylib" ] && \
+    install_name_tool -id \
+        @rpath/Python.framework/Versions/3.12/lib/libmenuw.5.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libmenuw.5.dylib && \
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libmenuw.5.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libmenuw.5.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libmenuw.5.dylib || true
 
-install_name_tool -id \
-	@rpath/Python.framework/Versions/3.12/lib/libformw.5.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libformw.5.dylib
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libformw.5.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libformw.5.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libformw.5.dylib
+[ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libpanelw.5.dylib" ] && \
+    install_name_tool -id \
+        @rpath/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libpanelw.5.dylib && \
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
+        $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libpanelw.5.dylib || true
 
-install_name_tool -id \
-	@rpath/Python.framework/Versions/3.12/lib/libmenuw.5.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libmenuw.5.dylib
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libmenuw.5.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libmenuw.5.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libmenuw.5.dylib
+CURSES_SO=$(find $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload -name "_curses.*.so" | head -1)
+[ -n "$CURSES_SO" ] && [ -f "$CURSES_SO" ] && [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libncursesw.5.dylib" ] && \
+    install_name_tool -change \
+        /Library/Frameworks/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
+        @rpath/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
+        "$CURSES_SO" 2>/dev/null || true
 
-install_name_tool -id \
-	@rpath/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
-    $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libpanelw.5.dylib
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libpanelw.5.dylib
-
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/_curses.cpython-312-darwin.so
-
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/_curses_panel.cpython-312-darwin.so
-install_name_tool -change \
-	/Library/Frameworks/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
-	@rpath/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
-	$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload/_curses_panel.cpython-312-darwin.so
+CURSES_PANEL_SO=$(find $LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/python3.12/lib-dynload -name "_curses_panel*.so" | head -1)
+if [ -n "$CURSES_PANEL_SO" ] && [ -f "$CURSES_PANEL_SO" ]; then
+    [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libncursesw.5.dylib" ] && \
+        install_name_tool -change \
+            /Library/Frameworks/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
+            @rpath/Python.framework/Versions/3.12/lib/libncursesw.5.dylib \
+            "$CURSES_PANEL_SO" 2>/dev/null || true
+    
+    [ -f "$LOCAL_FRAMEWORKS/Python.framework/Versions/3.12/lib/libpanelw.5.dylib" ] && \
+        install_name_tool -change \
+            /Library/Frameworks/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
+            @rpath/Python.framework/Versions/3.12/lib/libpanelw.5.dylib \
+            "$CURSES_PANEL_SO" 2>/dev/null || true
+fi
 
 
 # copy the token signifying Thonny-private Python

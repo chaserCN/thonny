@@ -32,7 +32,7 @@ PYTHON_CURRENT=$FRAMEWORKS/Python.framework/Versions/3.12
 
 # install #####################################################
 export MACOSX_DEPLOYMENT_TARGET=10.9
-export SDKROOT=~/MacOSX10.9.sdk
+# export SDKROOT=~/MacOSX10.9.sdk  # Not needed for modern builds
 
 echo "Using $PYTHON_CURRENT/bin/python3.12"
 arch -x86_64 $PYTHON_CURRENT/bin/python3.12 -s -m pip install --no-cache-dir wheel
@@ -51,11 +51,16 @@ rm $PYTHON_CURRENT/bin/thonny # because Thonny is not supposed to run from there
 # make the packages more universal
 # assuming $HOME/thonny_alt_packages/pkgs contains compatible universal2 version of cryptography
 # and arm64 version of cffi
-cp $HOME/thonny_alt_packages/pkgs/cryptography/hazmat/bindings/*.so \
-  $PYTHON_CURRENT/lib/python3.12/site-packages/cryptography/hazmat/bindings
-
-cp $HOME/thonny_alt_packages/pkgs/_cffi_backend.cpython-312-darwin.so \
-  $PYTHON_CURRENT/lib/python3.12/site-packages/_cffi_backend.cpython-312-darwin-arm46.so
+if [ -d "$HOME/thonny_alt_packages/pkgs" ]; then
+    echo "Copying alternative universal packages..."
+    cp $HOME/thonny_alt_packages/pkgs/cryptography/hazmat/bindings/*.so \
+      $PYTHON_CURRENT/lib/python3.12/site-packages/cryptography/hazmat/bindings 2>/dev/null || true
+    
+    cp $HOME/thonny_alt_packages/pkgs/_cffi_backend.cpython-312-darwin.so \
+      $PYTHON_CURRENT/lib/python3.12/site-packages/_cffi_backend.cpython-312-darwin-arm46.so 2>/dev/null || true
+else
+    echo "Warning: $HOME/thonny_alt_packages/pkgs not found, relying on pip-installed packages..."
+fi
 
 
 
