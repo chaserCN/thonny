@@ -55,8 +55,12 @@ COLOR_AVATAR = "#4A90E2"        # Blue for avatars
 COLOR_TYPING_INDICATOR = "#999999"  # Gray for typing animation
 
 
-def highlight_python_syntax_with_pygments(text_widget: tk.Text, start_index: str, end_index: str) -> None:
-    """Apply Python syntax highlighting using Pygments library"""
+def highlight_python_syntax_with_pygments(text_widget: tk.Text, start_index: str, end_index: str, tag_suffix: str = "") -> None:
+    """Apply Python syntax highlighting using Pygments library
+    
+    Args:
+        tag_suffix: Suffix for md_code_block tag (e.g. "_bot", "_user", "_popup")
+    """
     code_text = text_widget.get(start_index, end_index)
     
     # Tokenize code with Pygments
@@ -98,10 +102,10 @@ def highlight_python_syntax_with_pygments(text_widget: tk.Text, start_index: str
     
     # Raise priority of syntax tags above md_code_block
     for tag in ['code_keyword', 'code_string', 'code_comment', 'code_number', 'code_builtin']:
-        text_widget.tag_raise(tag, 'md_code_block')
+        text_widget.tag_raise(tag, f'md_code_block{tag_suffix}')
 
 
-def highlight_python_syntax_simple(text_widget: tk.Text, start_index: str, end_index: str) -> None:
+def highlight_python_syntax_simple(text_widget: tk.Text, start_index: str, end_index: str, tag_suffix: str = "") -> None:
     """Apply Python syntax highlighting using simple regex (fallback when Pygments unavailable)"""
     
     # Python keywords
@@ -152,10 +156,10 @@ def highlight_python_syntax_simple(text_widget: tk.Text, start_index: str, end_i
     
     # Raise priority of syntax tags above md_code_block
     for tag in ['code_keyword', 'code_string', 'code_comment', 'code_number', 'code_builtin']:
-        text_widget.tag_raise(tag, 'md_code_block')
+        text_widget.tag_raise(tag, f'md_code_block{tag_suffix}')
 
 
-def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: str) -> None:
+def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: str, tag_suffix: str = "") -> None:
     """Apply Python syntax highlighting (uses Pygments if available, otherwise simple regex)"""
     global _HIGHLIGHTING_LOGGED
     
@@ -172,9 +176,9 @@ def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: s
         _HIGHLIGHTING_LOGGED = True
     
     if HAS_PYGMENTS:
-        highlight_python_syntax_with_pygments(text_widget, start_index, end_index)
+        highlight_python_syntax_with_pygments(text_widget, start_index, end_index, tag_suffix)
     else:
-        highlight_python_syntax_simple(text_widget, start_index, end_index)
+        highlight_python_syntax_simple(text_widget, start_index, end_index, tag_suffix)
 
 
 def _show_copy_toast(text_widget: tk.Text, text: str, x: int, y: int, duration_ms: int = 700) -> None:
@@ -441,7 +445,7 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                 
                 # Apply Python syntax highlighting to inline code
                 try:
-                    highlight_python_syntax(text_widget, code_start, code_end)
+                    highlight_python_syntax(text_widget, code_start, code_end, tag_suffix)
                 except Exception as e:
                     pass  # Fallback to plain inline code if highlighting fails
                 
@@ -528,7 +532,7 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                 # Apply Python syntax highlighting if language is python or not specified or fix
                 if not lang or lang in ("python", "py", "fix"):
                     try:
-                        highlight_python_syntax(text_widget, start, end)
+                        highlight_python_syntax(text_widget, start, end, tag_suffix)
                         # Raise priority of syntax tags to ensure colors are visible
                         for tag in ['code_keyword', 'code_string', 'code_comment', 'code_number', 'code_builtin']:
                             try:
