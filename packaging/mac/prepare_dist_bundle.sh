@@ -62,20 +62,6 @@ else
     echo "Warning: $HOME/thonny_alt_packages/pkgs not found, relying on pip-installed packages..."
 fi
 
-# Copy universal node binary for Pyright language server
-echo "Preparing Node.js for Pyright..."
-NODE_TARGET="$PYTHON_CURRENT/bin/node"
-
-if [ -f "$HOME/thonny_alt_packages/node" ]; then
-    echo "  Copying node from ~/thonny_alt_packages/node"
-    cp "$HOME/thonny_alt_packages/node" "$NODE_TARGET"
-    chmod +x "$NODE_TARGET"
-else
-    echo "  Node.js not found in ~/thonny_alt_packages/"
-    echo "  Pyright will not work without Node.js"
-    echo "  To add Node.js: run packaging/mac/prepare_node.sh"
-fi
-
 # save some space ###################################################
 rm -rf $FRAMEWORKS/Tcl.framework/Versions/8.6/Tcl_debug
 rm -rf $FRAMEWORKS/Tk.framework/Versions/8.6/Tk_debug

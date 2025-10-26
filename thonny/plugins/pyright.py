@@ -27,7 +27,7 @@ class PyrightProxy(LanguageServerProxy):
                 "analysis": {
                     "diagnosticMode": "openFilesOnly",
                     "diagnosticSeverityOverrides": {},
-                    "logLevel": "Information",  # "Error", "Warning", "Information", "Trace"
+                    "logLevel": "Trace",  # "Error", "Warning", "Information", "Trace"
                 }
             },
         }
@@ -152,5 +152,6 @@ class PyrightProxy(LanguageServerProxy):
         return {"python"}
 
 
-def load_plugin():
-    get_workbench().add_language_server_proxy_class(PyrightProxy)
+# Pyright disabled for school edition - uses too much memory for simple scripts
+# def load_plugin():
+#     get_workbench().add_language_server_proxy_class(PyrightProxy)
