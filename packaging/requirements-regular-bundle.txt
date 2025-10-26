@@ -5,6 +5,7 @@ mypy==1.12.*
 asttokens==2.4.*
 Send2Trash==1.8.*
 packaging==24.*
+parso==0.8.*
 
 # esptool's and paramiko's dependencies (cryptography) are difficult to build on ARM64 Windows. Skipping paramiko for now.
 esptool==4.8.*; platform_machine != 'ARM64' or sys_platform != 'win32'
