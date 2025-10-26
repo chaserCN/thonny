@@ -418,8 +418,11 @@ class ChatView(tktextext.TextFrame):
             # If there are fix suggestions, add them to queue
             if fixes:
                 # Add all fixes to queue
+                logger.info(f"➕ Adding {len(fixes)} fixes to queue. Current queue size before: {len(self._fix_queue)}")
                 self._fix_queue.extend(fixes)
+                logger.info(f"📊 Queue size after extend: {len(self._fix_queue)}")
                 # Start showing fixes from queue after a short delay
+                logger.info(f"⏰ Scheduling _show_next_fix_from_queue in 500ms")
                 self.after(500, self._show_next_fix_from_queue)
             
             self._bot_avatar_added = False
@@ -1329,12 +1332,7 @@ class ChatView(tktextext.TextFrame):
             reason = re.sub(r'\*\*[^*]+:\*\*\s*$', '', reason).strip()
             
             # Validation based on operation
-            if operation == "delete":
-                # Delete doesn't need code, but needs reason
-                if not reason.strip():
-                    logger.warning(f"Delete operation at lines {start_line}-{end_line} has no reason, skipping")
-                    continue
-            elif operation in ["replace", "insert-after"]:
+            if operation in ["replace", "insert-after"]:
                 # Replace and insert need code
                 if not code.strip():
                     logger.warning(f"{operation.title()} operation at lines {start_line}-{end_line} has no code, skipping")
@@ -1344,6 +1342,7 @@ class ChatView(tktextext.TextFrame):
                 if not code.strip():
                     logger.warning(f"Append operation has no code, skipping")
                     continue
+            # Note: delete and all operations don't strictly require reason - LLM might not always provide it
             
             # Get AI language for content
             try:
@@ -1377,6 +1376,10 @@ class ChatView(tktextext.TextFrame):
         # Remove excessive empty lines
         clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
         
+        logger.info(f"📝 _parse_fix_suggestions found {len(fixes)} fix blocks:")
+        for i, fix in enumerate(fixes, 1):
+            logger.info(f"   {i}. operation={fix['operation']}, lines={fix['start_line']}-{fix['end_line']}, use_original={fix['use_original_lines']}")
+        
         return clean_text, fixes
     
     def _show_fix_popup_in_editor(self, fix: dict) -> None:
@@ -1390,21 +1393,23 @@ class ChatView(tktextext.TextFrame):
     
     def _show_next_fix_from_queue(self) -> None:
         """Show next fix suggestion from queue if available and no popup is currently shown."""
+        logger.info(f"🔵 _show_next_fix_from_queue called. Queue size: {len(self._fix_queue)}, showing_popup: {self._showing_fix_popup}")
+        
         # Don't show if already showing a popup
         if self._showing_fix_popup:
+            logger.info(f"⚠️ Already showing popup, skipping")
             return
         
         # Check if there are fixes in queue
         if not self._fix_queue:
+            logger.info(f"✅ Queue is empty, nothing to show")
             return
         
         # Take first fix from queue
         fix = self._fix_queue.pop(0)
+        logger.info(f"🎯 Popped fix from queue: operation={fix.get('operation')}, lines={fix.get('start_line')}-{fix.get('end_line')}, remaining in queue: {len(self._fix_queue)}")
         
-        # Mark that we're showing a popup
-        self._showing_fix_popup = True
-        
-        # Show the popup
+        # Show the popup (will set _showing_fix_popup=True if successful)
         self._show_fix_popup_in_editor(fix)
     
     def on_fix_popup_closed(self, applied_successfully: bool = False, fix_info: dict = None) -> None:
@@ -1415,10 +1420,14 @@ class ChatView(tktextext.TextFrame):
             fix_info: Dict with 'change_point' (line after which change occurred) 
                      and 'delta' (change in number of lines)
         """
+        logger.info(f"🟢 on_fix_popup_closed called. applied={applied_successfully}, fix_info={fix_info}, queue_size={len(self._fix_queue)}")
+        
         self._showing_fix_popup = False
+        logger.info(f"🔓 _showing_fix_popup set to False")
         
         # If fix was applied, adjust line numbers in remaining fixes
         if applied_successfully and fix_info:
+            logger.info(f"🔄 Adjusting line numbers: change_point={fix_info['change_point']}, delta={fix_info['delta']}")
             self._adjust_fix_queue_line_numbers(
                 fix_info['change_point'], 
                 fix_info['delta']
@@ -1426,7 +1435,10 @@ class ChatView(tktextext.TextFrame):
         
         # Show next fix after a short delay (if any)
         if self._fix_queue:
+            logger.info(f"⏭️ Scheduling next fix from queue (size={len(self._fix_queue)}) in 300ms")
             self.after(300, self._show_next_fix_from_queue)
+        else:
+            logger.info(f"✅ No more fixes in queue")
     
     def _adjust_fix_queue_line_numbers(self, change_point: int, delta: int) -> None:
         """Adjust line numbers in fix queue after a fix was applied.
@@ -2114,7 +2126,14 @@ def _handle_show_fix_suggestion(event):
     fix = event.fix
     editor = get_workbench().get_editor_notebook().get_current_editor()
     if not editor:
-        logger.warning("No editor open to show fix popup")
+        logger.warning("⚠️ No editor open to show fix popup, trying next fix")
+        # Notify ChatView to try next fix
+        try:
+            chat_view = get_workbench().get_view("ChatView")
+            if chat_view:
+                chat_view.on_fix_popup_closed(applied_successfully=False)
+        except:
+            pass
         return
     
     text_widget = editor.get_text_widget()
@@ -2136,7 +2155,13 @@ def _handle_show_fix_suggestion(event):
         elif operation == "insert-after":
             # Insert after line N - validate N exists
             if start_line is None or start_line < 1 or start_line > max_line:
-                logger.error(f"Insert-after line {start_line} is invalid, file has {max_line} lines")
+                logger.error(f"⚠️ Insert-after line {start_line} is invalid, file has {max_line} lines, trying next fix")
+                try:
+                    chat_view = get_workbench().get_view("ChatView")
+                    if chat_view:
+                        chat_view.on_fix_popup_closed(applied_successfully=False)
+                except:
+                    pass
                 return
             # Store operation info for popup
             fix['_is_insert'] = True
@@ -2145,17 +2170,35 @@ def _handle_show_fix_suggestion(event):
         elif operation in ["replace", "delete"]:
             # Replace or delete lines N-M - validate range exists
             if start_line is None or end_line is None:
-                logger.error(f"{operation.title()} operation has no line numbers")
+                logger.error(f"⚠️ {operation.title()} operation has no line numbers, trying next fix")
+                try:
+                    chat_view = get_workbench().get_view("ChatView")
+                    if chat_view:
+                        chat_view.on_fix_popup_closed(applied_successfully=False)
+                except:
+                    pass
                 return
             if start_line < 1 or end_line > max_line or end_line < start_line:
-                logger.error(f"Invalid line range {start_line}-{end_line} for {operation}, file has {max_line} lines")
+                logger.error(f"⚠️ Invalid line range {start_line}-{end_line} for {operation}, file has {max_line} lines, trying next fix")
+                try:
+                    chat_view = get_workbench().get_view("ChatView")
+                    if chat_view:
+                        chat_view.on_fix_popup_closed(applied_successfully=False)
+                except:
+                    pass
                 return
             # Store operation info for popup
             if operation == "delete":
                 fix['_is_delete'] = True
         
     except Exception as e:
-        logger.error(f"Failed to validate fix suggestion: {e}")
+        logger.error(f"⚠️ Failed to validate fix suggestion: {e}, trying next fix")
+        try:
+            chat_view = get_workbench().get_view("ChatView")
+            if chat_view:
+                chat_view.on_fix_popup_closed(applied_successfully=False)
+        except:
+            pass
         return
     
     # Close existing popup if any
@@ -2172,6 +2215,25 @@ def _handle_show_fix_suggestion(event):
         text_widget=text_widget,
         editor=editor
     )
+    
+    # If popup was created, mark it in ChatView
+    if _current_fix_popup:
+        try:
+            chat_view = get_workbench().get_view("ChatView")
+            if chat_view:
+                chat_view._showing_fix_popup = True
+                logger.info(f"📌 Popup created, _showing_fix_popup set to True")
+        except:
+            pass
+    else:
+        # Popup not created (some other error), try next fix
+        logger.warning(f"⚠️ Popup not created, trying next fix")
+        try:
+            chat_view = get_workbench().get_view("ChatView")
+            if chat_view:
+                chat_view.on_fix_popup_closed(applied_successfully=False)
+        except:
+            pass
 
 
 def load_plugin():

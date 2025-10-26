@@ -430,11 +430,6 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     from thonny.markdown_utils import render_markdown
     from thonny.assistance import logger
     
-    # Check if reason exists, if not - don't show popup
-    if not fix.get('reason') or not fix['reason'].strip():
-        logger.warning("Fix suggestion has no reason, skipping popup")
-        return None
-    
     # Get operation type and determine indices
     operation = fix.get('operation', 'replace')
     start_line = fix.get('start_line')
@@ -615,27 +610,37 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     
     # Build markdown content based on operation type
     # Note: label_text is AI content, not UI, so it uses ai_lang
+    reason = fix.get('reason', '').strip()
+    
     if is_delete:
         # Delete operation - no code to show, only reason
         if start_line == end_line:
             label_text = "Видалити рядок {}:".format(start_line) if is_content_ukrainian else "Удалить строку {}:".format(start_line)
         else:
             label_text = "Видалити рядки {}-{}:".format(start_line, end_line) if is_content_ukrainian else "Удалить строки {}-{}:".format(start_line, end_line)
-        markdown_content = f"**{label_text}**\n\n{fix['reason']}"
+        markdown_content = f"**{label_text}**"
+        if reason:
+            markdown_content += f"\n\n{reason}"
     elif is_append:
         label_text = "Додати цей код:" if is_content_ukrainian else "Добавить этот код:"
-        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
+        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```"
+        if reason:
+            markdown_content += f"\n\n{reason}"
     elif is_insert:
         insert_after = fix['_insert_after']
         label_text = "Вставити після рядка {}:".format(insert_after) if is_content_ukrainian else "Вставить после строки {}:".format(insert_after)
-        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
+        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```"
+        if reason:
+            markdown_content += f"\n\n{reason}"
     else:
         # Replace operation
         if start_line == end_line:
             label_text = "Замінити рядок {}:".format(start_line) if is_content_ukrainian else "Заменить строку {}:".format(start_line)
         else:
             label_text = "Замінити рядки {}-{}:".format(start_line, end_line) if is_content_ukrainian else "Заменить строки {}-{}:".format(start_line, end_line)
-        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
+        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```"
+        if reason:
+            markdown_content += f"\n\n{reason}"
     
     # Render everything through markdown (message_type=POPUP for white margins)
     from thonny.markdown_utils import MessageType
@@ -755,7 +760,10 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 from thonny import get_workbench
                 chat_view = get_workbench().get_view("ChatView")
                 if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                    logger.info(f"✅ [apply_fix] Calling chat_view.on_fix_popup_closed(applied=True, fix_info={fix_info})")
                     chat_view.on_fix_popup_closed(applied_successfully=True, fix_info=fix_info)
+                else:
+                    logger.warning(f"⚠️ [apply_fix] ChatView not found or doesn't have on_fix_popup_closed")
             except Exception as e:
                 logger.error(f"Failed to notify ChatView: {e}")
             
@@ -785,6 +793,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 from thonny import get_workbench
                 chat_view = get_workbench().get_view("ChatView")
                 if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                    logger.info(f"❌ [cancel_fix] Calling chat_view.on_fix_popup_closed(applied=False)")
                     chat_view.on_fix_popup_closed(applied_successfully=False)
             except:
                 pass
@@ -813,6 +822,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
             from thonny import get_workbench
             chat_view = get_workbench().get_view("ChatView")
             if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                logger.info(f"❌ [close_popup] Calling chat_view.on_fix_popup_closed(applied=False)")
                 chat_view.on_fix_popup_closed(applied_successfully=False)
         except:
             pass
@@ -882,6 +892,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                     from thonny import get_workbench
                     chat_view = get_workbench().get_view("ChatView")
                     if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                        logger.info(f"❌ [on_editor_destroy] Calling chat_view.on_fix_popup_closed(applied=False)")
                         chat_view.on_fix_popup_closed(applied_successfully=False)
                 except:
                     pass

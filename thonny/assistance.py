@@ -184,9 +184,10 @@ Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliqu
             is_interal_error=False,
         )
 
-        yield ChatResponseChunk(
-            self.format_message(context.messages[-1]), is_interal_error=False
-        )
+        if context.messages:
+            yield ChatResponseChunk(
+                self.format_message(context.messages[-1]), is_interal_error=False
+            )
 
     def cancel_completion(self) -> None:
         pass
