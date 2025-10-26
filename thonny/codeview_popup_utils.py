@@ -606,7 +606,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     # Get AI language for content (from fix dict, default to "uk")
     ai_lang = fix.get('ai_lang', 'uk')
     # For Surzhyk, use Ukrainian for labels (it's closer to Ukrainian)
-    is_content_ukrainian = ai_lang in ("uk", "Surzhyk")
+    is_content_ukrainian = ai_lang in ("uk", "sur")
     
     # Build markdown content based on operation type
     # Note: label_text is AI content, not UI, so it uses ai_lang
