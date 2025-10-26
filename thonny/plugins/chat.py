@@ -58,7 +58,7 @@ class ChatView(tktextext.TextFrame):
             horizontal_scrollbar_class=ui_utils.AutoScrollbar,
             read_only=True,
             wrap="word",
-            font="TkDefaultFont",
+            font=("TkDefaultFont", 14),
             # cursor="arrow",
             padx=0,
             pady=0,
@@ -348,7 +348,7 @@ class ChatView(tktextext.TextFrame):
         self.query_text = tk.Text(
             white_container,
             height=7,  # FIXED height - never changes to prevent flickering
-            font="TkDefaultFont",  # Use default font (will be 16 on macOS Retina)
+            font=("TkDefaultFont", 14),  # Fixed 16pt font
             borderwidth=0,
             relief="flat",
             highlightthickness=0,

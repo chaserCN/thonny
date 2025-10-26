@@ -273,7 +273,6 @@ def get_cursor_ls_position(
     col += cursor_column_offset
 
     # TODO: convert char position to UFT-16 items
-    logger.warning("NB! convert to UTF-16 points")
     return lsp_types.Position(line=row - 1, character=col)
 
 

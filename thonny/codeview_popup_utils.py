@@ -224,7 +224,7 @@ def create_explanation_popup(
     explanation_text = tk.Text(
         text_frame,
         wrap=tk.WORD,
-        font="TkDefaultFont",
+        font=("TkDefaultFont", 14),
         background="white",
         foreground="black",
         state="normal",
@@ -372,7 +372,7 @@ def _apply_diff_highlighting(text_widget, start_index, end_index, old_text, new_
     from thonny.assistance import logger
     
     # Configure tag style - only red for all changes
-    text_widget.tag_configure("diff_delete", background="#FFCCCC", foreground="#CC0000")
+    text_widget.tag_configure("diff_delete", background="#ffe0e0", foreground="#CC0000")
     
     # Calculate which ranges to highlight
     ranges = _calculate_diff_ranges(old_text, new_text)
@@ -556,7 +556,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     content_text = tk.Text(
         text_frame,
         wrap=tk.WORD,
-        font="TkDefaultFont",
+        font=("TkDefaultFont", 14),
         background="white",
         foreground="black",
         relief="flat",

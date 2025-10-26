@@ -34,6 +34,9 @@ class DiagnosticTooltip:
         self._debounce_timer = None  # Debounce timer for Gemini requests
         self._current_request_message = None  # Message currently being requested (to avoid duplicates)
         self._current_shown_message = None  # Message currently shown in tooltip
+        self._pending_message = None  # Pending message for tooltip
+        self._pending_event = None  # Pending event for tooltip
+        self._pending_severity = None  # Pending severity for tooltip
         
     def show(self, event, diagnostic: Diagnostic) -> None:
         """Show tooltip with diagnostic message"""
@@ -57,32 +60,34 @@ class DiagnosticTooltip:
             self.text_widget.after_cancel(self._debounce_timer)
             self._debounce_timer = None
         
-        # Increment request ID to invalidate old requests
-        self._request_id += 1
+        # Only increment request ID if message changed (to invalidate old requests)
+        if full_message != self._pending_message:
+            self._request_id += 1
         current_request_id = self._request_id
         
-        # Store event, message and severity for later
+        # IMPORTANT: Store event, message and severity BEFORE any async operations
         self._pending_event = event
         self._pending_message = full_message
         self._pending_severity = diagnostic.severity
         
-        # OPTIMIZATION 2: If in cache, show immediately without debounce
+        # OPTIMIZATION 2: If in cache, show with debounce (user likely just passing by)
         if full_message in self._translation_cache:
-            self._current_shown_message = full_message
-            self._show_translation(self._translation_cache[full_message], current_request_id)
+            def show_cached():
+                self._debounce_timer = None
+                self._current_shown_message = full_message
+                self._show_translation(self._translation_cache[full_message], current_request_id)
+            
+            self._debounce_timer = self.text_widget.after(300, show_cached)
             return
         
+        # NOT in cache: request AI immediately (no debounce) since response will take time anyway
         # OPTIMIZATION 3: If request already in progress for this message, don't start new one
         if self._current_request_message == full_message:
             return
         
-        # Debounce: start translation only after 300ms of no mouse movement
-        def delayed_translation():
-            self._debounce_timer = None
-            self._current_request_message = full_message  # Mark as in progress
-            self._request_translation(full_message, diagnostic.severity, current_request_id)
-        
-        self._debounce_timer = self.text_widget.after(300, delayed_translation)
+        # Start AI translation immediately for uncached messages
+        self._current_request_message = full_message  # Mark as in progress
+        self._request_translation(full_message, diagnostic.severity, current_request_id)
     
     def _request_translation(self, message: str, severity, request_id: int) -> None:
         """Request translation from current AI assistant"""
@@ -184,31 +189,36 @@ class DiagnosticTooltip:
         # Create tooltip window only when translation is ready
         self.tooltip_window = tw = tk.Toplevel(self.text_widget)
         tw.wm_overrideredirect(True)
+        tw.configure(background="#d0d0d0")  # Light gray background for window
         
         # Position near cursor
         event = self._pending_event
         tw.wm_geometry(f"+{event.x_root + 15}+{event.y_root + 15}")
         
-        # Main frame with border
-        main_frame = tk.Frame(tw, background="white", relief=tk.SOLID, borderwidth=2)
+        # Main frame with light gray border
+        main_frame = tk.Frame(tw, background="#d0d0d0")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Inner frame for white background (creates border effect with thicker padding)
+        inner_frame = tk.Frame(main_frame, background="white")
+        inner_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        
         # Text widget for markdown rendering
-        from tkinter import scrolledtext
         text_widget = tk.Text(
-            main_frame,
+            inner_frame,
             wrap=tk.WORD,
-            width=60,
-            height=5,
+            width=40,  # ~300px with 14pt font
+            height=1,  # Start with 1 line, will be updated
             background="white",
             foreground="black",
-            font=("TkDefaultFont", 11),
+            font=("TkDefaultFont", 14),
             padx=10,
             pady=8,
             relief=tk.FLAT,
-            borderwidth=0
+            borderwidth=0,
+            highlightthickness=0  # Remove focus border (black border)
         )
-        text_widget.pack(fill=tk.BOTH, expand=True)
+        text_widget.pack()
         
         # Render markdown
         from thonny.markdown_utils import render_markdown, MessageType
@@ -216,6 +226,18 @@ class DiagnosticTooltip:
         
         # Make text widget read-only
         text_widget.config(state=tk.DISABLED)
+        
+        # Calculate height using Tk's count method (counts display lines with wrapping)
+        text_widget.update_idletasks()
+        try:
+            # Count display lines from start to end (includes wrapped lines)
+            display_lines = int(text_widget.count("1.0", "end", "displaylines") or 1)
+            # Limit to reasonable height (3 to 15 lines)
+            display_height = max(3, min(display_lines, 15))
+            text_widget.config(height=display_height)
+        except:
+            # Fallback to fixed height if count fails
+            text_widget.config(height=10)
         
         # Clear pending
         self._pending_event = None

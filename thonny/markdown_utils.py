@@ -30,19 +30,12 @@ FONT_FAMILY_CODE = "TkFixedFont"
 
 # Font sizes (dynamic, based on TkDefaultFont)
 def _get_font_sizes():
-    """Get font sizes dynamically based on TkDefaultFont"""
-    try:
-        import tkinter.font as tkfont
-        base_size = tkfont.nametofont("TkDefaultFont").cget("size")
-        # For macOS Retina, base_size will be 18, for other systems 13
-        return {
-            'heading': round(base_size * 1.1),
-            'normal': base_size,
-            'code': base_size
-        }
-    except:
-        # Fallback if TkDefaultFont not available yet
-        return {'heading': 11, 'normal': 10, 'code': 10}
+    """Get font sizes - fixed at 14pt"""
+    return {
+        'heading': 16,  # 14 * 1.14
+        'normal': 14,
+        'code': 14
+    }
 
 FONT_SIZE_HEADING = 11  # Will be updated dynamically
 FONT_SIZE_NORMAL = 10   # Will be updated dynamically
