@@ -359,7 +359,14 @@ class ShellView(tk.PanedWindow):
                 lang_code = "uk"
             
             # Convert to full language name for prompts
-            lang = "Ukrainian" if lang_code == "uk" else "Russian"
+            if lang_code == "uk":
+                lang = "Ukrainian"
+            elif lang_code == "ru":
+                lang = "Russian"
+            elif lang_code == "sur":
+                lang = "Surzhyk"
+            else:
+                lang = "Ukrainian"
             
             # Check if there's a Traceback in the output
             from thonny.prompts import get_prompt, PromptType
@@ -368,12 +375,14 @@ class ShellView(tk.PanedWindow):
                 # Use error explanation prompt (full prompt for AI with triple quotes)
                 message = get_prompt(PromptType.USER_EXPLAIN_SHELL_ERROR, lang, shell_output=shell_text)
                 # Display message for user (with shell output but without triple quotes)
-                display_message = ("Допоможи розібратись з помилкою в цьому виводі Shell:\n\n" if lang_code == "uk" else "Помоги разобраться с ошибкой в этом выводе Shell:\n\n") + shell_text
+                # For Surzhyk, use Ukrainian text in display
+                display_message = ("Допоможи розібратись з помилкою в цьому виводі Shell:\n\n" if lang_code in ("uk", "sur") else "Помоги разобраться с ошибкой в этом выводе Shell:\n\n") + shell_text
             else:
                 # Use general output explanation prompt (full prompt for AI with triple quotes)
                 message = get_prompt(PromptType.USER_EXPLAIN_SHELL_OUTPUT, lang, shell_output=shell_text)
                 # Display message for user (with shell output but without triple quotes)
-                display_message = ("Поясни, що означає цей вивід Shell:\n\n" if lang_code == "uk" else "Объясни, что означает этот вывод Shell:\n\n") + shell_text
+                # For Surzhyk, use Ukrainian text in display
+                display_message = ("Поясни, що означає цей вивід Shell:\n\n" if lang_code in ("uk", "sur") else "Объясни, что означает этот вывод Shell:\n\n") + shell_text
             
             # Get the chat view and send message
             chat_view = get_workbench().get_view("ChatView")

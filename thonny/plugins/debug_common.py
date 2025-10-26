@@ -38,7 +38,8 @@ def get_debug_context_from_msg(msg) -> Optional[str]:
         # Show both previous and current line info
         prev_line = frame.lineno - 1 if frame.lineno > 1 else None
         
-        if lang == "uk":
+        # For Surzhyk, use Ukrainian text
+        if lang in ("uk", "sur"):
             if prev_line:
                 context_parts.append(f"**Попередній рядок (щойно виконаний): {prev_line}**")
             context_parts.append(f"**ПОТОЧНИЙ рядок (виконається ЗАРАЗ): {frame.lineno}** ← помічено → нижче")
@@ -71,7 +72,8 @@ def get_debug_context_from_msg(msg) -> Optional[str]:
     # Variables
     if frame.globals or frame.locals:
         lang = get_workbench().get_option("ai.language", "uk")
-        if lang == "uk":
+        # For Surzhyk, use Ukrainian text
+        if lang in ("uk", "sur"):
             context_parts.append(f"\n**Поточні змінні (стан ПЕРЕД виконанням рядка {frame.lineno}):**")
         else: # ru
             context_parts.append(f"\n**Текущие переменные (состояние ПЕРЕД выполнением строки {frame.lineno}):**")
@@ -138,7 +140,8 @@ def get_debug_context_from_msg(msg) -> Optional[str]:
                     var_repr = str(var_info)
                 context_parts.append(f"  {var_name} = {var_repr}")
         else:
-            if lang == "uk":
+            # For Surzhyk, use Ukrainian text
+            if lang in ("uk", "sur"):
                 context_parts.append("  (немає змінних)")
             else: # ru
                 context_parts.append("  (нет переменных)")

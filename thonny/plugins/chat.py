@@ -99,6 +99,8 @@ class ChatView(tktextext.TextFrame):
         self._typing_animation_id = None  # For typing indicator animation
         self._typing_animation_step = 0  # Current animation frame
         self._captured_program_context: Optional[str] = None  # Pre-captured debug context to avoid race conditions
+        self._fix_queue: List[dict] = []  # Queue of fix suggestions to show
+        self._showing_fix_popup = False  # Flag to prevent showing multiple popups at once
 
         main_font = tk.font.nametofont("TkDefaultFont")
 
@@ -284,14 +286,20 @@ class ChatView(tktextext.TextFrame):
                 return "uk"
 
         def _lang_label_from(code: str) -> str:
-            return "УК" if code == "uk" else "РУ"
+            if code == "uk":
+                return "УК"
+            elif code == "ru":
+                return "РУ"
+            elif code == "sur":
+                return "СУР"
+            return "УК"
 
-        # Language dropdown (УК/РУ)
+        # Language dropdown (УК/РУ/СУР)
         self.lang_var = tk.StringVar(value=_lang_label_from(_current_lang()))
         self.lang_combobox = ttk.Combobox(
             right_buttons_frame,
             textvariable=self.lang_var,
-            values=["УК", "РУ"],
+            values=["УК", "РУ", "СУР"],
             state="readonly",
             width=4,
         )
@@ -402,17 +410,17 @@ class ChatView(tktextext.TextFrame):
                 avatar="🤖",
                 content=clean_content,
                 message_tag="bubble_message",
-                bg_color=COLOR_BOT_MESSAGE_BG,  # Very light greige background
                 message_type=MessageType.BOT,
                 image_data=None,
                 is_markdown=True
             )
             
-            # If there are fix suggestions, show popup in editor after a short delay
+            # If there are fix suggestions, add them to queue
             if fixes:
-                # Take only first fix (as instructed in prompt)
-                fix = fixes[0]
-                self.after(500, lambda: self._show_fix_popup_in_editor(fix))
+                # Add all fixes to queue
+                self._fix_queue.extend(fixes)
+                # Start showing fixes from queue after a short delay
+                self.after(500, self._show_next_fix_from_queue)
             
             self._bot_avatar_added = False
         else:
@@ -459,9 +467,9 @@ class ChatView(tktextext.TextFrame):
             self.query_text.focus_set()
 
     def _on_lang_selected(self) -> None:
-        """Handle language selection change (УК/РУ)"""
+        """Handle language selection change (УК/РУ/СУР)"""
         # Map display name to internal value
-        display_to_code = {"УК": "uk", "РУ": "ru"}
+        display_to_code = {"УК": "uk", "РУ": "ru", "СУР": "sur"}
         selected = self.lang_var.get()
         new_lang = display_to_code.get(selected, "uk")
         
@@ -1121,7 +1129,6 @@ class ChatView(tktextext.TextFrame):
         avatar: str, 
         content: str, 
         message_tag: str,
-        bg_color: str,
         message_type: MessageType,
         fg_color: str = None,
         image_data: Optional[dict] = None,
@@ -1133,12 +1140,16 @@ class ChatView(tktextext.TextFrame):
             avatar: Avatar emoji ("👩" for user, "🤖" for bot)
             content: Message text content
             message_tag: Tag name (always "bubble_message" for both user and bot)
-            bg_color: Background color for this message
-            message_type: Type of message (BOT or USER) for styling
+            message_type: Type of message (BOT or USER) for styling - determines bg_color
             fg_color: Foreground (text) color for this message (optional, default is black)
             image_data: Optional image attachment
             is_markdown: If True, render content as markdown
         """
+        # Determine background color from message type
+        if message_type == MessageType.USER:
+            bg_color = COLOR_USER_MESSAGE_BG
+        else:  # MessageType.BOT
+            bg_color = COLOR_BOT_MESSAGE_BG
         # Create a unique color tag for this message
         import time
         color_tag = f"color_{int(time.time() * 1000000)}"
@@ -1192,9 +1203,11 @@ class ChatView(tktextext.TextFrame):
         self.text.tag_lower(color_tag)
         
         # Raise code block tags to highest priority so their background (#E0E0E0) is visible over message background
+        # Use correct tag names based on message type
+        tag_suffix = "_user" if message_type == MessageType.USER else ("_popup" if message_type == MessageType.POPUP else "_bot")
         try:
-            self.text.tag_raise("code_block_internal_padding")
-            self.text.tag_raise("md_code_block")
+            self.text.tag_raise(f"code_block_internal_padding{tag_suffix}")
+            self.text.tag_raise(f"md_code_block{tag_suffix}")
             self.text.tag_raise("code_keyword")
             self.text.tag_raise("code_string")
             self.text.tag_raise("code_comment")
@@ -1214,7 +1227,6 @@ class ChatView(tktextext.TextFrame):
             avatar="👩🏼",
             content=display_text if display_text else "",
             message_tag="bubble_message",
-            bg_color=COLOR_USER_MESSAGE_BG,
             message_type=MessageType.USER,
             fg_color=COLOR_USER_MESSAGE_FG,  # Dark purple text for user
             image_data=image_data,
@@ -1222,7 +1234,15 @@ class ChatView(tktextext.TextFrame):
         )
     
     def _parse_fix_suggestions(self, markdown_text: str) -> tuple:
-        """Extract fix suggestions from markdown with ```fix{lines:N-M} blocks.
+        """Extract fix suggestions from markdown with fix blocks.
+        
+        Supported formats:
+        - fix{replace:N-M:original} - replace lines N to M (original line numbers)
+        - fix{delete:N-M:original} - delete lines N to M
+        - fix{insert-after:N:original} - insert after line N
+        - fix{append} - append to end of file
+        
+        The :original suffix indicates line numbers refer to original code.
         
         Returns:
             tuple: (clean_text, list of fix dicts)
@@ -1231,23 +1251,50 @@ class ChatView(tktextext.TextFrame):
         
         fixes = []
         
-        # Pattern: ```fix{lines:5} or ```fix{lines:5-7}
-        # Groups: (1) lines spec "5" or "5-7", (2) code inside block
-        pattern = r'```fix\{lines:([\d\-]+)\}\s*\n(.*?)```'
+        # Pattern: ```fix{operation:params[:original]}
+        # Groups: (1) operation (replace/delete/insert-after/append), (2) params, (3) code
+        pattern = r'```fix\{(replace|delete|insert-after|append)(?::([^\}]+))?\}\s*\n(.*?)```'
         
         for match in re.finditer(pattern, markdown_text, re.DOTALL):
-            lines_spec = match.group(1)  # "5" or "5-7"
-            code = match.group(2).rstrip()  # Fix code
+            operation = match.group(1)  # "replace", "delete", "insert-after", "append"
+            params_raw = match.group(2)  # "5", "5-7", "5:original", "5-7:original", or None
+            code = match.group(3).rstrip()  # Fix code
             
-            # Parse line numbers
-            if '-' in lines_spec:
-                start_line, end_line = map(int, lines_spec.split('-'))
+            # Check for :original suffix
+            use_original_lines = False
+            params = params_raw
+            if params_raw and params_raw.endswith(':original'):
+                use_original_lines = True
+                params = params_raw[:-9]  # Remove ':original' suffix
+            
+            # Parse based on operation
+            if operation == "append":
+                # Append to end - no line numbers needed
+                start_line = None  # Will be determined later based on file length
+                end_line = None
+            elif operation == "insert-after":
+                # Insert after line N - params is just N
+                if not params:
+                    logger.error(f"Fix operation 'insert-after' requires line number, skipping")
+                    continue
+                start_line = int(params)
+                end_line = start_line
+            elif operation in ["replace", "delete"]:
+                # Replace or delete lines N-M
+                if not params:
+                    logger.error(f"Fix operation '{operation}' requires line range, skipping")
+                    continue
+                if '-' in params:
+                    start_line, end_line = map(int, params.split('-'))
+                else:
+                    start_line = end_line = int(params)
+                
+                # Validate range
+                if end_line < start_line:
+                    logger.error(f"Fix has invalid range {start_line}-{end_line} (end < start), skipping")
+                    continue
             else:
-                start_line = end_line = int(lines_spec)
-            
-            # Validate range
-            if end_line < start_line:
-                logger.error(f"Fix has invalid range {start_line}-{end_line} (end < start), skipping")
+                logger.error(f"Unknown fix operation '{operation}', skipping")
                 continue
             
             # Extract reason from text BEFORE the block (since last code block or start of message)
@@ -1281,10 +1328,22 @@ class ChatView(tktextext.TextFrame):
             # Remove any markdown bold header at the end: **anything:**
             reason = re.sub(r'\*\*[^*]+:\*\*\s*$', '', reason).strip()
             
-            # Skip only if BOTH code and reason are empty
-            if not code.strip() and not reason.strip():
-                logger.warning(f"Fix suggestion at lines {start_line}-{end_line} has no code and no reason, skipping")
-                continue
+            # Validation based on operation
+            if operation == "delete":
+                # Delete doesn't need code, but needs reason
+                if not reason.strip():
+                    logger.warning(f"Delete operation at lines {start_line}-{end_line} has no reason, skipping")
+                    continue
+            elif operation in ["replace", "insert-after"]:
+                # Replace and insert need code
+                if not code.strip():
+                    logger.warning(f"{operation.title()} operation at lines {start_line}-{end_line} has no code, skipping")
+                    continue
+            elif operation == "append":
+                # Append needs code
+                if not code.strip():
+                    logger.warning(f"Append operation has no code, skipping")
+                    continue
             
             # Get AI language for content
             try:
@@ -1293,21 +1352,27 @@ class ChatView(tktextext.TextFrame):
                 ai_lang = "uk"
             
             fixes.append({
+                'operation': operation,
                 'start_line': start_line,
                 'end_line': end_line,
                 'new': code,
                 'reason': reason,
                 'has_code': bool(code.strip()),  # For showing/hiding Apply button
-                'ai_lang': ai_lang  # Language for content ("Правильний код:", etc.)
+                'ai_lang': ai_lang,  # Language for content ("Правильний код:", etc.)
+                'use_original_lines': use_original_lines  # True if :original tag present
             })
         
         # Keep ```fix blocks in text, but remove "**Как исправить:**" / "**Як виправити:**" headers
         # This way the code stays visible in chat, but the redundant header is removed
+        # Exception: remove fix{delete:...} blocks entirely as they have no useful code to show
         clean_text = markdown_text
         
         # Remove "**Как исправить:**" or "**Як виправити:**" lines before fix blocks
         clean_text = re.sub(r'\*\*Как исправить:\*\*\s*\n(?=```fix)', '', clean_text)
         clean_text = re.sub(r'\*\*Як виправити:\*\*\s*\n(?=```fix)', '', clean_text)
+        
+        # Remove fix{delete:...} blocks entirely (they show no useful code, only comments)
+        clean_text = re.sub(r'```fix\{delete:[^\}]+\}\s*\n.*?```\s*', '', clean_text, flags=re.DOTALL)
         
         # Remove excessive empty lines
         clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
@@ -1322,6 +1387,82 @@ class ChatView(tktextext.TextFrame):
         """
         # Generate event with fix data - handler will display the popup
         get_workbench().event_generate("ShowFixSuggestion", fix=fix)
+    
+    def _show_next_fix_from_queue(self) -> None:
+        """Show next fix suggestion from queue if available and no popup is currently shown."""
+        # Don't show if already showing a popup
+        if self._showing_fix_popup:
+            return
+        
+        # Check if there are fixes in queue
+        if not self._fix_queue:
+            return
+        
+        # Take first fix from queue
+        fix = self._fix_queue.pop(0)
+        
+        # Mark that we're showing a popup
+        self._showing_fix_popup = True
+        
+        # Show the popup
+        self._show_fix_popup_in_editor(fix)
+    
+    def on_fix_popup_closed(self, applied_successfully: bool = False, fix_info: dict = None) -> None:
+        """Called when fix popup is closed. 
+        
+        Args:
+            applied_successfully: True if fix was applied (not cancelled)
+            fix_info: Dict with 'change_point' (line after which change occurred) 
+                     and 'delta' (change in number of lines)
+        """
+        self._showing_fix_popup = False
+        
+        # If fix was applied, adjust line numbers in remaining fixes
+        if applied_successfully and fix_info:
+            self._adjust_fix_queue_line_numbers(
+                fix_info['change_point'], 
+                fix_info['delta']
+            )
+        
+        # Show next fix after a short delay (if any)
+        if self._fix_queue:
+            self.after(300, self._show_next_fix_from_queue)
+    
+    def _adjust_fix_queue_line_numbers(self, change_point: int, delta: int) -> None:
+        """Adjust line numbers in fix queue after a fix was applied.
+        
+        Only adjusts fixes that have use_original_lines=True (have :original tag).
+        
+        Args:
+            change_point: Line number after which the change occurred
+            delta: Change in number of lines (positive = added, negative = removed)
+        """
+        if delta == 0:
+            return
+        
+        for fix in self._fix_queue:
+            # Only adjust if fix has :original tag
+            if not fix.get('use_original_lines', False):
+                continue
+            
+            start = fix.get('start_line')
+            end = fix.get('end_line')
+            
+            # Adjust start_line if it's after the change point
+            if start and start > change_point:
+                fix['start_line'] = start + delta
+            
+            # Adjust end_line if it's after the change point
+            if end and end > change_point:
+                fix['end_line'] = end + delta
+            
+            # Adjust _insert_after if present
+            if '_insert_after' in fix and fix['_insert_after'] > change_point:
+                fix['_insert_after'] += delta
+            
+            # Adjust _actual_start if present (for append mode)
+            if '_actual_start' in fix and fix['_actual_start'] > change_point:
+                fix['_actual_start'] += delta
 
     # Removed submit button - use Enter key instead
     # def _on_click_submit(self) -> None:
@@ -1978,27 +2119,43 @@ def _handle_show_fix_suggestion(event):
     
     text_widget = editor.get_text_widget()
     
-    # Validate line numbers
+    # Validate based on operation type
     try:
         max_line = int(text_widget.index('end-1c').split('.')[0])
-        start_line = fix['start_line']
-        end_line = fix['end_line']
+        operation = fix.get('operation', 'replace')  # Default to replace for backward compatibility
+        start_line = fix.get('start_line')
+        end_line = fix.get('end_line')
         
-        # Allow start_line to be max_line+1 for "append to end" suggestions
-        # This happens when AI suggests adding new code at the end of file
-        if start_line < 1 or start_line > max_line + 1 or end_line < start_line:
-            logger.error(f"Invalid line numbers: {start_line}-{end_line}, file has {max_line} lines")
-            return
-        
-        # If suggesting to add at the end (start_line > max_line), adjust to show at last line
-        if start_line > max_line:
-            logger.info(f"Fix suggestion for lines {start_line}-{end_line} is beyond file end ({max_line} lines), treating as append")
-            # Keep original line numbers in fix dict for display, but use last line for positioning
+        if operation == "append":
+            # Append to end - position at last line
             fix['_is_append'] = True
-            fix['_display_start'] = start_line
             fix['_actual_start'] = max_line
+            fix['start_line'] = max_line + 1  # For display purposes
+            fix['end_line'] = max_line + 1
+        
+        elif operation == "insert-after":
+            # Insert after line N - validate N exists
+            if start_line is None or start_line < 1 or start_line > max_line:
+                logger.error(f"Insert-after line {start_line} is invalid, file has {max_line} lines")
+                return
+            # Store operation info for popup
+            fix['_is_insert'] = True
+            fix['_insert_after'] = start_line
+        
+        elif operation in ["replace", "delete"]:
+            # Replace or delete lines N-M - validate range exists
+            if start_line is None or end_line is None:
+                logger.error(f"{operation.title()} operation has no line numbers")
+                return
+            if start_line < 1 or end_line > max_line or end_line < start_line:
+                logger.error(f"Invalid line range {start_line}-{end_line} for {operation}, file has {max_line} lines")
+                return
+            # Store operation info for popup
+            if operation == "delete":
+                fix['_is_delete'] = True
+        
     except Exception as e:
-        logger.error(f"Failed to validate line numbers: {e}")
+        logger.error(f"Failed to validate fix suggestion: {e}")
         return
     
     # Close existing popup if any

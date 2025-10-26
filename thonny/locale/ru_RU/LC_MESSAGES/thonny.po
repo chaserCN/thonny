@@ -2053,3 +2053,6 @@ msgstr "Включить AI-подсказки кода (серым тексто
 
 msgid "Explain Selection..."
 msgstr "Объяснить код..."
+
+msgid "Insert"
+msgstr "Вставить"

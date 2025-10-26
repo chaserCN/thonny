@@ -40,7 +40,13 @@ class BaseAIAssistant(Assistant):
         try:
             lang_code = get_workbench().get_option("ai.language", "uk")
             # Convert short code to full language name for prompts
-            return "Ukrainian" if lang_code == "uk" else "Russian"
+            if lang_code == "uk":
+                return "Ukrainian"
+            elif lang_code == "ru":
+                return "Russian"
+            elif lang_code == "sur":
+                return "Surzhyk"
+            return "Ukrainian"
         except Exception:
             return "Ukrainian"
     

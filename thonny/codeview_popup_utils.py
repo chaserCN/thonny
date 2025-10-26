@@ -435,25 +435,42 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         logger.warning("Fix suggestion has no reason, skipping popup")
         return None
     
-    start_line = fix['start_line']
-    end_line = fix['end_line']
+    # Get operation type and determine indices
+    operation = fix.get('operation', 'replace')
+    start_line = fix.get('start_line')
+    end_line = fix.get('end_line')
     is_append = fix.get('_is_append', False)
+    is_insert = fix.get('_is_insert', False)
+    is_delete = fix.get('_is_delete', False)
     
-    # For append suggestions (adding to end of file), use last line for positioning
     if is_append:
+        # Append to end of file
         actual_line = fix['_actual_start']
         start_index = f"{actual_line}.end"
         end_index = start_index
-        old_code = ""  # No old code - this is an addition
+        old_code = ""
+    elif is_insert:
+        # Insert after line N - position at end of line N
+        insert_after = fix['_insert_after']
+        start_index = f"{insert_after}.end"
+        end_index = start_index
+        old_code = ""
     else:
+        # Replace or delete - work with range of lines
         start_index = f"{start_line}.0"
-        end_index = f"{end_line}.end"
+        if is_delete:
+            # For DELETE: remove entire lines INCLUDING trailing newline to avoid empty line
+            end_index = f"{end_line}.end+1c"
+        else:
+            # For REPLACE: .end does NOT include newline, we keep existing \n after lines
+            # This way new code naturally fits into place without extra newlines
+            end_index = f"{end_line}.end"
         old_code = text_widget.get(start_index, end_index)
     
-    new_code = fix['new']
+    new_code = fix.get('new', '')
     
-    # Apply character-level diff highlighting (skip for append as there's no old code)
-    if not is_append:
+    # Apply diff highlighting (skip for append/insert/delete as there's no old/new comparison)
+    if not is_append and not is_insert and not is_delete and new_code:
         _apply_diff_highlighting(text_widget, start_index, end_index, old_code, new_code)
     
     # Scroll to this line
@@ -593,15 +610,32 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     
     # Get AI language for content (from fix dict, default to "uk")
     ai_lang = fix.get('ai_lang', 'uk')
-    is_content_ukrainian = ai_lang == "uk"
+    # For Surzhyk, use Ukrainian for labels (it's closer to Ukrainian)
+    is_content_ukrainian = ai_lang in ("uk", "Surzhyk")
     
-    # Build markdown content: CODE FIRST, then explanation
+    # Build markdown content based on operation type
     # Note: label_text is AI content, not UI, so it uses ai_lang
-    if is_append:
-        label_text = "Додай цей код:" if is_content_ukrainian else "Добавь этот код:"
+    if is_delete:
+        # Delete operation - no code to show, only reason
+        if start_line == end_line:
+            label_text = "Видалити рядок {}:".format(start_line) if is_content_ukrainian else "Удалить строку {}:".format(start_line)
+        else:
+            label_text = "Видалити рядки {}-{}:".format(start_line, end_line) if is_content_ukrainian else "Удалить строки {}-{}:".format(start_line, end_line)
+        markdown_content = f"**{label_text}**\n\n{fix['reason']}"
+    elif is_append:
+        label_text = "Додати цей код:" if is_content_ukrainian else "Добавить этот код:"
+        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
+    elif is_insert:
+        insert_after = fix['_insert_after']
+        label_text = "Вставити після рядка {}:".format(insert_after) if is_content_ukrainian else "Вставить после строки {}:".format(insert_after)
+        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
     else:
-        label_text = "Правильний код:" if is_content_ukrainian else "Правильный код:"
-    markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
+        # Replace operation
+        if start_line == end_line:
+            label_text = "Замінити рядок {}:".format(start_line) if is_content_ukrainian else "Заменить строку {}:".format(start_line)
+        else:
+            label_text = "Замінити рядки {}-{}:".format(start_line, end_line) if is_content_ukrainian else "Заменить строки {}-{}:".format(start_line, end_line)
+        markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```\n\n{fix['reason']}"
     
     # Render everything through markdown (message_type=POPUP for white margins)
     from thonny.markdown_utils import MessageType
@@ -609,37 +643,63 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
     
     # Define button functions
     def apply_fix():
-        """Apply the fix to editor."""
+        """Apply the fix to editor based on operation type."""
         from thonny.assistance import logger
         popup._closing = True  # Mark as closing
         try:
-            # Use fix code exactly as AI provided it (with correct indentation)
-            fixed_code = fix['new']
-            
-            # For append (adding to end of file), add newline before code
-            if is_append:
-                fixed_code = '\n' + fixed_code
-            
-            # Delete old lines (use direct_delete if available for Thonny's editor)
-            if hasattr(text_widget, 'direct_delete') and not is_append:
-                text_widget.direct_delete(start_index, end_index)
-            elif not is_append:
-                text_widget.delete(start_index, end_index)
-            
-            # Insert new code (use direct_insert if available)
-            if hasattr(text_widget, 'direct_insert'):
-                text_widget.direct_insert(start_index, fixed_code)
+            # Determine what to do based on operation
+            if is_delete:
+                # DELETE operation - only remove lines
+                if hasattr(text_widget, 'direct_delete'):
+                    text_widget.direct_delete(start_index, end_index)
+                else:
+                    text_widget.delete(start_index, end_index)
+                success_start = start_index
+                success_end = start_index  # No code inserted
+                
+            elif is_append:
+                # APPEND operation - add to end with newline
+                fixed_code = '\n' + fix['new']
+                if hasattr(text_widget, 'direct_insert'):
+                    text_widget.direct_insert(start_index, fixed_code)
+                else:
+                    text_widget.insert(start_index, fixed_code)
+                success_start = start_index
+                success_end = text_widget.index(f"{start_index} + {len(fixed_code)}c")
+                
+            elif is_insert:
+                # INSERT-AFTER operation - add newline + code after current line
+                fixed_code = '\n' + fix['new']
+                if hasattr(text_widget, 'direct_insert'):
+                    text_widget.direct_insert(start_index, fixed_code)
+                else:
+                    text_widget.insert(start_index, fixed_code)
+                success_start = start_index
+                success_end = text_widget.index(f"{start_index} + {len(fixed_code)}c")
+                
             else:
-                text_widget.insert(start_index, fixed_code)
+                # REPLACE operation - delete old lines and insert new code
+                fixed_code = fix['new']
+                # Delete old lines
+                if hasattr(text_widget, 'direct_delete'):
+                    text_widget.direct_delete(start_index, end_index)
+                else:
+                    text_widget.delete(start_index, end_index)
+                # Insert new code
+                if hasattr(text_widget, 'direct_insert'):
+                    text_widget.direct_insert(start_index, fixed_code)
+                else:
+                    text_widget.insert(start_index, fixed_code)
+                success_start = start_index
+                success_end = text_widget.index(f"{start_index} + {len(fixed_code)}c")
+            
             # Remove diff highlights
             text_widget.tag_remove("diff_delete", "1.0", "end")
             text_widget.tag_remove("diff_insert_marker", "1.0", "end")
             
-            # Calculate new end position after insertion
-            new_end_index = text_widget.index(f"{start_index} + {len(fixed_code)}c")
-            
-            # Flash green to show success with fade effect
-            text_widget.tag_add("fix_success", start_index, new_end_index)
+            # Flash green to show success with fade effect (if there's something to highlight)
+            if success_end != success_start:
+                text_widget.tag_add("fix_success", success_start, success_end)
             text_widget.tag_configure("fix_success", background="#A5D6A7")  # Medium green
             
             # Fade out green highlight
@@ -658,15 +718,53 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
             
             fade_out()
             
+            # Calculate change_point and delta for fix queue adjustment
+            change_point = None
+            delta = 0
+            
+            if is_delete:
+                # DELETE: removed lines from start_line to end_line
+                change_point = start_line - 1  # Change occurred after line before deletion
+                delta = -(end_line - start_line + 1)  # Negative delta (removed lines)
+            elif is_insert:
+                # INSERT-AFTER: added lines after insert_after line
+                change_point = fix.get('_insert_after', start_line)
+                new_lines_count = fixed_code.count('\n')
+                delta = new_lines_count  # Positive delta (added lines)
+            elif is_append:
+                # APPEND: added to end, doesn't affect existing lines
+                change_point = fix.get('_actual_start', start_line)
+                delta = 0  # No need to adjust existing line numbers
+            else:
+                # REPLACE: replaced lines from start_line to end_line with new code
+                change_point = start_line - 1
+                old_lines_count = end_line - start_line + 1
+                new_lines_count = fixed_code.count('\n') + 1 if fixed_code else 0
+                delta = new_lines_count - old_lines_count
+            
+            fix_info = {
+                'change_point': change_point,
+                'delta': delta
+            }
+            
             # Close popup first, THEN return focus
             popup.destroy()
+            
+            # Notify ChatView that fix was applied (to adjust queue and show next fix)
+            try:
+                from thonny import get_workbench
+                chat_view = get_workbench().get_view("ChatView")
+                if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                    chat_view.on_fix_popup_closed(applied_successfully=True, fix_info=fix_info)
+            except Exception as e:
+                logger.error(f"Failed to notify ChatView: {e}")
             
             # Small delay to ensure popup is fully destroyed before returning focus
             def restore_focus():
                 try:
                     # Force editor widget to accept input again
                     text_widget.focus_force()
-                    text_widget.mark_set("insert", new_end_index)
+                    text_widget.mark_set("insert", success_end)
                     text_widget.see("insert")
                     # Trigger a click event to fully activate the widget
                     text_widget.event_generate("<Button-1>", x=0, y=0)
@@ -681,6 +779,16 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
             logger.error(f"Failed to apply fix: {e}")
             popup._closing = True
             popup.destroy()
+            
+            # Notify ChatView that fix failed (cancelled, don't adjust queue)
+            try:
+                from thonny import get_workbench
+                chat_view = get_workbench().get_view("ChatView")
+                if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                    chat_view.on_fix_popup_closed(applied_successfully=False)
+            except:
+                pass
+            
             # Still try to return focus
             def restore_focus_error():
                 try:
@@ -700,6 +808,15 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         text_widget.tag_remove("diff_insert_marker", "1.0", "end")
         popup.destroy()
         
+        # Notify ChatView that fix was cancelled (don't adjust queue)
+        try:
+            from thonny import get_workbench
+            chat_view = get_workbench().get_view("ChatView")
+            if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                chat_view.on_fix_popup_closed(applied_successfully=False)
+        except:
+            pass
+        
         # Return focus to editor with delay
         def restore_focus():
             try:
@@ -714,24 +831,29 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         text_widget.after(100, restore_focus)
     
     # Simple buttons with ttk (Thonny style)
-    # Show "Apply" button only if fix has code
-    has_code = fix.get('has_code', True)  # Default True for backward compatibility
+    # Determine button text based on operation
+    if is_delete:
+        apply_text = tr("Delete")  # "Видалити" / "Удалить"
+    elif is_insert:
+        apply_text = tr("Insert")  # "Вставити" / "Вставить"
+    elif is_append:
+        apply_text = tr("Add")  # "Додати" / "Добавить"
+    else:
+        apply_text = tr("Apply")  # "Застосувати" / "Применить"
     
-    if has_code:
-        apply_btn = ttk.Button(
-            btn_frame,
-            text=tr("Apply"),
-            command=apply_fix,
-            width=12
-        )
-        apply_btn.pack(side=tk.LEFT, padx=(0, 5))
+    # Show Apply button (for all operations)
+    apply_btn = ttk.Button(
+        btn_frame,
+        text=apply_text,
+        command=apply_fix,
+        width=12
+    )
+    apply_btn.pack(side=tk.LEFT, padx=(0, 5))
     
-    # Cancel/Close button - always show
-    # Use "Close" if no code to apply, "Cancel" if there is code
-    close_text = tr("Close") if not has_code else tr("Cancel")
+    # Cancel button - always show
     cancel_btn = ttk.Button(
         btn_frame,
-        text=close_text,
+        text=tr("Cancel"),
         command=cancel_fix,
         width=12
     )
@@ -754,6 +876,15 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 text_widget.tag_remove("diff_delete", "1.0", "end")
                 text_widget.tag_remove("diff_insert_marker", "1.0", "end")
                 popup.destroy()
+                
+                # Notify ChatView that popup was closed (editor destroyed, treat as cancelled)
+                try:
+                    from thonny import get_workbench
+                    chat_view = get_workbench().get_view("ChatView")
+                    if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
+                        chat_view.on_fix_popup_closed(applied_successfully=False)
+                except:
+                    pass
             except:
                 pass
     

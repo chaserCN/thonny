@@ -396,19 +396,23 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
     # Configure tags (always update to apply new settings)
     # Note: spacing1=0 because spacing is controlled by message tags (user_message/bot_message)
     # Note: inactiveselectbackground NOT supported for tags, only for Text widget itself
-    # Note: margin colors depend on message type
+    # Note: Use unique tag names per message type to avoid color conflicts
     if message_type == MessageType.USER:
         margin_color = COLOR_USER_MESSAGE_BG
+        tag_suffix = "_user"
     elif message_type == MessageType.POPUP:
         margin_color = "white"
+        tag_suffix = "_popup"
     else:  # MessageType.BOT
         margin_color = COLOR_BOT_MESSAGE_BG
+        tag_suffix = "_bot"
     
+    # Configure tags with unique names per message type
     text_widget.tag_configure("md_heading", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_HEADING, "bold"), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("md_normal_text", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
-    text_widget.tag_configure("md_code_block", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=margin_color, rmargincolor=margin_color, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure(f"md_code_block{tag_suffix}", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=margin_color, rmargincolor=margin_color, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("code_block_padding", font=(FONT_FAMILY_DEFAULT, 1), spacing1=6, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Padding before code blocks
-    text_widget.tag_configure("code_block_internal_padding", font=(FONT_FAMILY_DEFAULT, 1), background=COLOR_CODE_BLOCK_BG, spacing1=4, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=margin_color, rmargincolor=margin_color, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Internal padding inside code blocks
+    text_widget.tag_configure(f"code_block_internal_padding{tag_suffix}", font=(FONT_FAMILY_DEFAULT, 1), background=COLOR_CODE_BLOCK_BG, spacing1=4, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=margin_color, rmargincolor=margin_color, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Internal padding inside code blocks
     text_widget.tag_configure("md_inline_code", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("md_bold", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "bold"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("md_italic", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "italic"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
@@ -504,16 +508,16 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                 block_start = text_widget.index("end-1c")
                 
                 # Add internal padding at top
-                insert_method("end", "\n", ("code_block_internal_padding",))
+                insert_method("end", "\n", (f"code_block_internal_padding{tag_suffix}",))
                 
                 code_text = "\n".join(code_lines) + "\n"
                 start = text_widget.index("end-1c")
                 insert_method("end", code_text)
                 end = text_widget.index("end-1c")
-                text_widget.tag_add("md_code_block", start, end)
+                text_widget.tag_add(f"md_code_block{tag_suffix}", start, end)
                 
                 # Add internal padding at bottom
-                insert_method("end", "\n", ("code_block_internal_padding",))
+                insert_method("end", "\n", (f"code_block_internal_padding{tag_suffix}",))
                 
                 # Remember end of the entire block (including internal padding)
                 block_end = text_widget.index("end-1c")
@@ -528,7 +532,7 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                         # Raise priority of syntax tags to ensure colors are visible
                         for tag in ['code_keyword', 'code_string', 'code_comment', 'code_number', 'code_builtin']:
                             try:
-                                text_widget.tag_raise(tag, 'md_code_block')
+                                text_widget.tag_raise(tag, f'md_code_block{tag_suffix}')
                             except:
                                 pass
                     except Exception as e:
@@ -586,16 +590,16 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
                         block_start = text_widget.index("end-1c")
                         
                         # Add internal padding at top
-                        insert_method("end", "\n", ("code_block_internal_padding",))
+                        insert_method("end", "\n", (f"code_block_internal_padding{tag_suffix}",))
                         
                         var_text = "\n".join(var_lines) + "\n"
                         start = text_widget.index("end-1c")
                         insert_method("end", var_text)
                         end = text_widget.index("end-1c")
-                        text_widget.tag_add("md_code_block", start, end)
+                        text_widget.tag_add(f"md_code_block{tag_suffix}", start, end)
                         
                         # Add internal padding at bottom
-                        insert_method("end", "\n", ("code_block_internal_padding",))
+                        insert_method("end", "\n", (f"code_block_internal_padding{tag_suffix}",))
                         
                         # Remember end of the entire block (including internal padding)
                         block_end = text_widget.index("end-1c")

@@ -2035,3 +2035,6 @@ msgstr "Увімкнути AI-підказки коду (сірим тексто
 
 msgid "Explain Selection..."
 msgstr "Пояснити код..."
+
+msgid "Insert"
+msgstr "Вставити"
