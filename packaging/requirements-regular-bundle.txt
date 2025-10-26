@@ -8,6 +8,10 @@ packaging==24.*
 parso==0.8.*
 ruff==0.14.*
 
+# Chat: image handling and screenshots
+Pillow==12.*
+mss==10.*
+
 # esptool's and paramiko's dependencies (cryptography) are difficult to build on ARM64 Windows. Skipping paramiko for now.
 esptool==4.8.*; platform_machine != 'ARM64' or sys_platform != 'win32'
 bcrypt==4.2.*; platform_machine != 'ARM64' or sys_platform != 'win32'

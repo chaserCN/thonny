@@ -7,6 +7,10 @@ packaging>=23.0
 parso>=0.8.0
 ruff>=0.0.270
 
+# Chat: image handling and screenshots
+Pillow>=9.0.0
+mss>=6.1.0
+
 # Syntax highlighting for AI chat code blocks
 Pygments>=2.19.0
 
