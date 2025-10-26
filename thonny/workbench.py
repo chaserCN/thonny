@@ -688,6 +688,21 @@ class Workbench(tk.Tk):
 
         default_font = tk_font.nametofont("TkDefaultFont")
 
+        # Increase UI font size on macOS for better readability (especially on Retina displays with Tk 8.6)
+        if running_on_mac_os():
+            current_size = default_font.cget("size")
+            # Use size 16 for better readability on Retina displays
+            if current_size < 16:
+                default_font.configure(size=16)
+                # Also update other UI fonts
+                for font_name in ["TkMenuFont", "TkCaptionFont", "TkTooltipFont"]:
+                    try:
+                        ui_font = tk_font.nametofont(font_name)
+                        if ui_font.cget("size") < 16:
+                            ui_font.configure(size=16)
+                    except:
+                        pass
+
         if running_on_linux():
             heading_font = tk_font.nametofont("TkHeadingFont")
             heading_font.configure(weight="normal")

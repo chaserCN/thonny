@@ -28,10 +28,25 @@ _HIGHLIGHTING_LOGGED = False
 FONT_FAMILY_DEFAULT = "TkDefaultFont"
 FONT_FAMILY_CODE = "TkFixedFont"
 
-# Font sizes
-FONT_SIZE_HEADING = 11
-FONT_SIZE_NORMAL = 10
-FONT_SIZE_CODE = 10
+# Font sizes (dynamic, based on TkDefaultFont)
+def _get_font_sizes():
+    """Get font sizes dynamically based on TkDefaultFont"""
+    try:
+        import tkinter.font as tkfont
+        base_size = tkfont.nametofont("TkDefaultFont").cget("size")
+        # For macOS Retina, base_size will be 18, for other systems 13
+        return {
+            'heading': round(base_size * 1.1),
+            'normal': base_size,
+            'code': base_size
+        }
+    except:
+        # Fallback if TkDefaultFont not available yet
+        return {'heading': 11, 'normal': 10, 'code': 10}
+
+FONT_SIZE_HEADING = 11  # Will be updated dynamically
+FONT_SIZE_NORMAL = 10   # Will be updated dynamically
+FONT_SIZE_CODE = 10     # Will be updated dynamically
 
 # Colors for chat message backgrounds
 COLOR_BOT_MESSAGE_BG = "#F0F8FF"   # Very light blue for bot messages (lighter)
@@ -207,10 +222,18 @@ def _show_copy_toast(text_widget: tk.Text, text: str, x: int, y: int, duration_m
     toast.overrideredirect(True)
     toast.attributes('-topmost', True)
 
+    # Use smaller font for toast (0.7x of default)
+    import tkinter.font as tkfont
+    try:
+        base_size = tkfont.nametofont("TkDefaultFont").cget("size")
+        toast_size = max(9, round(base_size * 0.7))  # At least 9, but 70% of base
+    except:
+        toast_size = 9
+    
     label = tk.Label(
         toast,
         text=text,
-        font=("TkDefaultFont", 9),
+        font=("TkDefaultFont", toast_size),
         bg="#EEEEEE",
         fg="#555555",
         padx=12,
@@ -394,6 +417,12 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
         message_type: Type of message (BOT, USER, or POPUP) for styling
     """
     
+    # Get dynamic font sizes based on current TkDefaultFont
+    font_sizes = _get_font_sizes()
+    font_size_heading = font_sizes['heading']
+    font_size_normal = font_sizes['normal']
+    font_size_code = font_sizes['code']
+    
     # Determine which insert method to use (direct_insert for TweakableText, insert for regular Text)
     insert_method = getattr(text_widget, 'direct_insert', text_widget.insert)
     
@@ -411,23 +440,23 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
         margin_color = COLOR_BOT_MESSAGE_BG
         tag_suffix = "_bot"
     
-    # Configure tags with unique names per message type
-    text_widget.tag_configure("md_heading", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_HEADING, "bold"), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
-    text_widget.tag_configure("md_normal_text", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
-    text_widget.tag_configure(f"md_code_block{tag_suffix}", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=margin_color, rmargincolor=margin_color, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    # Configure tags with unique names per message type (use dynamic font sizes)
+    text_widget.tag_configure("md_heading", font=(FONT_FAMILY_DEFAULT, font_size_heading, "bold"), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_normal_text", font=(FONT_FAMILY_DEFAULT, font_size_normal), spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure(f"md_code_block{tag_suffix}", font=(FONT_FAMILY_CODE, font_size_code), background=COLOR_CODE_BLOCK_BG, spacing1=0, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=margin_color, rmargincolor=margin_color, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("code_block_padding", font=(FONT_FAMILY_DEFAULT, 1), spacing1=6, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Padding before code blocks
     text_widget.tag_configure(f"code_block_internal_padding{tag_suffix}", font=(FONT_FAMILY_DEFAULT, 1), background=COLOR_CODE_BLOCK_BG, spacing1=4, spacing3=0, lmargin1=10, lmargin2=10, rmargin=10, lmargincolor=margin_color, rmargincolor=margin_color, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Internal padding inside code blocks
-    text_widget.tag_configure("md_inline_code", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
-    text_widget.tag_configure("md_bold", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "bold"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
-    text_widget.tag_configure("md_italic", font=(FONT_FAMILY_DEFAULT, FONT_SIZE_NORMAL, "italic"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_inline_code", font=(FONT_FAMILY_CODE, font_size_code), background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_bold", font=(FONT_FAMILY_DEFAULT, font_size_normal, "bold"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
+    text_widget.tag_configure("md_italic", font=(FONT_FAMILY_DEFAULT, font_size_normal, "italic"), selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     text_widget.tag_configure("md_list_item", lmargin1=20, lmargin2=30, spacing1=0, spacing3=0, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)
     
-    # Syntax highlighting tags for code blocks (vibrant colors for visibility)
-    text_widget.tag_configure("code_keyword", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE, "bold"), foreground=COLOR_KEYWORD, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Blue Bold
-    text_widget.tag_configure("code_string", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), foreground=COLOR_STRING, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Green
-    text_widget.tag_configure("code_comment", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE, "italic"), foreground=COLOR_COMMENT, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Gray Italic
-    text_widget.tag_configure("code_number", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), foreground=COLOR_NUMBER, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Saddle Brown
-    text_widget.tag_configure("code_builtin", font=(FONT_FAMILY_CODE, FONT_SIZE_CODE), foreground=COLOR_BUILTIN, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Purple
+    # Syntax highlighting tags for code blocks (vibrant colors for visibility) - use dynamic font size
+    text_widget.tag_configure("code_keyword", font=(FONT_FAMILY_CODE, font_size_code, "bold"), foreground=COLOR_KEYWORD, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Blue Bold
+    text_widget.tag_configure("code_string", font=(FONT_FAMILY_CODE, font_size_code), foreground=COLOR_STRING, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Green
+    text_widget.tag_configure("code_comment", font=(FONT_FAMILY_CODE, font_size_code, "italic"), foreground=COLOR_COMMENT, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Gray Italic
+    text_widget.tag_configure("code_number", font=(FONT_FAMILY_CODE, font_size_code), foreground=COLOR_NUMBER, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Saddle Brown
+    text_widget.tag_configure("code_builtin", font=(FONT_FAMILY_CODE, font_size_code), foreground=COLOR_BUILTIN, background=COLOR_CODE_BLOCK_BG, selectbackground=COLOR_SELECT_BG, selectforeground=COLOR_SELECT_FG)  # Purple
     
     def insert_formatted_text(text):
         """Insert text with inline formatting (bold, italic, code)"""

@@ -26,8 +26,6 @@ pkgbuild \
 	--install-location /Applications\
 	--identifier "org.thonny.Thonny.component" \
 	--version $VERSION \
-	--sign "$INSTALLER_SIGN_ID" \
-	--keychain ~/Library/Keychains/login.keychain-db \
 	$COMPONENT_PACKAGE
 	
 echo "Creating product archive"
@@ -39,7 +37,4 @@ productbuild \
 	--version $VERSION \
 	--distribution Distribution.plist \
 	--resources resources_build \
-	--sign "$INSTALLER_SIGN_ID" \
-	--keychain ~/Library/Keychains/login.keychain-db \
-	--timestamp \
 	$PRODUCT_ARCHIVE

@@ -348,7 +348,7 @@ class ChatView(tktextext.TextFrame):
         self.query_text = tk.Text(
             white_container,
             height=7,  # FIXED height - never changes to prevent flickering
-            font=("TkDefaultFont", 10),
+            font="TkDefaultFont",  # Use default font (will be 16 on macOS Retina)
             borderwidth=0,
             relief="flat",
             highlightthickness=0,
@@ -1034,7 +1034,7 @@ class ChatView(tktextext.TextFrame):
                 text="❌",
                 background="#f0f0f0",
                 foreground="#666666",
-                font=("TkDefaultFont", 10),
+                font="TkDefaultFont",
                 cursor="hand2",
                 padx=3,
                 pady=0

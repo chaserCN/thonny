@@ -24,6 +24,9 @@ class RstText(TweakableText):
         )
         self.configure_tags()
         self._visitor = None
+        
+        # Update tags when font changes (after a short delay to let Workbench set fonts first)
+        self.after(100, self.configure_tags)
 
     def configure_tags(self):
         main_font = tk.font.nametofont("TkDefaultFont")
@@ -35,10 +38,10 @@ class RstText(TweakableText):
         italic_font.configure(slant="italic", size=main_font.cget("size"))
 
         h1_font = main_font.copy()
-        h1_font.configure(size=main_font.cget("size") * 2, weight="bold")
+        h1_font.configure(size=round(main_font.cget("size") * 1.2), weight="bold")
 
         h2_font = main_font.copy()
-        h2_font.configure(size=round(main_font.cget("size") * 1.5), weight="bold")
+        h2_font.configure(size=round(main_font.cget("size") * 1.1), weight="bold")
 
         h3_font = main_font.copy()
         h3_font.configure(size=main_font.cget("size"), weight="bold")
