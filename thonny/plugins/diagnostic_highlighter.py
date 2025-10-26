@@ -250,6 +250,9 @@ class DiagnosticTooltip:
             self.text_widget.after_cancel(self._debounce_timer)
             self._debounce_timer = None
         
+        # Invalidate any pending AI requests by incrementing request_id
+        self._request_id += 1
+        
         if self.tooltip_window:
             self.tooltip_window.destroy()
             self.tooltip_window = None
