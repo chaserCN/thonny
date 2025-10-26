@@ -9,33 +9,7 @@ import threading
 from thonny import get_workbench
 from thonny.languages import tr
 from thonny.ui_utils import lookup_style_option
-
-
-def get_ai_assistant():
-    """Get configured AI assistant, return None if unavailable"""
-    try:
-        model = get_workbench().get_option("ai.model", "gpt")
-    except:
-        model = "gpt"
-    
-    assistants = get_workbench().assistants
-    if model == "gpt":
-        assistant = assistants.get("openai")
-    elif model == "gemini":
-        assistant = assistants.get("gemini")
-    elif model == "claude":
-        assistant = assistants.get("claude")
-    else:
-        assistant = assistants.get("openai")
-    
-    if not assistant:
-        messagebox.showerror("AI Error", tr("AI assistant unavailable. Check API key settings."))
-        return None
-    
-    if not assistant.get_ready():
-        return None
-    
-    return assistant
+from thonny.plugins.base_assistant import get_ai_assistant
 
 
 def get_localization(context: str) -> dict:

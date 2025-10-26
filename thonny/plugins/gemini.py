@@ -161,6 +161,47 @@ class GeminiAssistant(BaseAIAssistant):
         except Exception as e:
             error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
             yield ChatResponseChunk(error_msg)
+    
+    def explain_diagnostic(self, program_code: str, diagnostic_message: str, severity_type: str) -> str:
+        """Fast diagnostic explanation using gemini-2.5-flash-lite"""
+        import google.generativeai as genai
+        from thonny.prompts import PromptType, get_prompt
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
+        
+        try:
+            # Get language and prompt
+            language = self._get_language()
+            prompt = get_prompt(
+                PromptType.USER_EXPLAIN_DIAGNOSTIC,
+                language=language,
+                code=program_code,
+                diagnostic=diagnostic_message,
+                severity_type=severity_type
+            )
+
+            print(f"Prompt: {prompt}")
+            
+            # Use fast model
+            genai.configure(api_key=self._get_saved_api_key())
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
+            
+            # Fast request
+            response = model.generate_content(
+                prompt,
+                generation_config={
+                    'temperature': 0.2
+                }
+            )
+
+            print(f"Response: {response}")
+            
+            return response.text.strip() if response.text else "⚠️ Немає відповіді від Gemini"
+            
+        except Exception as e:
+            logger.exception("Error in explain_diagnostic")
+            return f"⚠️ Помилка: {str(e)}"
 
 
 def load_plugin():

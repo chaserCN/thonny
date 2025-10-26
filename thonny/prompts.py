@@ -44,6 +44,9 @@ class PromptType(Enum):
     # Shell output explanation
     USER_EXPLAIN_SHELL_ERROR = "user_explain_shell_error"
     USER_EXPLAIN_SHELL_OUTPUT = "user_explain_shell_output"
+    
+    # Diagnostic explanation
+    USER_EXPLAIN_DIAGNOSTIC = "user_explain_diagnostic"
 
 
 # Prompts storage: {PromptType: prompt_text}
@@ -1017,6 +1020,23 @@ Explain what this Shell output means:
 ```
 {shell_output}
 ```
+""",
+    
+    PromptType.USER_EXPLAIN_DIAGNOSTIC: """
+You are a helpful programming assistant.
+Response language: {language}
+
+Call this is a '{severity_type}'. Explain this diagnostic message in maximum 2-3 short sentences.
+
+Program code:
+```python
+{code}
+```
+
+Diagnostic message: {diagnostic}
+
+DO NOT use childish analogies, but be clear, BRIEF and specific. Do NOT mention line numbers. 
+Suggest how to fix it.
 """,
 }
 

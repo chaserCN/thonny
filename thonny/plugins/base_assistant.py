@@ -369,6 +369,21 @@ class BaseAIAssistant(Assistant):
         result = "".join(response_parts) if response_parts else ("Нет ответа от AI" if lang == "ru" else "Немає відповіді від AI")
         
         return result
+    
+    @abstractmethod
+    def explain_diagnostic(self, program_code: str, diagnostic_message: str, severity_type: str) -> str:
+        """
+        Request fast AI explanation for a diagnostic message (using fast model like flash/haiku/mini)
+        
+        Args:
+            program_code: Full program code for context
+            diagnostic_message: The diagnostic/error message to explain
+            severity_type: Type of diagnostic (ERROR, WARNING, INFO, HINT)
+            
+        Returns:
+            AI explanation as string (brief, 2-3 sentences)
+        """
+        pass
 
 def print_request_info(request_type: str, system_prompt: str, messages: List[ChatMessage]):
     print("=" * 80)
@@ -383,3 +398,29 @@ def print_request_info(request_type: str, system_prompt: str, messages: List[Cha
     for msg in messages:
         print(f"[{msg.role.value}]: {msg.content}")
     print("-" * 80)
+
+
+def get_ai_assistant():
+    """Get configured AI assistant, return None if unavailable"""
+    try:
+        model = get_workbench().get_option("ai.model", "gpt")
+    except:
+        model = "gpt"
+    
+    assistants = get_workbench().assistants
+    if model == "gpt":
+        assistant = assistants.get("openai")
+    elif model == "gemini":
+        assistant = assistants.get("gemini")
+    elif model == "claude":
+        assistant = assistants.get("claude")
+    else:
+        assistant = assistants.get("openai")
+    
+    if not assistant:
+        return None
+    
+    if not assistant.get_ready():
+        return None
+    
+    return assistant

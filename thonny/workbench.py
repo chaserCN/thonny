@@ -515,11 +515,10 @@ class Workbench(tk.Tk):
                     processId=os.getpid(),
                     clientInfo=ClientInfo(name="Thonny", version=thonny.get_version()),
                     locale=self.get_option("general.language"),
-                    workspaceFolders=[
-                        WorkspaceFolder(
-                            uri=pathlib.Path(self.get_local_cwd()).as_uri(), name="localws"
-                        ),
-                    ],
+                    # Don't pass rootUri/workspaceFolders to avoid Ruff indexing entire directories
+                    # when opening files outside of projects. Ruff will work with open files only.
+                    rootUri=None,
+                    workspaceFolders=None,
                     trace=TraceValues.Verbose if self.in_debug_mode() else TraceValues.Messages,
                 )
             )

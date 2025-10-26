@@ -374,7 +374,8 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
     
     def _show_token_explanation_popup(self, line_num, line_content, token_info):
         """Show popup with AI explanation of the token/construct"""
-        from thonny.codeview_popup_utils import get_ai_assistant, get_localization, create_explanation_popup
+        from thonny.plugins.base_assistant import get_ai_assistant
+        from thonny.codeview_popup_utils import get_localization, create_explanation_popup
         
         assistant = get_ai_assistant()
         if not assistant:
@@ -401,7 +402,8 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
     
     def _show_selection_explanation_popup(self, selected_code, start_line, end_line):
         """Show popup with AI explanation of selected code fragment"""
-        from thonny.codeview_popup_utils import get_ai_assistant, get_localization, create_explanation_popup
+        from thonny.plugins.base_assistant import get_ai_assistant
+        from thonny.codeview_popup_utils import get_localization, create_explanation_popup
         
         assistant = get_ai_assistant()
         if not assistant:
@@ -891,7 +893,8 @@ class CodeView(tktextext.EnhancedTextFrame):
     
     def _show_line_explanation_popup(self, line_num, line_content, event):
         """Show popup with AI explanation of the code line"""
-        from thonny.codeview_popup_utils import get_ai_assistant, get_localization, create_explanation_popup
+        from thonny.plugins.base_assistant import get_ai_assistant
+        from thonny.codeview_popup_utils import get_localization, create_explanation_popup
         
         assistant = get_ai_assistant()
         if not assistant:

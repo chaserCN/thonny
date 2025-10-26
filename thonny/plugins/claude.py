@@ -158,6 +158,40 @@ class ClaudeAssistant(BaseAIAssistant):
         except Exception as e:
             error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
             yield ChatResponseChunk(error_msg)
+    
+    def explain_diagnostic(self, program_code: str, diagnostic_message: str, severity_type: str) -> str:
+        """Fast diagnostic explanation using claude-haiku-4-5"""
+        import anthropic
+        from anthropic import APIConnectionError, APIError
+        from thonny.prompts import PromptType, get_prompt
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
+        
+        try:
+            # Get language and prompt
+            language = self._get_language()
+            prompt = get_prompt(
+                PromptType.USER_EXPLAIN_DIAGNOSTIC,
+                language=language,
+                code=program_code,
+                diagnostic=diagnostic_message,
+                severity_type=severity_type
+            )
+            
+            # Use fast model
+            client = anthropic.Anthropic(api_key=self._get_saved_api_key())
+            response = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=250,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            
+            return response.content[0].text.strip() if response.content else "⚠️ Немає відповіді від Claude"
+            
+        except Exception as e:
+            logger.exception("Error in explain_diagnostic")
+            return f"⚠️ Помилка: {str(e)}"
 
 
 def load_plugin():

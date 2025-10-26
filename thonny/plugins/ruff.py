@@ -21,5 +21,6 @@ class RuffProxy(LanguageServerProxy):
         return {"python"}
 
 
+# DISABLED: Ruff causes too many issues and provides minimal benefit
 def load_plugin():
     get_workbench().add_language_server_proxy_class(RuffProxy)

@@ -58,6 +58,22 @@ if [ -d "$HOME/thonny_alt_packages/pkgs" ]; then
     
     cp $HOME/thonny_alt_packages/pkgs/_cffi_backend.cpython-312-darwin.so \
       $PYTHON_CURRENT/lib/python3.12/site-packages/_cffi_backend.cpython-312-darwin-arm46.so 2>/dev/null || true
+    
+    # Copy universal2 ruff
+    if [ -f "$HOME/thonny_alt_packages/pkgs/ruff/ruff" ]; then
+        echo "  Copying universal2 ruff..."
+        cp -f "$HOME/thonny_alt_packages/pkgs/ruff/ruff" "$PYTHON_CURRENT/bin/ruff"
+        chmod +x "$PYTHON_CURRENT/bin/ruff"
+        # Copy Python files
+        cp -r "$HOME/thonny_alt_packages/pkgs/ruff"/*.py "$PYTHON_CURRENT/lib/python3.12/site-packages/ruff/" 2>/dev/null || true
+    fi
+    
+    # Copy universal2 Pillow (PIL)
+    if [ -d "$HOME/thonny_alt_packages/pkgs/PIL" ]; then
+        echo "  Copying universal2 Pillow..."
+        rm -rf "$PYTHON_CURRENT/lib/python3.12/site-packages/PIL"
+        cp -r "$HOME/thonny_alt_packages/pkgs/PIL" "$PYTHON_CURRENT/lib/python3.12/site-packages/"
+    fi
 else
     echo "Warning: $HOME/thonny_alt_packages/pkgs not found, relying on pip-installed packages..."
 fi

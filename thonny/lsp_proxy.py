@@ -623,6 +623,16 @@ class LanguageServerProxy(ABC):
         (#DocumentHighlight) or a Thenable that resolves to such."""
         return self._send_request("textDocument/documentHighlight", params, handler)
 
+    def request_text_document_diagnostic(
+        self,
+        params: lsp_types.DocumentDiagnosticParams,
+        handler: Callable[[LspResponse[Union[lsp_types.DocumentDiagnosticReport, None]]], None],
+    ) -> None:
+        """Request pull-based diagnostics for a text document. 
+        The request's parameter is of type DocumentDiagnosticParams
+        the response is of type DocumentDiagnosticReport or a Thenable that resolves to such."""
+        return self._send_request("textDocument/diagnostic", params, handler)
+
     def request_document_symbol(
         self,
         params: lsp_types.DocumentSymbolParams,
@@ -1348,7 +1358,14 @@ def _convert_from_json_value(value: Any, target_type: Type):
                 )
 
         return target_type(**converted_fields)
-    elif issubclass(target_type, Enum):
+    elif get_origin(target_type) is typing.Literal:
+        # Handle Literal types
+        allowed_values = get_args(target_type)
+        if value in allowed_values:
+            return value
+        else:
+            raise TypeError(f"Value {value} not in {allowed_values}")
+    elif isinstance(target_type, type) and issubclass(target_type, Enum):
         return target_type(value)
     else:
         raise RuntimeError(f"Unexpected type {target_type}")

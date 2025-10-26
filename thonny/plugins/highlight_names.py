@@ -84,6 +84,12 @@ class OccurrencesHighlighter:
         if not ls_proxy.is_initialized():
             return
 
+        # Check if language server supports document highlighting
+        if not hasattr(ls_proxy, 'server_capabilities') or ls_proxy.server_capabilities is None:
+            return
+        if not ls_proxy.server_capabilities.documentHighlightProvider:
+            return
+
         ls_proxy.request_document_highlight(
             DocumentHighlightParams(textDocument=TextDocumentIdentifier(uri=uri), position=pos),
             self._handle_response,

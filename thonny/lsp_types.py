@@ -3652,6 +3652,39 @@ class UnchangedDocumentDiagnosticReport:
 
 
 @dataclass
+class RelatedFullDocumentDiagnosticReport:
+    """A full document diagnostic report with optional related documents.
+
+    @since 3.17.0"""
+
+    kind: Literal["full"]
+    """ A full document diagnostic report. """
+    items: List["Diagnostic"]
+    """ The actual items. """
+    resultId: Optional[str] = None
+    """ An optional result id. If provided it will
+    be sent on the next diagnostic request for the
+    same document. """
+    relatedDocuments: Optional[Dict[str, Union["FullDocumentDiagnosticReport", "UnchangedDocumentDiagnosticReport"]]] = None
+    """ Optional related documents. """
+
+
+@dataclass
+class RelatedUnchangedDocumentDiagnosticReport:
+    """An unchanged document diagnostic report with optional related documents.
+
+    @since 3.17.0"""
+
+    kind: Literal["unchanged"]
+    """ An unchanged document diagnostic report. """
+    resultId: str
+    """ A result id which will be sent on the next
+    diagnostic request for the same document. """
+    relatedDocuments: Optional[Dict[str, Union["FullDocumentDiagnosticReport", "UnchangedDocumentDiagnosticReport"]]] = None
+    """ Optional related documents. """
+
+
+@dataclass
 class DiagnosticOptions:
     """Diagnostic options.
 
