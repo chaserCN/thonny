@@ -1037,14 +1037,20 @@ Diagnostic message: {diagnostic}
 
 IMPORTANT: Format your response in {language} EXACTLY like this:
 
-**Problem:** (translate header to {language})
+**[HEADER1]:** 
 [In 1 sentence: what's wrong? Be direct and specific]
 
-**How to fix:** (translate header to {language})
+**How to fix:** (translate to {language})
 [In 1-2 sentences: concrete fix, what to do]
 
+Where [HEADER1] should be:
+- If severity_type is "error": translate "Error" to {language} (e.g., "Помилка" for Ukrainian, "Ошибка" for Russian)
+- If severity_type is "warning": translate "Warning" to {language} (e.g., "Попередження" for Ukrainian, "Предупреждение" for Russian)
+- If severity_type is "info": translate "Info" to {language}
+- If severity_type is "hint": translate "Hint" to {language}
+
 Requirements:
-- Translate section headers ("Problem:", "How to fix:") to {language}
+- Translate all headers to {language}
 - Don't mention line numbers
 - Don't use childish analogies  
 - Be specific and actionable

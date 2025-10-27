@@ -538,21 +538,21 @@ class DiagnosticHighlighter:
     
     def _configure_diagnostic_tags(self, text: tk.Text) -> None:
         """Configure visual style for diagnostic tags"""
-        # Error: red underline (keeps text color)
-        text.tag_configure("diagnostic_error", underline=True, underlinefg="red")
-        text.tag_raise("diagnostic_error")
-        
-        # Warning: orange underline (keeps text color)
-        text.tag_configure("diagnostic_warning", underline=True, underlinefg="orange")
-        text.tag_raise("diagnostic_warning")
+        # Hint: gray underline (keeps text color) - lowest priority
+        text.tag_configure("diagnostic_hint", underline=True, underlinefg="gray")
+        text.tag_raise("diagnostic_hint")
         
         # Info: blue underline (keeps text color)
         text.tag_configure("diagnostic_info", underline=True, underlinefg="blue")
         text.tag_raise("diagnostic_info")
         
-        # Hint: gray underline (keeps text color)
-        text.tag_configure("diagnostic_hint", underline=True, underlinefg="gray")
-        text.tag_raise("diagnostic_hint")
+        # Warning: orange underline (keeps text color)
+        text.tag_configure("diagnostic_warning", underline=True, underlinefg="orange")
+        text.tag_raise("diagnostic_warning")
+        
+        # Error: red underline (keeps text color) - highest priority
+        text.tag_configure("diagnostic_error", underline=True, underlinefg="red")
+        text.tag_raise("diagnostic_error")
     
     def _highlight_diagnostic(self, event, tag: str, background: str) -> None:
         """Add background highlight when mouse enters diagnostic"""
