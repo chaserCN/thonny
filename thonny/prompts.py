@@ -1024,6 +1024,7 @@ Explain what this Shell output means:
     
     PromptType.USER_EXPLAIN_DIAGNOSTIC: """
 Explain this Python {severity_type} in simple {language} for a 12-15 year old girl.
+{surzhyk_note}
 
 Line {line_number}: "{diagnostic}"
 
