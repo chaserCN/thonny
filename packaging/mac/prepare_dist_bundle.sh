@@ -74,6 +74,19 @@ if [ -d "$HOME/thonny_alt_packages/pkgs" ]; then
         rm -rf "$PYTHON_CURRENT/lib/python3.12/site-packages/PIL"
         cp -r "$HOME/thonny_alt_packages/pkgs/PIL" "$PYTHON_CURRENT/lib/python3.12/site-packages/"
     fi
+    
+    # Copy universal2 Node.js (required for Pyright LSP)
+    if [ -f "$HOME/thonny_alt_packages/node" ]; then
+        echo "  Copying universal2 Node.js..."
+        cp -f "$HOME/thonny_alt_packages/node" "$PYTHON_CURRENT/bin/node"
+        chmod +x "$PYTHON_CURRENT/bin/node"
+        # Verify it's universal
+        echo "  Verifying Node.js architecture:"
+        lipo -info "$PYTHON_CURRENT/bin/node" || echo "  Warning: lipo check failed"
+    else
+        echo "  Warning: Universal Node.js not found at $HOME/thonny_alt_packages/node"
+        echo "  Pyright LSP will not work! Run ./prepare_node.sh first."
+    fi
 else
     echo "Warning: $HOME/thonny_alt_packages/pkgs not found, relying on pip-installed packages..."
 fi

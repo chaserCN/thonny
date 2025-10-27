@@ -22,13 +22,16 @@ cd ~/Projects/thonny/packaging/mac
 ./prepare_universal_packages.sh         # По умолчанию 4.1.7
 # или: ./prepare_universal_packages.sh latest  # Последняя версия
 
-# 3. Создай базовый шаблон (один раз для версии Python)
+# 3. Подготовь universal Node.js (для Pyright LSP)
+./prepare_node.sh
+
+# 4. Создай базовый шаблон (один раз для версии Python)
 ./prepare_base_bundle.sh
 
-# 4. Собери релиз
+# 5. Собери релиз
 ./create_release.sh
 
-# 5. Проверь универсальность
+# 6. Проверь универсальность
 ./verify_arm_support.sh build/Thonny.app
 ```
 
@@ -135,7 +138,65 @@ lipo -info ~/thonny_alt_packages/pkgs/cryptography/hazmat/bindings/_openssl.abi3
 
 ---
 
-## 📦 Шаг 3: Создание базового шаблона
+## 📦 Шаг 3: Подготовка universal Node.js
+
+Node.js требуется для работы **Pyright LSP сервера** (code completion, type checking).
+
+### Автоматически (рекомендуется)
+
+```bash
+cd packaging/mac
+./prepare_node.sh
+```
+
+**Что делает:**
+1. Скачивает Node.js v20.11.0 для x86_64 и arm64
+2. Создает universal binary через `lipo -create`
+3. Сохраняет в `~/thonny_alt_packages/node`
+
+**Проверка:**
+```bash
+lipo -info ~/thonny_alt_packages/node
+# Должно быть: Architectures in the fat file: ... are: x86_64 arm64
+```
+
+### Вручную
+
+<details>
+<summary>Если автоматический скрипт не работает</summary>
+
+```bash
+cd ~/thonny_alt_packages
+mkdir node_temp && cd node_temp
+
+# Скачать обе версии
+curl -LO "https://nodejs.org/dist/v20.11.0/node-v20.11.0-darwin-x64.tar.gz"
+curl -LO "https://nodejs.org/dist/v20.11.0/node-v20.11.0-darwin-arm64.tar.gz"
+
+# Извлечь
+tar -xzf node-v20.11.0-darwin-x64.tar.gz
+tar -xzf node-v20.11.0-darwin-arm64.tar.gz
+
+# Создать universal binary
+lipo -create \
+  node-v20.11.0-darwin-x64/bin/node \
+  node-v20.11.0-darwin-arm64/bin/node \
+  -output node-universal
+
+# Скопировать
+cp node-universal ~/thonny_alt_packages/node
+chmod +x ~/thonny_alt_packages/node
+
+# Очистка
+cd ~/thonny_alt_packages
+rm -rf node_temp
+```
+
+</details>
+
+---
+
+## 📦 Шаг 4: Создание базового шаблона
 
 Базовый шаблон создаётся **один раз для версии Python**.
 
@@ -153,7 +214,7 @@ cd packaging/mac
 
 ---
 
-## 📦 Шаг 4: Сборка релиза
+## 📦 Шаг 5: Сборка релиза
 
 ```bash
 cd packaging/mac
@@ -165,7 +226,11 @@ cd packaging/mac
 1. Копирует базовый шаблон в `build/Thonny.app`
 2. Устанавливает Python пакеты через pip (с `arch -x86_64`)
 3. Устанавливает Thonny из исходников
-4. **Заменяет** `cryptography` и `cffi` на universal версии из `~/thonny_alt_packages/pkgs/`
+4. **Заменяет** на universal версии из `~/thonny_alt_packages/`:
+   - `cryptography` и `cffi`
+   - `ruff` (linter binary)
+   - `Pillow` (image library)
+   - **`node`** (для Pyright LSP)
 5. Очищает временные файлы
 6. Создаёт `.pkg` installer в `dist/`
 
@@ -208,10 +273,13 @@ python3 find_single_arch_binaries.py
 # Python интерпретатор
 lipo -info build/Thonny.app/Contents/Frameworks/Python.framework/Versions/3.12/bin/python3.12
 
+# Node.js (для Pyright LSP)
+lipo -info build/Thonny.app/Contents/Frameworks/Python.framework/Versions/3.12/bin/node
+
 # cryptography
 lipo -info build/Thonny.app/Contents/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/cryptography/hazmat/bindings/_openssl.abi3.so
 
-# grpcio
+# grpcio (для AI функций)
 find build/Thonny.app -name "*cygrpc*.so" -exec lipo -info {} \;
 ```
 
@@ -225,6 +293,8 @@ find build/Thonny.app -name "*cygrpc*.so" -exec lipo -info {} \;
 
 ```
 packaging/mac/
+├── prepare_universal_packages.sh    ← Подготавливает universal cryptography, cffi, ruff, Pillow
+├── prepare_node.sh                  ← Подготавливает universal Node.js
 ├── prepare_base_bundle.sh           ← Создаёт базовый шаблон
 ├── copy_python_framework.sh         ← Копирует Python Framework (вызывается из prepare_base_bundle.sh)
 ├── create_release.sh                ← ГЛАВНЫЙ: собирает релиз
@@ -257,8 +327,10 @@ packaging/mac/
 - **Редактор кода и IDE** - Tkinter universal2
 - **Запуск Python программ** - нативный ARM интерпретатор
 - **Отладчик** - встроенный в Python
+- **Pyright LSP** (code completion, type checking) - Node.js universal2
+- **Ruff LSP** (linting, formatting) - ruff universal2
 - **SSH к Raspberry Pi** - cryptography universal2
-- **AI функции** - grpcio universal2
+- **AI функции** (Gemini, ChatGPT, Claude) - grpcio universal2
 - **Установка pip пакетов** - нативный pip
 
 ### ⚡ С Pure Python fallback (работает, чуть медленнее)
@@ -295,6 +367,20 @@ lipo -info /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
 ls -la ~/thonny_alt_packages/pkgs/cryptography/
 
 # Если пусто - повтори Шаг 2
+```
+
+### Node.js не найден или не universal
+
+```bash
+# Проверь наличие Node.js
+ls -la ~/thonny_alt_packages/node
+
+# Проверь что universal
+lipo -info ~/thonny_alt_packages/node
+
+# Если пусто или не universal - повтори Шаг 3
+cd packaging/mac
+./prepare_node.sh
 ```
 
 ### Ошибка при установке пакетов
