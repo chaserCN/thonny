@@ -17,26 +17,30 @@ from thonny.lsp_types import (
     LspResponse,
     DocumentDiagnosticReport,
 )
+from thonny.plugins.tooltip_state_machine import (
+    TooltipStateMachine,
+    TooltipEvent,
+    TooltipAction,
+)
 
 logger = getLogger(__name__)
 
 
 class DiagnosticTooltip:
-    """Tooltip that shows diagnostic message with optional Gemini translation"""
+    """Tooltip that shows diagnostic message with optional AI translation"""
     
-    def __init__(self, text_widget: tk.Text):
+    def __init__(self, text_widget: tk.Text, hover_delay_ms: int = 300):
         self.text_widget = text_widget
         self.tooltip_window = None
-        self.current_diagnostic = None
-        self._translation_cache = {}
-        self._cache_timestamps = {}  # Track when each cache entry was created
-        self._current_request_message = None  # Message currently being requested (to avoid duplicates)
-        self._current_shown_message = None  # Message currently shown in tooltip
-        self._pending_message = None  # Pending message for tooltip
-        self._pending_event = None  # Pending event for tooltip
-        self._pending_severity = None  # Pending severity for tooltip
-        self._current_request_id = None  # Current request ID (hash of message)
-        self._is_showing = False  # Flag: tooltip in process of showing (prevents overlapping shows)
+        self._translation_cache = {}  # message -> translation
+        self._cache_timestamps = {}  # message -> timestamp
+        self._hover_timer = None  # Timer for hover delay
+        self._pending_requests = set()  # Set of message hashes currently being requested
+        
+        # State machine manages tooltip lifecycle
+        self.state_machine = TooltipStateMachine(hover_delay_ms=hover_delay_ms)
+        # Give state machine access to cache
+        self.state_machine.set_cache(self._translation_cache)
         
         # Clear cache when text is modified
         self.text_widget.bind("<<Modified>>", self._on_text_modified, add=True)
@@ -49,73 +53,100 @@ class DiagnosticTooltip:
             current_length = len(self.text_widget.get("1.0", "end"))
             if current_length != self._last_text_length:
                 if self._translation_cache:
-                    logger.info(f"[Tooltip] Text changed, clearing cache ({len(self._translation_cache)} entries)")
                     self._translation_cache.clear()
                     self._cache_timestamps.clear()
+                # Clear pending requests (they are now stale)
+                self._pending_requests.clear()
                 self._last_text_length = current_length
+                
+                # Notify state machine
+                actions = self.state_machine.handle_event(TooltipEvent.TEXT_CHANGED)
+                self._execute_actions(actions)
         except tk.TclError:
             pass  # Widget might be destroyed
         
     def show(self, event, diagnostic: Diagnostic) -> None:
-        """Show tooltip with diagnostic message"""
-        # PROTECTION: Multiple tags can trigger <Enter> event for the same position
-        # Block duplicate calls while tooltip is being shown
-        if self._is_showing:
-            return
-        
-        self._is_showing = True  # Lock: prevents duplicate calls during show process
-        
-        self.current_diagnostic = diagnostic
+        """Show tooltip with diagnostic message (entry point from mouse hover)"""
+        # Build full message with source and line number
         message = diagnostic.message
-        # Include line number in cache key to handle same error on different lines
         line_number = diagnostic.range.start.line + 1 if diagnostic.range else 0
         if diagnostic.source:
             full_message = f"[{diagnostic.source}] L{line_number}: {message}"
         else:
             full_message = f"L{line_number}: {message}"
         
-        # OPTIMIZATION 1: If tooltip already shows this exact message, do nothing
-        if self.tooltip_window and self._current_shown_message == full_message:
-            self._is_showing = False  # Unlock: same message, no action needed
-            return
+        request_id = hash(full_message)
         
-        # Hide old tooltip if showing different message
-        if self.tooltip_window:
-            self.hide()
-            # Re-lock: hide() unlocks, but we're continuing to show new tooltip
-            self._is_showing = True
+        # Send MOUSE_ENTER event to state machine
+        actions = self.state_machine.handle_event(TooltipEvent.MOUSE_ENTER, {
+            'message': full_message,
+            'event': event,
+            'severity': diagnostic.severity,
+            'diagnostic': diagnostic,
+            'request_id': request_id
+        })
         
-        # Use hash of message (with line number) as request ID
-        current_request_id = hash(full_message)
-        self._current_request_id = current_request_id
-        
-        # IMPORTANT: Store event, message and severity BEFORE any async operations
-        self._pending_event = event
-        self._pending_message = full_message
-        self._pending_severity = diagnostic.severity
-        
-        # OPTIMIZATION 2: If in cache, show immediately (no debounce needed)
-        if full_message in self._translation_cache:
-            self._current_shown_message = full_message
-            self._show_translation(self._translation_cache[full_message], current_request_id)
-            return
-        
-        # NOT in cache: request AI immediately (no debounce) since response will take time anyway
-        # OPTIMIZATION 3: If request already in progress for this message, don't start new one
-        if self._current_request_message == full_message:
-            self._is_showing = False  # Unlock: AI request ongoing, will complete async
-            return
-        
-        # Start AI translation immediately for uncached messages
-        self._current_request_message = full_message  # Mark as in progress
-        self._request_translation(full_message, diagnostic.severity, diagnostic, current_request_id)
+        self._execute_actions(actions)
     
-    def _request_translation(self, message: str, severity, diagnostic: Diagnostic, request_id: int) -> None:
+    def hide(self) -> None:
+        """Hide tooltip (entry point from mouse leave)"""
+        actions = self.state_machine.handle_event(TooltipEvent.MOUSE_LEAVE)
+        self._execute_actions(actions)
+    
+    def _execute_actions(self, actions: list[TooltipAction]) -> None:
+        """Execute actions returned by state machine"""
+        for action in actions:
+            if action.name == 'show_tooltip':
+                self._show_tooltip_ui(action.data['translation'], action.data['context'])
+            elif action.name == 'hide_tooltip':
+                self._hide_tooltip_ui()
+            elif action.name == 'start_timer':
+                self._start_hover_timer(action.data['delay_ms'])
+            elif action.name == 'cancel_timer':
+                self._cancel_hover_timer()
+            elif action.name == 'request_translation':
+                self._request_translation(
+                    action.data['message'],
+                    action.data['severity'],
+                    action.data['diagnostic'],
+                    action.data['request_id'],
+                    action.data['cache_generation']
+                )
+    
+    def _start_hover_timer(self, delay_ms: int) -> None:
+        """Start timer for hover delay"""
+        self._cancel_hover_timer()
+        self._hover_timer = self.text_widget.after(delay_ms, self._on_hover_timer_expired)
+    
+    def _cancel_hover_timer(self) -> None:
+        """Cancel hover delay timer"""
+        if self._hover_timer:
+            self.text_widget.after_cancel(self._hover_timer)
+            self._hover_timer = None
+    
+    def _on_hover_timer_expired(self) -> None:
+        """Called when hover delay expires"""
+        actions = self.state_machine.handle_event(TooltipEvent.TIMER_EXPIRED)
+        self._execute_actions(actions)
+    
+    def _request_translation(self, message: str, severity, diagnostic: Diagnostic, request_id: int, cache_generation: int) -> None:
         """Request translation from current AI assistant"""
-        # Check cache first
+        # Check cache first (should already be checked by state machine, but double-check)
         if message in self._translation_cache:
-            self._show_translation(self._translation_cache[message], request_id)
+            actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_READY, {
+                'request_id': request_id,
+                'translation': self._translation_cache[message],
+                'cache_generation': cache_generation
+            })
+            self._execute_actions(actions)
             return
+        
+        # Dedupe: check if already requesting this message
+        if message in self._pending_requests:
+            return  # Already requesting, skip duplicate
+        
+        # Mark as pending
+        self._pending_requests.add(message)
         
         try:
             import time
@@ -125,7 +156,14 @@ class DiagnosticTooltip:
             # Get current AI assistant
             assistant = get_ai_assistant()
             if not assistant:
-                self._show_translation(message, request_id)  # Show original diagnostic if no assistant
+                # No assistant, show original message
+                self._pending_requests.discard(message)  # Remove from pending
+                actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
+                    'request_id': request_id,
+                    'fallback': message,
+                    'cache_generation': cache_generation
+                })
+                self._execute_actions(actions)
                 return
             
             # Get model name for timing log
@@ -165,54 +203,65 @@ class DiagnosticTooltip:
                     self._translation_cache[message] = translation
                     self._cache_timestamps[message] = time.time()
                     
-                    # Update UI in main thread
-                    def show_and_clear():
-                        self._show_translation(translation, request_id)
-                        if self._current_request_message == message:
-                            self._current_request_message = None
-                    self.text_widget.after(0, show_and_clear)
+                    # Notify state machine in main thread
+                    def on_success():
+                        self._pending_requests.discard(message)  # Remove from pending
+                        actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_READY, {
+                            'request_id': request_id,
+                            'translation': translation,
+                            'cache_generation': cache_generation
+                        })
+                        self._execute_actions(actions)
+                    self.text_widget.after(0, on_success)
                     
                 except Exception as e:
                     logger.exception(f"[Tooltip] {model} translation failed for request {request_id}")
                     
-                    # Fallback to original message
-                    def show_error_and_clear():
-                        self._show_translation(f"ℹ️ {clean_diagnostic}", request_id)
-                        if self._current_request_message == message:
-                            self._current_request_message = None
-                    self.text_widget.after(0, show_error_and_clear)
+                    # Notify state machine of error in main thread
+                    def on_error():
+                        self._pending_requests.discard(message)  # Remove from pending
+                        actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
+                            'request_id': request_id,
+                            'fallback': f"ℹ️ {clean_diagnostic}",
+                            'cache_generation': cache_generation
+                        })
+                        self._execute_actions(actions)
+                    self.text_widget.after(0, on_error)
             
             # Run in background thread
             import threading
             threading.Thread(target=do_translation, daemon=True).start()
             
         except ImportError:
-            self._show_translation("⚠️ AI assistant not available", request_id)
+            self._pending_requests.discard(message)  # Remove from pending
+            actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
+                'request_id': request_id,
+                'fallback': "⚠️ AI assistant not available",
+                'cache_generation': cache_generation
+            })
+            self._execute_actions(actions)
         except Exception as e:
             logger.exception("Failed to request translation")
-            self._show_translation(message, request_id)  # Show original diagnostic message on error
+            self._pending_requests.discard(message)  # Remove from pending
+            actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
+                'request_id': request_id,
+                'fallback': message,
+                'cache_generation': cache_generation
+            })
+            self._execute_actions(actions)
     
-    def _show_translation(self, translation: str, request_id: int) -> None:
-        """Show tooltip with translation"""
-        # Check if this request is still current (compare with current request ID)
-        if request_id != self._current_request_id:
-            self._is_showing = False  # Unlock: stale request, user moved to another diagnostic
+    def _show_tooltip_ui(self, translation: str, context) -> None:
+        """Create and show tooltip window with translation"""
+        if not context or not context.event:
             return
         
-        if not hasattr(self, '_pending_event') or not self._pending_event:
-            self._is_showing = False  # Unlock: no event data, cannot show tooltip
-            return
-        
-        # Remember what message is shown
-        self._current_shown_message = self._pending_message
-        
-        # Create tooltip window only when translation is ready
+        # Create tooltip window
         self.tooltip_window = tw = tk.Toplevel(self.text_widget)
         tw.wm_overrideredirect(True)
         tw.configure(background="#d0d0d0")  # Light gray background for window
         
         # Position near cursor
-        event = self._pending_event
+        event = context.event
         tw.wm_geometry(f"+{event.x_root + 15}+{event.y_root + 15}")
         
         # Main frame with light gray border
@@ -266,30 +315,11 @@ class DiagnosticTooltip:
         display_height = max(3, min(content_lines_with_buffer, max_lines))
         text_widget.config(height=display_height)
         
-        # Clear pending
-        self._pending_event = None
-        self._pending_message = None
-        
-        # Unlock: tooltip successfully created and displayed
-        self._is_showing = False
-    
-    def hide(self) -> None:
-        """Hide tooltip"""
-        # Invalidate any pending AI requests by clearing current request ID
-        self._current_request_id = None
-        
-        # Clear pending data
-        self._pending_event = None
-        self._pending_message = None
-        
-        # Unlock: tooltip hidden, ready for new shows
-        self._is_showing = False
-        
+    def _hide_tooltip_ui(self) -> None:
+        """Destroy tooltip window"""
         if self.tooltip_window:
             self.tooltip_window.destroy()
             self.tooltip_window = None
-            self.current_diagnostic = None
-            self._current_shown_message = None  # Clear shown message tracking
 
 
 @dataclass
@@ -302,8 +332,8 @@ class DiagnosticHighlighter:
     def __init__(self):
         self._diagnostics_per_uri: Dict[str, List[DiagnosticInfo]] = {}
         self._tooltips_per_editor: Dict[str, DiagnosticTooltip] = {}
-        self._tooltip_debounce_timer = None  # Debounce timer to prevent tooltips right after autocomplete
-        self._tooltip_enabled = True  # Flag to temporarily disable tooltips
+        self._text_change_timers: Dict[str, any] = {}  # uri -> timer_id for debounce
+        self._last_rendered_diagnostics: Dict[str, List[DiagnosticInfo]] = {}  # uri -> last rendered diagnostics
         
         # Connect to existing language servers
         for ls_proxy in get_workbench().get_initialized_ls_proxies():
@@ -316,9 +346,6 @@ class DiagnosticHighlighter:
         # Update highlights when editor switches
         get_workbench().bind("<<NotebookTabChanged>>", self._on_editor_changed, True)
         get_workbench().bind("EditorTextCreated", self._on_editor_created, True)
-        
-        # Temporarily disable tooltips when autocomplete is used
-        get_workbench().bind("AutocompletionInserted", self._on_autocomplete_inserted, True)
     
     def _request_diagnostics_for_uri(self, uri: str, ls_proxy: LanguageServerProxy) -> None:
         """Request pull-based diagnostics for a specific URI"""
@@ -381,27 +408,24 @@ class DiagnosticHighlighter:
         self._ls_proxies.append(ls_proxy)
         
         # For LSP 3.17 servers (like Ruff) that use pull-based diagnostics,
-        # request diagnostics for all open Python files immediately and retry
-        # if workspace is not ready yet (Ruff might take time to index large directories)
-        def request_diagnostics_for_open_files(retry_count=0, max_retries=5):
+        # request diagnostics for all open Python files immediately and retry 2 times
+        # (in case workspace is still indexing)
+        def request_diagnostics_for_open_files(retry_count=0, max_retries=2):
             try:
                 notebook = get_workbench().get_editor_notebook()
-                requested_any = False
                 for editor in notebook.get_all_editors():
                     uri = editor.get_uri()
                     if uri and editor.get_language_id() in ls_proxy.get_supported_language_ids():
                         self._request_diagnostics_for_uri(uri, ls_proxy)
-                        requested_any = True
                 
-                # If we requested diagnostics but this is not the last retry,
-                # schedule another request in case workspace wasn't ready
-                if requested_any and retry_count < max_retries:
-                    delay = 2000 if retry_count == 0 else 5000  # 2s first retry, then 5s
+                # Retry only 2 times (total 3 requests) to handle slow workspace indexing
+                if retry_count < max_retries:
+                    delay = 1000  # 1s between retries
                     get_workbench().after(delay, lambda: request_diagnostics_for_open_files(retry_count + 1, max_retries))
             except Exception as e:
                 logger.exception("Failed to request diagnostics for open files")
         
-        # Request diagnostics immediately (no delay) and retry a few times
+        # Request diagnostics immediately and retry 2 times
         get_workbench().after(100, request_diagnostics_for_open_files)
     
     def _disconnect_from_language_server(self, ls_proxy: LanguageServerProxy) -> None:
@@ -436,11 +460,66 @@ class DiagnosticHighlighter:
         # Update editor highlights
         self._update_editor_highlights(uri)
     
+    def _diagnostics_changed(self, uri: str, new_diagnostics: List[DiagnosticInfo]) -> bool:
+        """Check if diagnostics changed compared to last render"""
+        if uri not in self._last_rendered_diagnostics:
+            return True  # First time rendering
+        
+        old_diagnostics = self._last_rendered_diagnostics[uri]
+        
+        # Quick check: different count
+        if len(old_diagnostics) != len(new_diagnostics):
+            return True
+        
+        # Create sets of diagnostic keys for comparison (order-independent)
+        def diagnostic_key(diag_info):
+            d = diag_info.diagnostic
+            return (
+                d.message,
+                d.severity,
+                d.source,
+                d.range.start.line,
+                d.range.start.character,
+                d.range.end.line,
+                d.range.end.character
+            )
+        
+        old_keys = set(diagnostic_key(d) for d in old_diagnostics)
+        new_keys = set(diagnostic_key(d) for d in new_diagnostics)
+        
+        return old_keys != new_keys  # True if different
+    
     def _update_editor_highlights(self, uri: str) -> None:
         """Update diagnostic highlights in the editor for given URI"""
         editor = self._find_editor_by_uri(uri)
         if not editor:
             return
+        
+        # Get current diagnostics
+        diagnostics = self._diagnostics_per_uri.get(uri, [])
+        
+        # Check if diagnostics actually changed
+        if not self._diagnostics_changed(uri, diagnostics):
+            logger.info(f"[DiagHighlight] {uri.split('/')[-1]}: No changes, skipping re-render")
+            return  # No changes, skip re-rendering
+        
+        # Log diagnostics being rendered
+        logger.info(f"[DiagHighlight] {uri.split('/')[-1]}: Rendering {len(diagnostics)} diagnostics:")
+        for diag_info in diagnostics:
+            d = diag_info.diagnostic
+            severity_name = {
+                DiagnosticSeverity.Error: "ERROR",
+                DiagnosticSeverity.Warning: "WARN",
+                DiagnosticSeverity.Information: "INFO",
+                DiagnosticSeverity.Hint: "HINT"
+            }.get(d.severity or DiagnosticSeverity.Error, "UNKNOWN")
+            source = d.source or "unknown"
+            line = d.range.start.line + 1 if d.range else 0
+            msg = d.message[:80] + "..." if len(d.message) > 80 else d.message
+            logger.info(f"  [{source}] {severity_name} L{line}: {msg}")
+        
+        # Store for next comparison
+        self._last_rendered_diagnostics[uri] = diagnostics.copy()
         
         # Clear old translation cache entries (older than 3 minutes)
         if uri in self._tooltips_per_editor:
@@ -520,11 +599,51 @@ class DiagnosticHighlighter:
                     default_bg = "#f5f5f5"  # Subtle gray
                 
                 # Bind events to unique tag so each diagnostic has its own handler
-                # Use <Enter> instead of <Motion> to avoid hundreds of calls when mouse moves
-                text.tag_bind(unique_tag, "<Enter>", lambda e, t=unique_tag, bg=hover_bg, d=diagnostic, ed=editor: (self._highlight_diagnostic(e, t, bg), self._show_tooltip(e, d, ed)))
+                # Use simple show() instead of _show_tooltip to respect the specific diagnostic from this tag
+                text.tag_bind(unique_tag, "<Enter>", lambda e, t=unique_tag, bg=hover_bg, d=diagnostic, ed=editor: (self._highlight_diagnostic(e, t, bg), self._get_tooltip_for_editor(ed).show(e, d)))
+                text.tag_bind(unique_tag, "<Motion>", lambda e, d=diagnostic, ed=editor: self._on_tooltip_motion(e, d, ed))
                 text.tag_bind(unique_tag, "<Leave>", lambda e, t=unique_tag, def_bg=default_bg, ed=editor: self._unhighlight_diagnostic(e, t, def_bg, ed))
             except tk.TclError as e:
                 logger.warning(f"Could not add diagnostic tag: {e}")
+        
+        # After adding all tags, raise them in priority order (least to most important)
+        # This ensures that more important diagnostics are "on top" and receive events first
+        # We raise tags from lowest to highest priority, so the last raised will be on top
+        # Priority order (raise from lowest to highest):
+        # 8. Pyright hint (lowest priority, raised first)
+        # 7. Ruff hint
+        # 6. Pyright info
+        # 5. Ruff info
+        # 4. Pyright warning
+        # 3. Ruff warning
+        # 2. Pyright error
+        # 1. Ruff error (highest priority, raised last, will be on top)
+        
+        priority_order = [
+            (DiagnosticSeverity.Hint, True),       # 8. Pyright hint (raised first)
+            (DiagnosticSeverity.Hint, False),      # 7. Ruff hint
+            (DiagnosticSeverity.Information, True),  # 6. Pyright info
+            (DiagnosticSeverity.Information, False), # 5. Ruff info
+            (DiagnosticSeverity.Warning, True),    # 4. Pyright warning
+            (DiagnosticSeverity.Warning, False),   # 3. Ruff warning
+            (DiagnosticSeverity.Error, True),      # 2. Pyright error
+            (DiagnosticSeverity.Error, False),     # 1. Ruff error (raised last, on top)
+        ]
+        
+        # Raise tags in priority order (least to most important)
+        for target_severity, is_pyright in priority_order:
+            for diag_info in diagnostics:
+                diagnostic = diag_info.diagnostic
+                severity = diagnostic.severity or DiagnosticSeverity.Error
+                source = (diagnostic.source or "").lower()
+                is_diag_pyright = "pyright" in source or "basedpyright" in source
+                
+                if severity == target_severity and is_diag_pyright == is_pyright:
+                    unique_tag = f"diag_{id(diagnostic)}"
+                    try:
+                        text.tag_raise(unique_tag)
+                    except tk.TclError:
+                        pass
     
     def _find_editor_by_uri(self, uri: str) -> Optional[Editor]:
         """Find editor by URI"""
@@ -596,104 +715,28 @@ class DiagnosticHighlighter:
             self._tooltips_per_editor[uri] = DiagnosticTooltip(editor.get_text_widget())
         return self._tooltips_per_editor[uri]
     
-    def _on_autocomplete_inserted(self, event=None) -> None:
-        """Temporarily disable tooltips after autocomplete to prevent immediate tooltip on mouse"""
-        self._tooltip_enabled = False
-        
-        # Cancel previous debounce timer if any
-        if self._tooltip_debounce_timer:
-            get_workbench().after_cancel(self._tooltip_debounce_timer)
-        
-        # Re-enable tooltips after 500ms
-        def enable_tooltips():
-            self._tooltip_enabled = True
-            self._tooltip_debounce_timer = None
-        
-        self._tooltip_debounce_timer = get_workbench().after(500, enable_tooltips)
-    
-    def _show_tooltip(self, event, diagnostic: Diagnostic, editor: Editor) -> None:
-        """Show tooltip with diagnostic message and AI explanation"""
-        # Don't show tooltip if temporarily disabled (e.g. right after autocomplete)
-        if not self._tooltip_enabled:
-            return
-        
-        # Get cursor position from event
-        text = editor.get_text_widget()
-        try:
-            cursor_index = text.index(f"@{event.x},{event.y}")
-            cursor_line, cursor_char = map(int, cursor_index.split('.'))
-            cursor_pos = (cursor_line - 1, cursor_char)  # Convert to 0-based LSP position
-        except Exception as e:
-            # Fallback if cursor position can't be determined
-            tooltip = self._get_tooltip_for_editor(editor)
-            tooltip.show(event, diagnostic)
-            return
-        
-        # Find all diagnostics at this cursor position
-        uri = editor.get_uri()
-        if not uri:
-            tooltip = self._get_tooltip_for_editor(editor)
-            tooltip.show(event, diagnostic)
-            return
-        
-        diagnostics_at_cursor = []
-        for diag_info in self._diagnostics_per_uri.get(uri, []):
-            d = diag_info.diagnostic
-            d_start = (d.range.start.line, d.range.start.character)
-            d_end = (d.range.end.line, d.range.end.character)
-            
-            # Check if cursor is inside this diagnostic's range
-            if d_start <= cursor_pos < d_end:
-                diagnostics_at_cursor.append(d)
-        
-        if not diagnostics_at_cursor:
-            # No diagnostics found, show the one passed
-            tooltip = self._get_tooltip_for_editor(editor)
-            tooltip.show(event, diagnostic)
-            return
-        
-        # Select diagnostic with highest priority
-        # Priority (lower number = higher priority):
-        # 1. Pyright error (highest)
-        # 2. Ruff error
-        # 3. Pyright warning
-        # 4. Ruff warning
-        # 5. Pyright info
-        # 6. Ruff info
-        # 7. Pyright hint (lowest)
-        # 8. Ruff hint
-        def combined_priority(d: Diagnostic) -> int:
-            severity = d.severity or DiagnosticSeverity.Error
-            source = (d.source or "").lower()
-            is_pyright = "pyright" in source or "basedpyright" in source
-            
-            # Base priority by severity
-            if severity == DiagnosticSeverity.Error:
-                base = 1 if is_pyright else 2
-            elif severity == DiagnosticSeverity.Warning:
-                base = 3 if is_pyright else 4
-            elif severity == DiagnosticSeverity.Information:
-                base = 5 if is_pyright else 6
-            else:  # Hint
-                base = 7 if is_pyright else 8
-            
-            return base
-        
-        best_diagnostic = min(diagnostics_at_cursor, key=combined_priority)
-        
-        # If the best diagnostic is the same message as currently being shown, avoid duplicate processing
-        # (multiple tags can trigger for the same diagnostic)
+    def _on_tooltip_motion(self, event, diagnostic: Diagnostic, editor: Editor) -> None:
+        """Handle mouse motion inside diagnostic - restart hover timer or switch diagnostic"""
         tooltip = self._get_tooltip_for_editor(editor)
-        # Include line number in message comparison (must match format from show())
-        best_line = best_diagnostic.range.start.line + 1 if best_diagnostic.range else 0
-        if best_diagnostic.source:
-            best_message = f"[{best_diagnostic.source}] L{best_line}: {best_diagnostic.message}"
-        else:
-            best_message = f"L{best_line}: {best_diagnostic.message}"
-        if tooltip._is_showing and tooltip._pending_message == best_message:
-            return  # Already showing this message
         
-        tooltip.show(event, best_diagnostic)
+        # Build message to check if diagnostic changed
+        message = diagnostic.message
+        line_number = diagnostic.range.start.line + 1 if diagnostic.range else 0
+        if diagnostic.source:
+            full_message = f"[{diagnostic.source}] L{line_number}: {message}"
+        else:
+            full_message = f"L{line_number}: {message}"
+        
+        # Check if this is a different diagnostic than current
+        current_msg = tooltip.state_machine.context.message if tooltip.state_machine.context else None
+        
+        if current_msg != full_message:
+            # Different diagnostic - treat as new MOUSE_ENTER
+            tooltip.show(event, diagnostic)
+        else:
+            # Same diagnostic - just handle motion (restart timer if hovering)
+            actions = tooltip.state_machine.handle_event(TooltipEvent.MOUSE_MOTION)
+            tooltip._execute_actions(actions)
     
     def _hide_tooltip(self, event, editor: Editor) -> None:
         """Hide tooltip"""
