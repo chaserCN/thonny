@@ -1144,7 +1144,13 @@ class LanguageServerProxy(ABC):
         try:
             while self._server_process_alive():
                 line = self._proc.stderr.readline()
-                logger.error("Language server STDERR: %s", line.decode("utf-8"))
+                decoded = line.decode("utf-8")
+                
+                # Filter out Ruff's "No settings available" warning (not useful spam)
+                if "No settings available" in decoded and "falling back to default settings" in decoded:
+                    continue
+                
+                logger.error("Language server STDERR: %s", decoded)
         except Exception:
             logger.exception("_listen_stderr failed")
         logger.info("_listen_stderr done")
