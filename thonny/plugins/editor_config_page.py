@@ -31,6 +31,11 @@ class EditorConfigurationPage(ConfigurationPage):
             "view.highlight_current_line",
             tr("Highlight current line (requires reopening the editor)"),
         )
+        add_option_checkbox(
+            self,
+            "view.block_highlighting",
+            tr("Highlight code blocks in gutter"),
+        )
 
         add_vertical_separator(self)
         

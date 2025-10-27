@@ -1,32 +1,41 @@
 """
-Highlights code blocks (functions, if, for, while, etc.) when cursor/mouse is inside them.
+Highlights code blocks (functions, if, for, while, etc.) in the gutter with depth-based purple gradient.
 """
 
+import logging
 from logging import getLogger
 
 from thonny import get_workbench
 
 logger = getLogger(__name__)
+# Uncomment to enable debug logging:
+# logger.setLevel(logging.DEBUG)
 
 
 class BlockHighlighter:
-    """Highlights the current code block under cursor/mouse with a very light gray background"""
+    """Highlights all code blocks (functions, if, for, while, etc.) in the gutter with depth-based purple gradient"""
     
     def __init__(self, text):
         self.text = text
         self.blocks = []  # List of (tag_name, start_line, start_col, end_line, end_col, depth)
-        self.current_block = None
         self._update_scheduled = False
         
-        # Configure highlight tag - light gray
-        self.text.tag_configure("current_block", background="#d0d0d0")
-        self.text.tag_lower("current_block")  # Below selection and other tags
+        # Get gutter widget (line numbers panel)
+        self.gutter = text.master._gutter
         
-        # Bind cursor and mouse movement
-        self.text.bind("<KeyPress>", self._on_cursor_move, True)
-        self.text.bind("<KeyRelease>", self._on_cursor_move, True) 
-        self.text.bind("<ButtonPress>", self._on_cursor_move, True)
-        self.text.bind("<Motion>", self._on_mouse_move, True)
+        # Configure highlight tags in gutter - purple gradient by depth
+        # Lighter purple for outer blocks, darker for inner blocks
+        self.depth_colors = [
+            "#f5ebff",  # depth 0 - very light purple
+            "#ead5ff",  # depth 1
+            "#dfbfff",  # depth 2
+            "#d4aaff",  # depth 3
+            "#c994ff",  # depth 4
+            "#be7eff",  # depth 5+
+        ]
+        
+        for i, color in enumerate(self.depth_colors):
+            self.gutter.tag_configure(f"block_line_depth_{i}", background=color)
     
     def get_blocks(self):
         """Parse code with parso and find all blocks (functions, if, for, while, etc.)"""
@@ -35,6 +44,7 @@ class BlockHighlighter:
         
         blocks = []
         source = self.text.get("1.0", "end-1c")
+        source_lines = source.split('\n')  # Split once, reuse for all blocks
         
         try:
             module = parso.parse(source)
@@ -44,6 +54,9 @@ class BlockHighlighter:
         
         def is_block(node):
             """Check if node is a block we want to highlight"""
+            # Skip file_input (entire file) and module
+            if hasattr(node, 'type') and node.type in ('file_input', 'module'):
+                return False
             # Flow includes: if, while, for, try, with
             # Scope includes: Function, Class, Lambda
             return isinstance(node, (tree.Function, tree.Class, tree.Flow, tree.Scope))
@@ -54,9 +67,62 @@ class BlockHighlighter:
                 start_line, start_col = node.start_pos
                 end_line, end_col = node.end_pos
                 
+                node_type = getattr(node, 'type', node.__class__.__name__)
+                logger.debug(f"Found block: {node_type} at ({start_line},{start_col})-({end_line},{end_col}), depth={depth}")
+                
+                # If end_col is 0, it means end_pos is at the start of the next line
+                # We need to adjust to the end of the previous line
+                if end_col == 0 and end_line > start_line:
+                    end_line = end_line - 1
+                    logger.debug(f"  Adjusted end to line {end_line} (was pointing to start of next line)")
+                
+                # Extend to include trailing empty/whitespace lines
+                # that have indentation > the block's start column
+                original_end = end_line
+                
+                # Check lines after end_line
+                for line_num in range(end_line, len(source_lines)):
+                    line = source_lines[line_num]
+                    
+                    # Calculate indentation
+                    if line:
+                        indent = len(line) - len(line.lstrip())
+                    else:
+                        # Completely empty line (no characters at all)
+                        indent = 0
+                    
+                    # If line is empty or whitespace-only
+                    if not line.strip():
+                        # Completely empty line (0 chars) - NOT in block
+                        if not line:
+                            logger.debug(f"  Line {line_num + 1} is completely empty, ending block")
+                            break
+                        # Whitespace-only - check if indentation is enough
+                        elif indent > start_col:
+                            logger.debug(f"  Line {line_num + 1} has indent={indent} > {start_col}, including in block")
+                            end_line = line_num + 1
+                            continue
+                        else:
+                            logger.debug(f"  Line {line_num + 1} has indent={indent} <= {start_col}, ending block")
+                            break
+                    
+                    # Non-empty line with code - check if it's more indented than block start
+                    if indent > start_col:
+                        # This line is more indented, include it
+                        logger.debug(f"  Line {line_num + 1} has indent={indent} > {start_col}, including in block")
+                        end_line = line_num + 1
+                    else:
+                        # Less or equal indentation - block ends
+                        logger.debug(f"  Line {line_num + 1} has indent={indent} <= {start_col}, ending block")
+                        break
+                
+                if end_line != original_end:
+                    logger.debug(f"  Extended block to line {end_line} (from {original_end}) to include trailing whitespace")
+                
                 # Create unique tag name for this block
                 tag_name = f"block_{start_line}_{start_col}_{end_line}_{end_col}"
                 blocks.append((tag_name, start_line, start_col, end_line, end_col, depth))
+                logger.debug(f"  Added block: lines {start_line}-{end_line}")
                 
                 # Recurse with increased depth
                 if hasattr(node, "children"):
@@ -71,118 +137,58 @@ class BlockHighlighter:
         return blocks
     
     def update_blocks(self):
-        """Re-parse code and update block positions"""
-        # Remove all old block tags
-        for tag_name, _, _, _, _, _ in self.blocks:
-            self.text.tag_remove(tag_name, "1.0", "end")
+        """Re-parse code and update block positions and highlights"""
+        logger.debug("=" * 60)
+        logger.debug("UPDATE_BLOCKS called")
+        
+        # Clear all previous highlights in gutter
+        for i in range(len(self.depth_colors)):
+            self.gutter.tag_remove(f"block_line_depth_{i}", "1.0", "end")
         
         # Get new blocks
         self.blocks = self.get_blocks()
+        logger.debug(f"Total blocks found: {len(self.blocks)}")
         
-        # Add tags for each block (but don't highlight yet)
-        for tag_name, start_line, start_col, end_line, end_col, _ in self.blocks:
-            start = f"{start_line}.{start_col}"
-            end = f"{end_line}.{end_col}" if end_col > 0 else f"{end_line}.end"
-            self.text.tag_add(tag_name, start, end)
-    
-    def find_deepest_block_at_cursor(self):
-        """Find the deepest (most nested) block containing the cursor"""
-        try:
-            cursor_pos = self.text.index("insert")
-            cursor_line, cursor_col = map(int, cursor_pos.split("."))
-        except Exception:
-            return None
-        
-        # Find all blocks containing cursor, pick the deepest one
-        deepest_block = None
-        max_depth = -1
-        
+        # Highlight blocks in gutter
         for tag_name, start_line, start_col, end_line, end_col, depth in self.blocks:
-            # Check if cursor is inside this block
-            if start_line <= cursor_line <= end_line:
-                # For start line, check column
-                if cursor_line == start_line and cursor_col < start_col:
-                    continue
-                # For end line, check column
-                if cursor_line == end_line and end_col > 0 and cursor_col >= end_col:
-                    continue
-                
-                # Cursor is inside this block
-                if depth > max_depth:
-                    max_depth = depth
-                    deepest_block = tag_name
+            # Highlight in gutter with depth-based color
+            color_index = min(depth, len(self.depth_colors) - 1)
+            tag = f"block_line_depth_{color_index}"
+            
+            logger.debug(f"Highlighting lines {start_line}-{end_line} with depth={depth}")
+            
+            for line in range(start_line, end_line + 1):
+                gutter_start = f"{line}.0"
+                gutter_end = f"{line}.end"
+                self.gutter.tag_add(tag, gutter_start, gutter_end)
         
-        return deepest_block
-    
-    def highlight_current_block(self):
-        """Highlight the block under cursor - vertical line at block start column"""
-        # Find deepest block at cursor
-        block = self.find_deepest_block_at_cursor()
-        
-        # Only update if block changed
-        if block == self.current_block:
-            return
-        
-        # Clear previous highlight
-        self.text.tag_remove("current_block", "1.0", "end")
-        self.current_block = block
-        
-        # Apply new highlight if we have a block
-        if block:
-            # Get ranges of this block and apply highlight
-            for tag_name, start_line, start_col, end_line, end_col, _ in self.blocks:
-                if tag_name == block:
-                    # Highlight vertical line at column start_col for all lines in block
-                    for line in range(start_line, end_line + 1):
-                        # Get line content to check if position exists
-                        line_content = self.text.get(f"{line}.0", f"{line}.end")
-                        
-                        # Check if line has enough content
-                        if len(line_content) > start_col:
-                            # Normal case - highlight character at start_col
-                            char_start = f"{line}.{start_col}"
-                            char_end = f"{line}.{start_col + 1}"
-                            self.text.tag_add("current_block", char_start, char_end)
-                        elif len(line_content) > 0:
-                            # Line is too short but not empty - highlight from end to newline
-                            char_start = f"{line}.{len(line_content)}"
-                            char_end = f"{line}.end"
-                            self.text.tag_add("current_block", char_start, char_end)
-                        else:
-                            # Empty line - highlight the whole empty line (newline character)
-                            char_start = f"{line}.0"
-                            char_end = f"{line}.end"
-                            self.text.tag_add("current_block", char_start, char_end)
-                    break
-    
-    def _on_cursor_move(self, event=None):
-        """Called when cursor moves (keyboard)"""
-        self.highlight_current_block()
-    
-    def _on_mouse_move(self, event=None):
-        """Called when mouse moves"""
-        self.highlight_current_block()
+        logger.debug("=" * 60)
     
     def schedule_update(self):
         """Schedule block update (after text changes)"""
+        # Skip if already updating
+        if self._update_scheduled:
+            return
+            
+        self._update_scheduled = True
+        
         def perform_update():
             try:
                 self.update_blocks()
-                # Reset current block so next cursor move will re-highlight
-                self.current_block = None
-                self.highlight_current_block()
             finally:
                 self._update_scheduled = False
         
-        if not self._update_scheduled:
-            self._update_scheduled = True
-            # Delay update to avoid too frequent reparsing
-            self.text.after(100, perform_update)
+        # Small delay to batch rapid changes while keeping it responsive
+        self.text.after(10, perform_update)
 
 
 def update_blocks(event):
     """Called when text changes"""
     if not get_workbench().ready:
+        return
+    
+    # Check if block highlighting is enabled
+    if not get_workbench().get_option("view.block_highlighting"):
         return
     
     if hasattr(event, "text_widget"):
@@ -205,6 +211,10 @@ def init_highlighter(event):
     if not get_workbench().ready:
         return
     
+    # Check if block highlighting is enabled
+    if not get_workbench().get_option("view.block_highlighting"):
+        return
+    
     if hasattr(event, "editor"):
         text = event.editor.get_text_widget()
     else:
@@ -212,8 +222,8 @@ def init_highlighter(event):
 
     if not hasattr(text, "block_highlighter"):
         text.block_highlighter = BlockHighlighter(text)
-        # Initial update after a short delay to let editor finish loading
-        text.after(200, text.block_highlighter.schedule_update)
+        # Initial update - small delay to let editor finish loading
+        text.after(50, text.block_highlighter.schedule_update)
 
 
 def load_plugin() -> None:

@@ -223,6 +223,10 @@ msgstr "Підсвічувати синтаксичні елементи"
 msgid "Highlight current line (requires reopening the editor)"
 msgstr "Підсвічувати поточний рядок (необхідний перезапуск редактора)"
 
+#: thonny/plugins/editor_config_page.py:36
+msgid "Highlight code blocks in gutter"
+msgstr "Підсвічувати блоки коду у відступах"
+
 #: thonny/plugins/editor_config_page.py:73
 msgid "Show line numbers"
 msgstr "Показувати номери рядків"
