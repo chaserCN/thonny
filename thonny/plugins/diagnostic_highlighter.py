@@ -505,20 +505,24 @@ class DiagnosticHighlighter:
                 text.tag_add(base_tag, start_index, end_index)
                 text.tag_add(unique_tag, start_index, end_index)
                 
-                # Choose highlight color based on severity
+                # Choose highlight colors based on severity (hover and default)
                 if severity == DiagnosticSeverity.Error:
-                    hover_bg = "#ffe0e0"  # Light red
+                    hover_bg = "#ffe0e0"  # Brighter red on hover
+                    default_bg = "#ffebee"  # Subtle red (from tag config)
                 elif severity == DiagnosticSeverity.Warning:
-                    hover_bg = "#ffe6cc"  # Light orange
+                    hover_bg = "#ffe6cc"  # Brighter orange on hover
+                    default_bg = "#fff8e1"  # Subtle orange
                 elif severity == DiagnosticSeverity.Information:
-                    hover_bg = "#e6f2ff"  # Light blue
+                    hover_bg = "#e6f2ff"  # Brighter blue on hover
+                    default_bg = "#e8f4fd"  # Subtle blue
                 else:  # Hint
-                    hover_bg = "#f0f0f0"  # Light gray
+                    hover_bg = "#f0f0f0"  # Brighter gray on hover
+                    default_bg = "#f5f5f5"  # Subtle gray
                 
                 # Bind events to unique tag so each diagnostic has its own handler
                 # Use <Enter> instead of <Motion> to avoid hundreds of calls when mouse moves
                 text.tag_bind(unique_tag, "<Enter>", lambda e, t=unique_tag, bg=hover_bg, d=diagnostic, ed=editor: (self._highlight_diagnostic(e, t, bg), self._show_tooltip(e, d, ed)))
-                text.tag_bind(unique_tag, "<Leave>", lambda e, t=unique_tag, ed=editor: self._unhighlight_diagnostic(e, t, ed))
+                text.tag_bind(unique_tag, "<Leave>", lambda e, t=unique_tag, def_bg=default_bg, ed=editor: self._unhighlight_diagnostic(e, t, def_bg, ed))
             except tk.TclError as e:
                 logger.warning(f"Could not add diagnostic tag: {e}")
     
@@ -556,20 +560,20 @@ class DiagnosticHighlighter:
     
     def _configure_diagnostic_tags(self, text: tk.Text) -> None:
         """Configure visual style for diagnostic tags"""
-        # Hint: gray underline (keeps text color) - lowest priority
-        text.tag_configure("diagnostic_hint", underline=True, underlinefg="gray")
+        # Hint: gray underline with subtle background - lowest priority
+        text.tag_configure("diagnostic_hint", underline=True, underlinefg="gray", background="#f5f5f5")
         text.tag_raise("diagnostic_hint")
         
-        # Info: blue underline (keeps text color)
-        text.tag_configure("diagnostic_info", underline=True, underlinefg="blue")
+        # Info: blue underline with subtle background
+        text.tag_configure("diagnostic_info", underline=True, underlinefg="blue", background="#e8f4fd")
         text.tag_raise("diagnostic_info")
         
-        # Warning: orange underline (keeps text color)
-        text.tag_configure("diagnostic_warning", underline=True, underlinefg="orange")
+        # Warning: orange underline with subtle background
+        text.tag_configure("diagnostic_warning", underline=True, underlinefg="orange", background="#fff8e1")
         text.tag_raise("diagnostic_warning")
         
-        # Error: red underline (keeps text color) - highest priority
-        text.tag_configure("diagnostic_error", underline=True, underlinefg="red")
+        # Error: red underline with subtle background - highest priority
+        text.tag_configure("diagnostic_error", underline=True, underlinefg="red", background="#ffebee")
         text.tag_raise("diagnostic_error")
     
     def _highlight_diagnostic(self, event, tag: str, background: str) -> None:
@@ -579,10 +583,10 @@ class DiagnosticHighlighter:
             text = editor.get_text_widget()
             text.tag_configure(tag, background=background)
     
-    def _unhighlight_diagnostic(self, event, tag: str, editor: Editor) -> None:
-        """Remove background highlight when mouse leaves diagnostic"""
+    def _unhighlight_diagnostic(self, event, tag: str, default_bg: str, editor: Editor) -> None:
+        """Restore default background when mouse leaves diagnostic"""
         text = editor.get_text_widget()
-        text.tag_configure(tag, background="")
+        text.tag_configure(tag, background=default_bg)
         self._hide_tooltip(event, editor)
     
     def _get_tooltip_for_editor(self, editor: Editor) -> DiagnosticTooltip:
