@@ -259,24 +259,10 @@ class ChatView(tktextext.TextFrame):
             bordercolor=bordercolor,
         )
         image_button_frame.grid(row=1, column=1, sticky="w", padx=(pad_small, 0), pady=(pad//3, 0))
-        
-        # Explain Shell button (next to image button)
-        explain_shell_button_frame = create_custom_toolbutton_in_frame(
-            panel,
-            image=get_workbench().get_image("bot_explain.png", for_toolbar=True),
-            command=self._explain_shell_output,
-            background=background,
-            borderwidth=0,
-            bordercolor=bordercolor,
-        )
-        explain_shell_button_frame.grid(row=1, column=2, sticky="w", padx=(pad_small//2, 0), pady=(pad//3, 0))
-        
-        # Add tooltip
-        ui_utils.create_tooltip(explain_shell_button_frame, tr("Explain Shell output"))
 
         # Right frame for language, model and clear buttons
         right_buttons_frame = tk.Frame(panel, background=background)
-        right_buttons_frame.grid(row=1, column=3, sticky="e", padx=(0, pad_small), pady=(pad//3, 0))
+        right_buttons_frame.grid(row=1, column=2, sticky="e", padx=(0, pad_small), pady=(pad//3, 0))
 
         # Language selection dropdown (УК/РУ)
         def _current_lang() -> str:
@@ -340,7 +326,7 @@ class ChatView(tktextext.TextFrame):
         # White background container
         # sticky="sew" makes it grow upward (bottom-anchored like Cursor)
         white_container = tk.Frame(panel, background="white")
-        white_container.grid(row=2, column=1, columnspan=3, sticky="sew", padx=(pad_small, pad_small), pady=(pad//4, pad_small))
+        white_container.grid(row=2, column=1, columnspan=2, sticky="sew", padx=(pad_small, pad_small), pady=(pad//4, pad_small))
         white_container.rowconfigure(0, weight=1)
         white_container.columnconfigure(0, weight=1)
         
@@ -895,15 +881,6 @@ class ChatView(tktextext.TextFrame):
 
         if isinstance(self.text, rst_utils.RstText):
             self.text.on_theme_changed()
-
-    def _explain_shell_output(self) -> None:
-        """Get Shell output and explain it"""
-        try:
-            shell_view = get_workbench().get_view("ShellView")
-            if shell_view:
-                shell_view.explain_shell_output()
-        except Exception as e:
-            logger.exception("Failed to explain shell output", exc_info=e)
     
     def _attach_image(self) -> None:
         """Open file dialog to select an image"""

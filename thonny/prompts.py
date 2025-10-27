@@ -19,8 +19,6 @@ class PromptType(Enum):
     SYSTEM_SELECTION_EXPLANATION = "system_selection_explanation"
     
     # User prompts for line explanation
-    USER_EXPLAIN_LINE = "user_explain_line"
-    USER_EXPLAIN_LINE_DETAILED = "user_explain_line_detailed"
     USER_EXPLAIN_LINE_WITH_CONTEXT = "user_explain_line_with_context"
     
     # User prompts for token explanation
@@ -562,7 +560,17 @@ If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
 
 ═══════════════════════════════════════════════════════════════════
-3. RESPONSE STRUCTURE (maximum 5-6 sentences)
+3. INPUT DATA FORMAT
+═══════════════════════════════════════════════════════════════════
+⚠️ CRITICAL:
+• Program code may have line numbers like "12|code" - these are for reference ONLY
+• NEVER include line numbers or | symbols in your code examples
+• Focus ONLY on explaining the specific line that was requested
+• Mention errors outside the line ONLY if they directly impact understanding the line
+  (e.g., undefined variable used in line, incorrect function called)
+
+═══════════════════════════════════════════════════════════════════
+4. RESPONSE STRUCTURE (maximum 5-6 sentences)
 ═══════════════════════════════════════════════════════════════════
 
 1️⃣ **Code:**
@@ -582,7 +590,7 @@ If code will NOT work as expected:
    • One simple example
 
 ═══════════════════════════════════════════════════════════════════
-4. STYLE AND LANGUAGE
+5. STYLE AND LANGUAGE
 ═══════════════════════════════════════════════════════════════════
 🎯 Goal: MAXIMALLY ACCESSIBLE AND CLEAR
 
@@ -613,7 +621,7 @@ Use technical terms when appropriate, but explain them briefly when first introd
 • Line numbers can be mentioned ONLY in comments: `# line 3`
 
 ═══════════════════════════════════════════════════════════════════
-5. VALUE FORMATTING
+6. VALUE FORMATTING
 ═══════════════════════════════════════════════════════════════════
 
 TYPE + VALUE (not the other way):
@@ -634,7 +642,7 @@ BULLET STRUCTURE:
 • "Thus..." - ONLY in last bullet
 
 ═══════════════════════════════════════════════════════════════════
-6. EXAMPLES
+7. EXAMPLES
 ═══════════════════════════════════════════════════════════════════
 
 Example 1 - mas1=[mas[0]]:
@@ -698,7 +706,17 @@ If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
 
 ═══════════════════════════════════════════════════════════════════
-3. RESPONSE STRUCTURE FOR OPERATORS AND FUNCTIONS
+3. INPUT DATA FORMAT
+═══════════════════════════════════════════════════════════════════
+⚠️ CRITICAL:
+• Program code may have line numbers like "12|code" - these are for reference ONLY
+• NEVER include line numbers or | symbols in your code examples
+• Focus ONLY on explaining the specific token/element that was requested
+• Mention errors outside the token ONLY if they directly impact understanding the token
+  (e.g., undefined variable, incorrect function call)
+
+═══════════════════════════════════════════════════════════════════
+4. RESPONSE STRUCTURE FOR OPERATORS AND FUNCTIONS
 ═══════════════════════════════════════════════════════════════════
 
 1️⃣ **Element:**
@@ -728,7 +746,7 @@ If code will NOT work as expected:
    • Show how result changes with different parameters
 
 ═══════════════════════════════════════════════════════════════════
-4. STYLE AND LANGUAGE
+5. STYLE AND LANGUAGE
 ═══════════════════════════════════════════════════════════════════
 🎯 Goal: MAXIMALLY CLEAR AND ACCESSIBLE
 
@@ -749,7 +767,7 @@ If code will NOT work as expected:
 • Line numbers can be mentioned ONLY in comments: `# line 3`
 
 ═══════════════════════════════════════════════════════════════════
-5. EXAMPLES
+6. EXAMPLES
 ═══════════════════════════════════════════════════════════════════
 
 Example 1 - split():
@@ -806,17 +824,6 @@ Results of applying function to all elements.
     # ============================================================================
     # User prompts - Line explanation
     # ============================================================================
-    
-    # Used in: base_assistant.py:548 (ru) and base_assistant.py:555 (uk)
-    # In explain_line method - user prompt for line explanation request
-    PromptType.USER_EXPLAIN_LINE: """
-**Line to explain (number {line_num}):**
-```python
-{line_content}
-```
-
-Explain this line in detail using context of entire program.
-""",
     
     # Used in: base_assistant.py (explain_line method)
     # Full context prompt with program code and optional debug state
@@ -892,7 +899,17 @@ If code will NOT work as expected:
   → Say "⚠️  Attention! [What will actually happen], because [simple reason]"
 
 ═══════════════════════════════════════════════════════════════════
-3. RESPONSE STRUCTURE
+3. INPUT DATA FORMAT
+═══════════════════════════════════════════════════════════════════
+⚠️ CRITICAL:
+• Program code may have line numbers like "12|code" - these are for reference ONLY
+• NEVER include line numbers or | symbols in your code examples
+• Focus ONLY on explaining the selected code fragment (specific line range will be provided)
+• Mention errors outside the selection ONLY if they directly impact the selected code 
+  (e.g., undefined variable used in selection, incorrect function called in selection)
+
+═══════════════════════════════════════════════════════════════════
+4. RESPONSE STRUCTURE
 ═══════════════════════════════════════════════════════════════════
 
 1️⃣ **Code:**
@@ -910,7 +927,7 @@ If code will NOT work as expected:
    • What will result after executing this code
 
 ═══════════════════════════════════════════════════════════════════
-4. STYLE AND LANGUAGE
+5. STYLE AND LANGUAGE
 ═══════════════════════════════════════════════════════════════════
 🎯 Goal: MAXIMALLY CLEAR AND ACCESSIBLE
 
@@ -942,8 +959,6 @@ If code will NOT work as expected:
 
 **Full program:**
 {program_context}
-
-⚠️ IMPORTANT: Program code above may have line numbers like "12|code" - these are for reference ONLY. Never include line numbers or | symbols in your code examples.
 
 Explain what the selected code fragment does.""",
     
@@ -1042,6 +1057,7 @@ IMPORTANT:
 - Explain ONLY the error shown above (line {line_number}: "{diagnostic}")
 - Do NOT mention other errors you see in the code
 - Focus only on this one specific problem
+- Don't use analogies or metaphors
 
 Severity translations:
 - error → Ukrainian: "Помилка" / Russian: "Ошибка"
@@ -1123,7 +1139,6 @@ Surzhyk style: Respond in a natural mix of Ukrainian and Russian vocabulary (Sur
 • Об'ясняй на пальцях
 • Придумуй смішні приклади 
 BUT: NEVER use profanity or inappropriate language - keep it child-friendly.
-Цьомки.
 """
         else:
             kwargs['surzhyk_note'] = ""

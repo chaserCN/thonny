@@ -52,6 +52,7 @@ from thonny.running import EDITOR_CONTENT_TOKEN
 from thonny.tktextext import TextFrame, TweakableText, index2line
 from thonny.ui_utils import (
     CommonDialog,
+    CustomToolbutton,
     EnhancedTextWithLogging,
     TextMenu,
     compute_tab_stops,
@@ -173,6 +174,9 @@ class ShellView(tk.PanedWindow):
 
         self.init_plotter()
         self.menu = ShellMenu(self.text, self)
+        
+        # Create Explain button above Shell (negative Y coordinate)
+        self.create_explain_button()
 
     def handle_osc_event(self, msg):
         self.text._handle_osc_sequence(msg.text)
@@ -440,6 +444,58 @@ class ShellView(tk.PanedWindow):
     def resize_plotter(self):
         if len(self.panes()) > 1 and self.text.winfo_width() > 5:
             get_workbench().set_option("view.shell_sash_position", self.sash_coord(0)[0])
+    
+    def create_explain_button(self):
+        """Create Explain button in top-right corner"""
+        # Get Shell text background color
+        shell_bg = self.text.cget("background")
+        
+        # Use simple Label instead of CustomToolbutton to avoid hover effects
+        self.explain_img = get_workbench().get_image("bot_explain.png", for_toolbar=True)
+        self.explain_button = tk.Label(
+            self.text,
+            image=self.explain_img,
+            background=shell_bg,
+            cursor="hand2",  # Hand cursor on hover
+            borderwidth=0,
+            relief="flat",
+        )
+        
+        # Bind click event
+        self.explain_button.bind("<Button-1>", lambda e: self.explain_shell_output())
+        
+        # Position in top-right corner
+        self.update_explain_button_position()
+        
+        # Update position on resize
+        self.text.bind("<Configure>", self._on_text_configure, True)
+    
+    def update_explain_button_position(self):
+        """Update button position in top-right corner"""
+        if not hasattr(self, 'explain_button'):
+            return
+        
+        # Place in top-right corner with some padding
+        padding = 5
+        
+        x = self.text.winfo_width() - padding
+        y = padding
+        
+        self.explain_button.place(x=x, y=y, anchor="ne")
+    
+    def _on_text_configure(self, event):
+        """Handle text resize"""
+        self.update_explain_button_position()
+    
+    def hide_for_screenshot(self):
+        """Hide Explain button for screenshot"""
+        if hasattr(self, 'explain_button'):
+            self.explain_button.place_forget()
+    
+    def show_after_screenshot(self):
+        """Show Explain button after screenshot"""
+        if hasattr(self, 'explain_button'):
+            self.update_explain_button_position()
 
 
 class ShellMenu(TextMenu):
