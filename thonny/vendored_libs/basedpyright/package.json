@@ -2,7 +2,7 @@
     "name": "basedpyright",
     "displayName": "basedpyright",
     "description": "a fork of pyright with various type checking improvements, pylance features and more.",
-    "version": "1.1.400",
+    "version": "1.1.407",
     "license": "MIT",
     "author": {
         "name": "detachhead"
@@ -25,7 +25,7 @@
         "fsevents": "~2.3.3"
     },
     "devDependencies": {
-        "@types/node": "^22.10.5",
+        "@types/node": "^22.16.0",
         "copy-webpack-plugin": "^11.0.0",
         "esbuild-loader": "^3.2.0",
         "shx": "^0.3.4",

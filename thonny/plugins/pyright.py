@@ -28,6 +28,9 @@ class PyrightProxy(LanguageServerProxy):
                     "diagnosticMode": "openFilesOnly",
                     "diagnosticSeverityOverrides": {},
                     "logLevel": "Information",  # "Error", "Warning", "Information", "Trace"
+                    "autoSearchPaths": False,  # Don't automatically search for paths to index
+                    "autoImportCompletions": False,  # Don't scan all packages for auto-import
+                    "useLibraryCodeForTypes": False,  # Don't use library code for type inference
                 }
             },
         }
@@ -66,6 +69,9 @@ class PyrightProxy(LanguageServerProxy):
             result["basedpyright"]["analysis"]["stubPath"] = user_stubs_path
         if os.path.isdir(os.path.join(user_stubs_path, "stdlib")):
             result["basedpyright"]["analysis"]["typeshedPaths"] = [user_stubs_path]
+
+        # Explicitly set extraPaths to empty to prevent auto-discovery of packages
+        result["basedpyright"]["analysis"]["extraPaths"] = []
 
         logger.info("Using following basedpyright configuration: %r", result)
         return result
@@ -152,6 +158,5 @@ class PyrightProxy(LanguageServerProxy):
         return {"python"}
 
 
-# Pyright disabled for school edition - uses too much memory for simple scripts
-# def load_plugin():
-#     get_workbench().add_language_server_proxy_class(PyrightProxy)
+def load_plugin():
+    get_workbench().add_language_server_proxy_class(PyrightProxy)

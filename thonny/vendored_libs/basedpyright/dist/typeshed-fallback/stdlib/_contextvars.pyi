@@ -1,7 +1,8 @@
 """Context Variables"""
 
+import sys
 from collections.abc import Callable, Iterator, Mapping
-from types import GenericAlias
+from types import GenericAlias, TracebackType
 from typing import Any, ClassVar, Generic, TypeVar, final, overload
 from typing_extensions import ParamSpec, Self
 
@@ -89,6 +90,15 @@ class Token(Generic[_T]):
     def __class_getitem__(cls, item: Any, /) -> GenericAlias:
         """See PEP 585"""
         ...
+    if sys.version_info >= (3, 14):
+        def __enter__(self) -> Self:
+            """Enter into Token context manager."""
+            ...
+        def __exit__(
+            self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback: TracebackType | None, /
+        ) -> None:
+            """Exit from Token context manager, restore the linked ContextVar."""
+            ...
 
 def copy_context() -> Context: ...
 

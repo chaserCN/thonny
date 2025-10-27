@@ -6,12 +6,13 @@ from collections.abc import Awaitable, Callable, Coroutine, Generator
 from contextvars import Context
 from types import FrameType, GenericAlias
 from typing import Any, Literal, TextIO, TypeVar
-from typing_extensions import Self, TypeAlias
+from typing_extensions import Self, TypeAlias, disjoint_base
 
 _T = TypeVar("_T")
 _T_co = TypeVar("_T_co", covariant=True)
 _TaskYieldType: TypeAlias = Future[object] | None
 
+@disjoint_base
 class Future(Awaitable[_T]):
     """
     This class is *almost* compatible with concurrent.futures.Future.
@@ -36,7 +37,7 @@ class Future(Awaitable[_T]):
     @_log_traceback.setter
     def _log_traceback(self, val: Literal[False]) -> None: ...
     _asyncio_future_blocking: bool  # is a part of duck-typing contract for `Future`
-    def __init__(self, *, loop: AbstractEventLoop | None = ...) -> None: ...
+    def __init__(self, *, loop: AbstractEventLoop | None = None) -> None: ...
     def __del__(self) -> None:
         """Called when the instance is about to be destroyed."""
         ...
@@ -137,6 +138,7 @@ else:
 # While this is true in general, here it's sort-of okay to have a covariant subclass,
 # since the only reason why `asyncio.Future` is invariant is the `set_result()` method,
 # and `asyncio.Task.set_result()` always raises.
+@disjoint_base
 class Task(Future[_T_co]):  # type: ignore[type-var]  # pyright: ignore[reportInvalidTypeArguments]
     """A coroutine wrapped in a Future."""
     if sys.version_info >= (3, 12):
@@ -145,7 +147,7 @@ class Task(Future[_T_co]):  # type: ignore[type-var]  # pyright: ignore[reportIn
             coro: _TaskCompatibleCoro[_T_co],
             *,
             loop: AbstractEventLoop | None = None,
-            name: str | None = ...,
+            name: str | None = None,
             context: Context | None = None,
             eager_start: bool = False,
         ) -> None: ...
@@ -155,12 +157,12 @@ class Task(Future[_T_co]):  # type: ignore[type-var]  # pyright: ignore[reportIn
             coro: _TaskCompatibleCoro[_T_co],
             *,
             loop: AbstractEventLoop | None = None,
-            name: str | None = ...,
+            name: str | None = None,
             context: Context | None = None,
         ) -> None: ...
     else:
         def __init__(
-            self, coro: _TaskCompatibleCoro[_T_co], *, loop: AbstractEventLoop | None = None, name: str | None = ...
+            self, coro: _TaskCompatibleCoro[_T_co], *, loop: AbstractEventLoop | None = None, name: str | None = None
         ) -> None: ...
 
     if sys.version_info >= (3, 12):
@@ -302,4 +304,13 @@ def _leave_task(loop: AbstractEventLoop, task: Task[Any]) -> None:
 if sys.version_info >= (3, 12):
     def current_task(loop: AbstractEventLoop | None = None) -> Task[Any] | None:
         """Return a currently executed task."""
+        ...
+
+if sys.version_info >= (3, 14):
+    def future_discard_from_awaited_by(future: Future[Any], waiter: Future[Any], /) -> None: ...
+    def future_add_to_awaited_by(future: Future[Any], waiter: Future[Any], /) -> None:
+        """Record that `fut` is awaited on by `waiter`."""
+        ...
+    def all_tasks(loop: AbstractEventLoop | None = None) -> set[Task[Any]]:
+        """Return a set of all tasks for the loop."""
         ...

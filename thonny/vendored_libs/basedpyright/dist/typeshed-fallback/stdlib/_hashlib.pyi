@@ -5,7 +5,7 @@ from _typeshed import ReadableBuffer
 from collections.abc import Callable
 from types import ModuleType
 from typing import AnyStr, Protocol, final, overload, type_check_only
-from typing_extensions import Self, TypeAlias
+from typing_extensions import Self, TypeAlias, disjoint_base
 
 _DigestMod: TypeAlias = str | Callable[[], _HashObject] | ModuleType | None
 
@@ -24,6 +24,7 @@ class _HashObject(Protocol):
     def hexdigest(self) -> str: ...
     def update(self, obj: ReadableBuffer, /) -> None: ...
 
+@disjoint_base
 class HASH:
     """
     A hash is an object used to calculate a checksum of a string of information.
@@ -173,52 +174,96 @@ def get_fips_mode() -> int:
 def hmac_new(key: bytes | bytearray, msg: ReadableBuffer = b"", digestmod: _DigestMod = None) -> HMAC:
     """Return a new hmac object."""
     ...
-def new(name: str, string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """
-    Return a new hash object using the named algorithm.
 
-    An optional string argument may be provided and will be
-    automatically hashed.
+if sys.version_info >= (3, 13):
+    def new(
+        name: str, data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """
+        Return a new hash object using the named algorithm.
 
-    The MD5 and SHA1 algorithms are always supported.
-    """
-    ...
-def openssl_md5(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a md5 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha1(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha1 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha224(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha224 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha256(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha256 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha384(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha384 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha512(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha512 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha3_224(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha3-224 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha3_256(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha3-256 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha3_384(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha3-384 hash object; optionally initialized with a string"""
-    ...
-def openssl_sha3_512(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH:
-    """Returns a sha3-512 hash object; optionally initialized with a string"""
-    ...
-def openssl_shake_128(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASHXOF:
-    """Returns a shake-128 variable hash object; optionally initialized with a string"""
-    ...
-def openssl_shake_256(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASHXOF:
-    """Returns a shake-256 variable hash object; optionally initialized with a string"""
-    ...
+        An optional string argument may be provided and will be
+        automatically hashed.
+
+        The MD5 and SHA1 algorithms are always supported.
+        """
+        ...
+    def openssl_md5(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a md5 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha1(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha1 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha224(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha224 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha256(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha256 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha384(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha384 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha512(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha512 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha3_224(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha3-224 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha3_256(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha3-256 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha3_384(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha3-384 hash object; optionally initialized with a string"""
+        ...
+    def openssl_sha3_512(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASH:
+        """Returns a sha3-512 hash object; optionally initialized with a string"""
+        ...
+    def openssl_shake_128(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASHXOF:
+        """Returns a shake-128 variable hash object; optionally initialized with a string"""
+        ...
+    def openssl_shake_256(
+        data: ReadableBuffer = b"", *, usedforsecurity: bool = True, string: ReadableBuffer | None = None
+    ) -> HASHXOF:
+        """Returns a shake-256 variable hash object; optionally initialized with a string"""
+        ...
+
+else:
+    def new(name: str, string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_md5(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha1(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha224(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha256(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha384(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha512(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha3_224(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha3_256(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha3_384(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_sha3_512(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+    def openssl_shake_128(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASHXOF: ...
+    def openssl_shake_256(string: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASHXOF: ...
+
 def hmac_digest(key: bytes | bytearray, msg: ReadableBuffer, digest: str) -> bytes:
     """Single-shot HMAC."""
     ...

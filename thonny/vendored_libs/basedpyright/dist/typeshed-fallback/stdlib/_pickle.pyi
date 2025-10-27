@@ -1,12 +1,12 @@
 """Optimized C implementation for the Python pickle module."""
 
-import sys
 from _typeshed import ReadableBuffer, SupportsWrite
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pickle import PickleBuffer as PickleBuffer
 from typing import Any, Protocol, type_check_only
-from typing_extensions import TypeAlias
+from typing_extensions import TypeAlias, disjoint_base
 
+@type_check_only
 class _ReadableFileobj(Protocol):
     def read(self, n: int, /) -> bytes: ...
     def readline(self) -> bytes: ...
@@ -37,7 +37,7 @@ def dump(
 
     The optional *protocol* argument tells the pickler to use the given
     protocol; supported protocols are 0, 1, 2, 3, 4 and 5.  The default
-    protocol is 4. It was introduced in Python 3.4, and is incompatible
+    protocol is 5. It was introduced in Python 3.8, and is incompatible
     with previous versions.
 
     Specifying a negative protocol version selects the highest protocol
@@ -66,7 +66,7 @@ def dumps(
 
     The optional *protocol* argument tells the pickler to use the given
     protocol; supported protocols are 0, 1, 2, 3, 4 and 5.  The default
-    protocol is 4. It was introduced in Python 3.4, and is incompatible
+    protocol is 5. It was introduced in Python 3.8, and is incompatible
     with previous versions.
 
     Specifying a negative protocol version selects the highest protocol
@@ -152,13 +152,14 @@ class PicklerMemoProxy:
     def clear(self, /) -> None: ...
     def copy(self, /) -> dict[int, tuple[int, Any]]: ...
 
+@disjoint_base
 class Pickler:
     """
     This takes a binary file for writing a pickle data stream.
 
     The optional *protocol* argument tells the pickler to use the given
     protocol; supported protocols are 0, 1, 2, 3, 4 and 5.  The default
-    protocol is 4. It was introduced in Python 3.4, and is incompatible
+    protocol is 5. It was introduced in Python 3.8, and is incompatible
     with previous versions.
 
     Specifying a negative protocol version selects the highest protocol
@@ -213,16 +214,16 @@ class Pickler:
         re-using picklers.
         """
         ...
-    if sys.version_info >= (3, 13):
-        def persistent_id(self, obj: Any, /) -> Any: ...
-    else:
-        persistent_id: Callable[[Any], Any]
+
+    # this method has no default implementation for Python < 3.13
+    def persistent_id(self, obj: Any, /) -> Any: ...
 
 @type_check_only
 class UnpicklerMemoProxy:
     def clear(self, /) -> None: ...
     def copy(self, /) -> dict[int, tuple[int, Any]]: ...
 
+@disjoint_base
 class Unpickler:
     """
     This takes a binary file for reading a pickle data stream.
@@ -280,7 +281,6 @@ class Unpickler:
         needed.  Both arguments passed are str objects.
         """
         ...
-    if sys.version_info >= (3, 13):
-        def persistent_load(self, pid: Any, /) -> Any: ...
-    else:
-        persistent_load: Callable[[Any], Any]
+
+    # this method has no default implementation for Python < 3.13
+    def persistent_load(self, pid: Any, /) -> Any: ...

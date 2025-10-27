@@ -3,8 +3,8 @@ import types
 from _typeshed import SupportsAllComparisons, SupportsItems
 from collections.abc import Callable, Hashable, Iterable, Sized
 from types import GenericAlias
-from typing import Any, Generic, Literal, NamedTuple, TypedDict, TypeVar, final, overload
-from typing_extensions import ParamSpec, Self, TypeAlias
+from typing import Any, Final, Generic, Literal, NamedTuple, TypedDict, TypeVar, final, overload, type_check_only
+from typing_extensions import ParamSpec, Self, TypeAlias, disjoint_base
 
 __all__ = [
     "update_wrapper",
@@ -31,26 +31,28 @@ _RWrapped = TypeVar("_RWrapped")
 _PWrapper = ParamSpec("_PWrapper")
 _RWrapper = TypeVar("_RWrapper")
 
+if sys.version_info >= (3, 14):
+    @overload
+    def reduce(function: Callable[[_T, _S], _T], iterable: Iterable[_S], /, initial: _T) -> _T:
+        """
+        Apply a function of two arguments cumulatively to the items of an iterable, from left to right.
+
+        This effectively reduces the iterable to a single value.  If initial is present,
+        it is placed before the items of the iterable in the calculation, and serves as
+        a default when the iterable is empty.
+
+        For example, reduce(lambda x, y: x+y, [1, 2, 3, 4, 5])
+        calculates ((((1 + 2) + 3) + 4) + 5).
+        """
+        ...
+
+else:
+    @overload
+    def reduce(function: Callable[[_T, _S], _T], iterable: Iterable[_S], initial: _T, /) -> _T: ...
+
 @overload
-def reduce(function: Callable[[_T, _S], _T], sequence: Iterable[_S], initial: _T, /) -> _T:
+def reduce(function: Callable[[_T, _T], _T], iterable: Iterable[_T], /) -> _T:
     """
-    reduce(function, iterable[, initial], /) -> value
-
-    Apply a function of two arguments cumulatively to the items of an iterable, from left to right.
-
-    This effectively reduces the iterable to a single value.  If initial is present,
-    it is placed before the items of the iterable in the calculation, and serves as
-    a default when the iterable is empty.
-
-    For example, reduce(lambda x, y: x+y, [1, 2, 3, 4, 5])
-    calculates ((((1 + 2) + 3) + 4) + 5).
-    """
-    ...
-@overload
-def reduce(function: Callable[[_T, _T], _T], sequence: Iterable[_T], /) -> _T:
-    """
-    reduce(function, iterable[, initial], /) -> value
-
     Apply a function of two arguments cumulatively to the items of an iterable, from left to right.
 
     This effectively reduces the iterable to a single value.  If initial is present,
@@ -68,6 +70,7 @@ class _CacheInfo(NamedTuple):
     maxsize: int | None
     currsize: int
 
+@type_check_only
 class _CacheParameters(TypedDict):
     maxsize: int
     typed: bool
@@ -93,21 +96,36 @@ def lru_cache(maxsize: int | None = 128, typed: bool = False) -> Callable[[Calla
 @overload
 def lru_cache(maxsize: Callable[..., _T], typed: bool = False) -> _lru_cache_wrapper[_T]: ...
 
-if sys.version_info >= (3, 12):
-    WRAPPER_ASSIGNMENTS: tuple[
-        Literal["__module__"],
-        Literal["__name__"],
-        Literal["__qualname__"],
-        Literal["__doc__"],
-        Literal["__annotations__"],
-        Literal["__type_params__"],
+if sys.version_info >= (3, 14):
+    WRAPPER_ASSIGNMENTS: Final[
+        tuple[
+            Literal["__module__"],
+            Literal["__name__"],
+            Literal["__qualname__"],
+            Literal["__doc__"],
+            Literal["__annotate__"],
+            Literal["__type_params__"],
+        ]
+    ]
+elif sys.version_info >= (3, 12):
+    WRAPPER_ASSIGNMENTS: Final[
+        tuple[
+            Literal["__module__"],
+            Literal["__name__"],
+            Literal["__qualname__"],
+            Literal["__doc__"],
+            Literal["__annotations__"],
+            Literal["__type_params__"],
+        ]
     ]
 else:
-    WRAPPER_ASSIGNMENTS: tuple[
-        Literal["__module__"], Literal["__name__"], Literal["__qualname__"], Literal["__doc__"], Literal["__annotations__"]
+    WRAPPER_ASSIGNMENTS: Final[
+        tuple[Literal["__module__"], Literal["__name__"], Literal["__qualname__"], Literal["__doc__"], Literal["__annotations__"]]
     ]
-WRAPPER_UPDATES: tuple[Literal["__dict__"]]
 
+WRAPPER_UPDATES: Final[tuple[Literal["__dict__"]]]
+
+@type_check_only
 class _Wrapped(Generic[_PWrapped, _RWrapped, _PWrapper, _RWrapper]):
     __wrapped__: Callable[_PWrapped, _RWrapped]
     def __call__(self, *args: _PWrapper.args, **kwargs: _PWrapper.kwargs) -> _RWrapper: ...
@@ -115,10 +133,24 @@ class _Wrapped(Generic[_PWrapped, _RWrapped, _PWrapper, _RWrapper]):
     __name__: str
     __qualname__: str
 
+@type_check_only
 class _Wrapper(Generic[_PWrapped, _RWrapped]):
     def __call__(self, f: Callable[_PWrapper, _RWrapper]) -> _Wrapped[_PWrapped, _RWrapped, _PWrapper, _RWrapper]: ...
 
-if sys.version_info >= (3, 12):
+if sys.version_info >= (3, 14):
+    def update_wrapper(
+        wrapper: Callable[_PWrapper, _RWrapper],
+        wrapped: Callable[_PWrapped, _RWrapped],
+        assigned: Iterable[str] = ("__module__", "__name__", "__qualname__", "__doc__", "__annotate__", "__type_params__"),
+        updated: Iterable[str] = ("__dict__",),
+    ) -> _Wrapped[_PWrapped, _RWrapped, _PWrapper, _RWrapper]: ...
+    def wraps(
+        wrapped: Callable[_PWrapped, _RWrapped],
+        assigned: Iterable[str] = ("__module__", "__name__", "__qualname__", "__doc__", "__annotate__", "__type_params__"),
+        updated: Iterable[str] = ("__dict__",),
+    ) -> _Wrapper[_PWrapped, _RWrapped]: ...
+
+elif sys.version_info >= (3, 12):
     def update_wrapper(
         wrapper: Callable[_PWrapper, _RWrapper],
         wrapped: Callable[_PWrapped, _RWrapped],
@@ -153,7 +185,7 @@ def cmp_to_key(mycmp: Callable[[_T, _T], int]) -> Callable[[_T], SupportsAllComp
       Function that compares two objects.
     """
     ...
-
+@disjoint_base
 class partial(Generic[_T]):
     @property
     def func(self) -> Callable[..., _T]:
@@ -182,10 +214,17 @@ class partialmethod(Generic[_T]):
     func: Callable[..., _T] | _Descriptor
     args: tuple[Any, ...]
     keywords: dict[str, Any]
-    @overload
-    def __init__(self, func: Callable[..., _T], /, *args: Any, **keywords: Any) -> None: ...
-    @overload
-    def __init__(self, func: _Descriptor, /, *args: Any, **keywords: Any) -> None: ...
+    if sys.version_info >= (3, 14):
+        @overload
+        def __new__(self, func: Callable[..., _T], /, *args: Any, **keywords: Any) -> Self: ...
+        @overload
+        def __new__(self, func: _Descriptor, /, *args: Any, **keywords: Any) -> Self: ...
+    else:
+        @overload
+        def __init__(self, func: Callable[..., _T], /, *args: Any, **keywords: Any) -> None: ...
+        @overload
+        def __init__(self, func: _Descriptor, /, *args: Any, **keywords: Any) -> None: ...
+
     def __get__(self, obj: Any, cls: type[Any] | None = None) -> Callable[..., _T]: ...
     @property
     def __isabstractmethod__(self) -> bool: ...
@@ -202,6 +241,7 @@ if sys.version_info >= (3, 11):
 else:
     _RegType: TypeAlias = type[Any]
 
+@type_check_only
 class _SingleDispatchCallable(Generic[_T]):
     registry: types.MappingProxyType[Any, Callable[..., _T]]
     def dispatch(self, cls: Any) -> Callable[..., _T]: ...
@@ -265,3 +305,11 @@ def _make_key(
     type: Any = ...,
     len: Callable[[Sized], int] = ...,
 ) -> Hashable: ...
+
+if sys.version_info >= (3, 14):
+    @final
+    class _PlaceholderType: ...
+
+    Placeholder: Final[_PlaceholderType]
+
+    __all__ += ["Placeholder"]

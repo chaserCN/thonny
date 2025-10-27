@@ -1,5 +1,5 @@
 import sys
-from _typeshed import MaybeNone, SupportsKeysAndGetItem
+from _typeshed import AnnotationForm, MaybeNone, SupportsKeysAndGetItem
 from _typeshed.importlib import LoaderProtocol
 from collections.abc import (
     AsyncGenerator,
@@ -17,7 +17,10 @@ from collections.abc import (
 )
 from importlib.machinery import ModuleSpec
 from typing import Any, ClassVar, Literal, TypeVar, final, overload
-from typing_extensions import ParamSpec, Self, TypeAliasType, TypeVarTuple, deprecated
+from typing_extensions import ParamSpec, Self, TypeAliasType, TypeVarTuple, deprecated, disjoint_base
+
+if sys.version_info >= (3, 14):
+    from _typeshed import AnnotateFunc
 
 __all__ = [
     "FunctionType",
@@ -62,7 +65,7 @@ if sys.version_info >= (3, 13):
 
 _T1 = TypeVar("_T1")
 _T2 = TypeVar("_T2")
-_KT = TypeVar("_KT")
+_KT_co = TypeVar("_KT_co", covariant=True)
 _VT_co = TypeVar("_VT_co", covariant=True)
 
 # Make sure this class definition stays roughly in line with `builtins.function`
@@ -93,7 +96,9 @@ class FunctionType:
     def __globals__(self) -> dict[str, Any]: ...
     __name__: str
     __qualname__: str
-    __annotations__: dict[str, Any]
+    __annotations__: dict[str, AnnotationForm]
+    if sys.version_info >= (3, 14):
+        __annotate__: AnnotateFunc | None
     __kwdefaults__: dict[str, Any] | None
     if sys.version_info >= (3, 10):
         @property
@@ -173,7 +178,7 @@ class CodeType:
     def co_firstlineno(self) -> int: ...
     if sys.version_info >= (3, 10):
         @property
-        @deprecated("Will be removed in Python 3.14. Use the co_lines() method instead.")
+        @deprecated("Deprecated since Python 3.10; will be removed in Python 3.15. Use `CodeType.co_lines()` instead.")
         def co_lnotab(self) -> bytes: ...
     else:
         @property
@@ -193,6 +198,8 @@ class CodeType:
         @property
         def co_qualname(self) -> str: ...
         def co_positions(self) -> Iterable[tuple[int | None, int | None, int | None, int | None]]: ...
+    if sys.version_info >= (3, 14):
+        def co_branches(self) -> Iterator[tuple[int, int, int]]: ...
 
     if sys.version_info >= (3, 11):
         def __new__(
@@ -331,14 +338,14 @@ class CodeType:
         __replace__ = replace
 
 @final
-class MappingProxyType(Mapping[_KT, _VT_co]):
+class MappingProxyType(Mapping[_KT_co, _VT_co]):  # type: ignore[type-var]  # pyright: ignore[reportInvalidTypeArguments]
     """Read-only proxy of a mapping."""
     __hash__: ClassVar[None]  # type: ignore[assignment]
-    def __new__(cls, mapping: SupportsKeysAndGetItem[_KT, _VT_co]) -> Self: ...
-    def __getitem__(self, key: _KT, /) -> _VT_co:
+    def __new__(cls, mapping: SupportsKeysAndGetItem[_KT_co, _VT_co]) -> Self: ...
+    def __getitem__(self, key: _KT_co, /) -> _VT_co:
         """Return self[key]."""
         ...
-    def __iter__(self) -> Iterator[_KT]:
+    def __iter__(self) -> Iterator[_KT_co]:
         """Implement iter(self)."""
         ...
     def __len__(self) -> int:
@@ -347,63 +354,81 @@ class MappingProxyType(Mapping[_KT, _VT_co]):
     def __eq__(self, value: object, /) -> bool:
         """Return self==value."""
         ...
-    def copy(self) -> dict[_KT, _VT_co]:
+    def copy(self) -> dict[_KT_co, _VT_co]:
         """D.copy() -> a shallow copy of D"""
         ...
-    def keys(self) -> KeysView[_KT]:
+    def keys(self) -> KeysView[_KT_co]:
         """D.keys() -> a set-like object providing a view on D's keys"""
         ...
     def values(self) -> ValuesView[_VT_co]:
         """D.values() -> an object providing a view on D's values"""
         ...
-    def items(self) -> ItemsView[_KT, _VT_co]:
+    def items(self) -> ItemsView[_KT_co, _VT_co]:
         """D.items() -> a set-like object providing a view on D's items"""
         ...
     @overload
-    def get(self, key: _KT, /) -> _VT_co | None:
+    def get(self, key: _KT_co, /) -> _VT_co | None:
         """Return the value for key if key is in the mapping, else default."""
         ...
     @overload
-    def get(self, key: _KT, default: _VT_co | _T2, /) -> _VT_co | _T2:
+    def get(self, key: _KT_co, default: _VT_co, /) -> _VT_co:
+        """Return the value for key if key is in the mapping, else default."""
+        ...
+    @overload
+    def get(self, key: _KT_co, default: _T2, /) -> _VT_co | _T2:
         """Return the value for key if key is in the mapping, else default."""
         ...
     def __class_getitem__(cls, item: Any, /) -> GenericAlias:
         """See PEP 585"""
         ...
-    def __reversed__(self) -> Iterator[_KT]:
+    def __reversed__(self) -> Iterator[_KT_co]:
         """D.__reversed__() -> reverse iterator"""
         ...
-    def __or__(self, value: Mapping[_T1, _T2], /) -> dict[_KT | _T1, _VT_co | _T2]:
+    def __or__(self, value: Mapping[_T1, _T2], /) -> dict[_KT_co | _T1, _VT_co | _T2]:
         """Return self|value."""
         ...
-    def __ror__(self, value: Mapping[_T1, _T2], /) -> dict[_KT | _T1, _VT_co | _T2]:
+    def __ror__(self, value: Mapping[_T1, _T2], /) -> dict[_KT_co | _T1, _VT_co | _T2]:
         """Return value|self."""
         ...
 
-class SimpleNamespace:
-    __hash__: ClassVar[None]  # type: ignore[assignment]
-    if sys.version_info >= (3, 13):
-        def __init__(self, mapping_or_iterable: Mapping[str, Any] | Iterable[tuple[str, Any]] = (), /, **kwargs: Any) -> None: ...
-    else:
-        def __init__(self, **kwargs: Any) -> None: ...
+if sys.version_info >= (3, 12):
+    @disjoint_base
+    class SimpleNamespace:
+        __hash__: ClassVar[None]  # type: ignore[assignment]
+        if sys.version_info >= (3, 13):
+            def __init__(
+                self, mapping_or_iterable: Mapping[str, Any] | Iterable[tuple[str, Any]] = (), /, **kwargs: Any
+            ) -> None: ...
+        else:
+            def __init__(self, **kwargs: Any) -> None: ...
 
-    def __eq__(self, value: object, /) -> bool:
-        """Return self==value."""
-        ...
-    def __getattribute__(self, name: str, /) -> Any:
-        """Return getattr(self, name)."""
-        ...
-    def __setattr__(self, name: str, value: Any, /) -> None:
-        """Implement setattr(self, name, value)."""
-        ...
-    def __delattr__(self, name: str, /) -> None:
-        """Implement delattr(self, name)."""
-        ...
-    if sys.version_info >= (3, 13):
-        def __replace__(self, **kwargs: Any) -> Self:
-            """Return a copy of the namespace object with new values for the specified attributes."""
+        def __eq__(self, value: object, /) -> bool:
+            """Return self==value."""
             ...
+        def __getattribute__(self, name: str, /) -> Any:
+            """Return getattr(self, name)."""
+            ...
+        def __setattr__(self, name: str, value: Any, /) -> None:
+            """Implement setattr(self, name, value)."""
+            ...
+        def __delattr__(self, name: str, /) -> None:
+            """Implement delattr(self, name)."""
+            ...
+        if sys.version_info >= (3, 13):
+            def __replace__(self, **kwargs: Any) -> Self:
+                """Return a copy of the namespace object with new values for the specified attributes."""
+                ...
 
+else:
+    class SimpleNamespace:
+        __hash__: ClassVar[None]  # type: ignore[assignment]
+        def __init__(self, **kwargs: Any) -> None: ...
+        def __eq__(self, value: object, /) -> bool: ...
+        def __getattribute__(self, name: str, /) -> Any: ...
+        def __setattr__(self, name: str, value: Any, /) -> None: ...
+        def __delattr__(self, name: str, /) -> None: ...
+
+@disjoint_base
 class ModuleType:
     """
     Create a module object.
@@ -425,6 +450,10 @@ class ModuleType:
     # Redeclaring `__doc__` here helps some type checkers understand that `__doc__` is available
     # as an implicit global in all modules, similar to `__name__`, `__file__`, `__spec__`, etc.
     __doc__: str | None
+    __annotations__: dict[str, AnnotationForm]
+    if sys.version_info >= (3, 14):
+        __annotate__: AnnotateFunc | None
+
     def __init__(self, name: str, doc: str | None = ...) -> None: ...
     # __getattr__ doesn't exist at runtime,
     # but having it here in typeshed makes dynamic imports
@@ -447,8 +476,8 @@ class CellType:
     cell_contents: Any
 
 _YieldT_co = TypeVar("_YieldT_co", covariant=True)
-_SendT_contra = TypeVar("_SendT_contra", contravariant=True)
-_ReturnT_co = TypeVar("_ReturnT_co", covariant=True)
+_SendT_contra = TypeVar("_SendT_contra", contravariant=True, default=None)
+_ReturnT_co = TypeVar("_ReturnT_co", covariant=True, default=None)
 
 @final
 class GeneratorType(Generator[_YieldT_co, _SendT_contra, _ReturnT_co]):
@@ -459,7 +488,7 @@ class GeneratorType(Generator[_YieldT_co, _SendT_contra, _ReturnT_co]):
     @property
     def gi_running(self) -> bool: ...
     @property
-    def gi_yieldfrom(self) -> GeneratorType[_YieldT_co, _SendT_contra, Any] | None:
+    def gi_yieldfrom(self) -> Iterator[_YieldT_co] | None:
         """object being iterated by yield from, or None"""
         ...
     if sys.version_info >= (3, 11):
@@ -568,8 +597,12 @@ class AsyncGeneratorType(AsyncGenerator[_YieldT_co, _SendT_contra]):
         """See PEP 585"""
         ...
 
+# Non-default variations to accommodate coroutines
+_SendT_nd_contra = TypeVar("_SendT_nd_contra", contravariant=True)
+_ReturnT_nd_co = TypeVar("_ReturnT_nd_co", covariant=True)
+
 @final
-class CoroutineType(Coroutine[_YieldT_co, _SendT_contra, _ReturnT_co]):
+class CoroutineType(Coroutine[_YieldT_co, _SendT_nd_contra, _ReturnT_nd_co]):
     __name__: str
     __qualname__: str
     @property
@@ -578,8 +611,13 @@ class CoroutineType(Coroutine[_YieldT_co, _SendT_contra, _ReturnT_co]):
         ...
     @property
     def cr_code(self) -> CodeType: ...
-    @property
-    def cr_frame(self) -> FrameType: ...
+    if sys.version_info >= (3, 12):
+        @property
+        def cr_frame(self) -> FrameType | None: ...
+    else:
+        @property
+        def cr_frame(self) -> FrameType: ...
+
     @property
     def cr_running(self) -> bool: ...
     @property
@@ -591,10 +629,10 @@ class CoroutineType(Coroutine[_YieldT_co, _SendT_contra, _ReturnT_co]):
     def close(self) -> None:
         """close() -> raise GeneratorExit inside coroutine."""
         ...
-    def __await__(self) -> Generator[Any, None, _ReturnT_co]:
+    def __await__(self) -> Generator[Any, None, _ReturnT_nd_co]:
         """Return an iterator to be used in await expression."""
         ...
-    def send(self, arg: _SendT_contra, /) -> _YieldT_co:
+    def send(self, arg: _SendT_nd_contra, /) -> _YieldT_co:
         """
         send(arg) -> send 'arg' into coroutine,
         return next iterated value or raise StopIteration.
@@ -656,6 +694,12 @@ class MethodType:
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Call self as a function."""
         ...
+
+    if sys.version_info >= (3, 13):
+        def __get__(self, instance: object, owner: type | None = None, /) -> Self:
+            """Return an attribute of instance, which is of type owner."""
+            ...
+
     def __eq__(self, value: object, /) -> bool:
         """Return self==value."""
         ...
@@ -769,26 +813,43 @@ class FrameType:
     @property
     def f_back(self) -> FrameType | None: ...
     @property
-    def f_builtins(self) -> dict[str, Any]: ...
+    def f_builtins(self) -> dict[str, Any]:
+        """Return the built-in variables in the frame."""
+        ...
     @property
-    def f_code(self) -> CodeType: ...
+    def f_code(self) -> CodeType:
+        """Return the code object being executed in this frame."""
+        ...
     @property
-    def f_globals(self) -> dict[str, Any]: ...
+    def f_globals(self) -> dict[str, Any]:
+        """Return the global variables in the frame."""
+        ...
     @property
-    def f_lasti(self) -> int: ...
+    def f_lasti(self) -> int:
+        """Return the index of the last attempted instruction in the frame."""
+        ...
     # see discussion in #6769: f_lineno *can* sometimes be None,
     # but you should probably file a bug report with CPython if you encounter it being None in the wild.
     # An `int | None` annotation here causes too many false-positive errors, so applying `int | Any`.
     @property
-    def f_lineno(self) -> int | MaybeNone: ...
+    def f_lineno(self) -> int | MaybeNone:
+        """Return the current line number in the frame."""
+        ...
     @property
-    def f_locals(self) -> dict[str, Any]: ...
+    def f_locals(self) -> dict[str, Any]:
+        """Return the mapping used by the frame to look up local variables."""
+        ...
     f_trace: Callable[[FrameType, str, Any], Any] | None
     f_trace_lines: bool
     f_trace_opcodes: bool
     def clear(self) -> None:
-        """F.clear(): clear most references held by the frame"""
+        """Clear all references held by the frame."""
         ...
+    if sys.version_info >= (3, 14):
+        @property
+        def f_generator(self) -> GeneratorType[Any, Any, Any] | CoroutineType[Any, Any, Any] | None:
+            """Return the generator or coroutine associated with this frame, or None."""
+            ...
 
 @final
 class GetSetDescriptorType:
@@ -871,7 +932,7 @@ _P = ParamSpec("_P")
 def coroutine(func: Callable[_P, Generator[Any, Any, _R]]) -> Callable[_P, Awaitable[_R]]: ...
 @overload
 def coroutine(func: _Fn) -> _Fn: ...
-
+@disjoint_base
 class GenericAlias:
     @property
     def __origin__(self) -> type | TypeAliasType: ...
@@ -932,10 +993,16 @@ if sys.version_info >= (3, 10):
         def __parameters__(self) -> tuple[Any, ...]:
             """Type variables in the types.UnionType."""
             ...
-        def __or__(self, value: Any, /) -> UnionType:
+        # `(int | str) | Literal["foo"]` returns a generic alias to an instance of `_SpecialForm` (`Union`).
+        # Normally we'd express this using the return type of `_SpecialForm.__ror__`,
+        # but because `UnionType.__or__` accepts `Any`, type checkers will use
+        # the return type of `UnionType.__or__` to infer the result of this operation
+        # rather than `_SpecialForm.__ror__`. To mitigate this, we use `| Any`
+        # in the return type of `UnionType.__(r)or__`.
+        def __or__(self, value: Any, /) -> UnionType | Any:
             """Return self|value."""
             ...
-        def __ror__(self, value: Any, /) -> UnionType:
+        def __ror__(self, value: Any, /) -> UnionType | Any:
             """Return value|self."""
             ...
         def __eq__(self, value: object, /) -> bool:
@@ -943,6 +1010,11 @@ if sys.version_info >= (3, 10):
             ...
         def __hash__(self) -> int:
             """Return hash(self)."""
+            ...
+        # you can only subscript a `UnionType` instance if at least one of the elements
+        # in the union is a generic alias instance that has a non-empty `__parameters__`
+        def __getitem__(self, parameters: Any) -> object:
+            """Return self[key]."""
             ...
 
 if sys.version_info >= (3, 13):

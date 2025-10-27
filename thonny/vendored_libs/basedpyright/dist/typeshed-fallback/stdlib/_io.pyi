@@ -30,8 +30,7 @@ data:
 DEFAULT_BUFFER_SIZE
 
    An int containing the default buffer size used by the module's buffered
-   I/O classes. open() uses the file's blksize (as obtained by os.stat) if
-   possible.
+   I/O classes.
 """
 
 import builtins
@@ -43,11 +42,14 @@ from io import BufferedIOBase, RawIOBase, TextIOBase, UnsupportedOperation as Un
 from os import _Opener
 from types import TracebackType
 from typing import IO, Any, BinaryIO, Final, Generic, Literal, Protocol, TextIO, TypeVar, overload, type_check_only
-from typing_extensions import Self
+from typing_extensions import Self, disjoint_base
 
 _T = TypeVar("_T")
 
-DEFAULT_BUFFER_SIZE: Final = 8192
+if sys.version_info >= (3, 14):
+    DEFAULT_BUFFER_SIZE: Final = 131072
+else:
+    DEFAULT_BUFFER_SIZE: Final = 8192
 
 open = builtins.open
 
@@ -62,164 +64,194 @@ def open_code(path: str) -> IO[bytes]:
 
 BlockingIOError = builtins.BlockingIOError
 
-class _IOBase:
-    """
-    The abstract base class for all I/O classes.
-
-    This class provides dummy implementations for many methods that
-    derived classes can override selectively; the default implementations
-    represent a file that cannot be read, written or seeked.
-
-    Even though IOBase does not declare read, readinto, or write because
-    their signatures will vary, implementations and clients should
-    consider those methods part of the interface. Also, implementations
-    may raise UnsupportedOperation when operations they do not support are
-    called.
-
-    The basic type used for binary data read from or written to a file is
-    bytes. Other bytes-like objects are accepted as method arguments too.
-    In some cases (such as readinto), a writable object is required. Text
-    I/O classes work with str data.
-
-    Note that calling any method (except additional calls to close(),
-    which are ignored) on a closed stream should raise a ValueError.
-
-    IOBase (and its subclasses) support the iterator protocol, meaning
-    that an IOBase object can be iterated over yielding the lines in a
-    stream.
-
-    IOBase also supports the :keyword:`with` statement. In this example,
-    fp is closed after the suite of the with statement is complete:
-
-    with open('spam.txt', 'r') as fp:
-        fp.write('Spam and eggs!')
-    """
-    def __iter__(self) -> Iterator[bytes]:
-        """Implement iter(self)."""
-        ...
-    def __next__(self) -> bytes:
-        """Implement next(self)."""
-        ...
-    def __enter__(self) -> Self: ...
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
-    ) -> None: ...
-    def close(self) -> None:
+if sys.version_info >= (3, 12):
+    @disjoint_base
+    class _IOBase:
         """
-        Flush and close the IO object.
+        The abstract base class for all I/O classes.
 
-        This method has no effect if the file is already closed.
-        """
-        ...
-    def fileno(self) -> int:
-        """
-        Return underlying file descriptor if one exists.
+        This class provides dummy implementations for many methods that
+        derived classes can override selectively; the default implementations
+        represent a file that cannot be read, written or seeked.
 
-        Raise OSError if the IO object does not use a file descriptor.
-        """
-        ...
-    def flush(self) -> None:
-        """
-        Flush write buffers, if applicable.
+        Even though IOBase does not declare read, readinto, or write because
+        their signatures will vary, implementations and clients should
+        consider those methods part of the interface. Also, implementations
+        may raise UnsupportedOperation when operations they do not support are
+        called.
 
-        This is not implemented for read-only and non-blocking streams.
-        """
-        ...
-    def isatty(self) -> bool:
-        """
-        Return whether this is an 'interactive' stream.
+        The basic type used for binary data read from or written to a file is
+        bytes. Other bytes-like objects are accepted as method arguments too.
+        In some cases (such as readinto), a writable object is required. Text
+        I/O classes work with str data.
 
-        Return False if it can't be determined.
-        """
-        ...
-    def readable(self) -> bool:
-        """
-        Return whether object was opened for reading.
+        Note that calling any method (except additional calls to close(),
+        which are ignored) on a closed stream should raise a ValueError.
 
-        If False, read() will raise OSError.
-        """
-        ...
-    read: Callable[..., Any]
-    def readlines(self, hint: int = -1, /) -> list[bytes]:
-        """
-        Return a list of lines from the stream.
+        IOBase (and its subclasses) support the iterator protocol, meaning
+        that an IOBase object can be iterated over yielding the lines in a
+        stream.
 
-        hint can be specified to control the number of lines read: no more
-        lines will be read if the total size (in bytes/characters) of all
-        lines so far exceeds hint.
-        """
-        ...
-    def seek(self, offset: int, whence: int = 0, /) -> int:
-        """
-        Change the stream position to the given byte offset.
+        IOBase also supports the :keyword:`with` statement. In this example,
+        fp is closed after the suite of the with statement is complete:
 
-          offset
-            The stream position, relative to 'whence'.
-          whence
-            The relative position to seek from.
+        with open('spam.txt', 'r') as fp:
+            fp.write('Spam and eggs!')
+        """
+        def __iter__(self) -> Iterator[bytes]:
+            """Implement iter(self)."""
+            ...
+        def __next__(self) -> bytes:
+            """Implement next(self)."""
+            ...
+        def __enter__(self) -> Self: ...
+        def __exit__(
+            self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+        ) -> None: ...
+        def close(self) -> None:
+            """
+            Flush and close the IO object.
 
-        The offset is interpreted relative to the position indicated by whence.
-        Values for whence are:
+            This method has no effect if the file is already closed.
+            """
+            ...
+        def fileno(self) -> int:
+            """
+            Return underlying file descriptor if one exists.
 
-        * os.SEEK_SET or 0 -- start of stream (the default); offset should be zero or positive
-        * os.SEEK_CUR or 1 -- current stream position; offset may be negative
-        * os.SEEK_END or 2 -- end of stream; offset is usually negative
+            Raise OSError if the IO object does not use a file descriptor.
+            """
+            ...
+        def flush(self) -> None:
+            """
+            Flush write buffers, if applicable.
 
-        Return the new absolute position.
-        """
-        ...
-    def seekable(self) -> bool:
-        """
-        Return whether object supports random access.
+            This is not implemented for read-only and non-blocking streams.
+            """
+            ...
+        def isatty(self) -> bool:
+            """
+            Return whether this is an 'interactive' stream.
 
-        If False, seek(), tell() and truncate() will raise OSError.
-        This method may need to do a test seek().
-        """
-        ...
-    def tell(self) -> int:
-        """Return current stream position."""
-        ...
-    def truncate(self, size: int | None = None, /) -> int:
-        """
-        Truncate file to size bytes.
+            Return False if it can't be determined.
+            """
+            ...
+        def readable(self) -> bool:
+            """
+            Return whether object was opened for reading.
 
-        File pointer is left unchanged. Size defaults to the current IO position
-        as reported by tell(). Return the new size.
-        """
-        ...
-    def writable(self) -> bool:
-        """
-        Return whether object was opened for writing.
+            If False, read() will raise OSError.
+            """
+            ...
+        read: Callable[..., Any]
+        def readlines(self, hint: int = -1, /) -> list[bytes]:
+            """
+            Return a list of lines from the stream.
 
-        If False, write() will raise OSError.
-        """
-        ...
-    write: Callable[..., Any]
-    def writelines(self, lines: Iterable[ReadableBuffer], /) -> None:
-        """
-        Write a list of lines to stream.
+            hint can be specified to control the number of lines read: no more
+            lines will be read if the total size (in bytes/characters) of all
+            lines so far exceeds hint.
+            """
+            ...
+        def seek(self, offset: int, whence: int = 0, /) -> int:
+            """
+            Change the stream position to the given byte offset.
 
-        Line separators are not added, so it is usual for each of the
-        lines provided to have a line separator at the end.
-        """
-        ...
-    def readline(self, size: int | None = -1, /) -> bytes:
-        r"""
-        Read and return a line from the stream.
+              offset
+                The stream position, relative to 'whence'.
+              whence
+                The relative position to seek from.
 
-        If size is specified, at most size bytes will be read.
+            The offset is interpreted relative to the position indicated by whence.
+            Values for whence are:
 
-        The line terminator is always b'\n' for binary files; for text
-        files, the newlines argument to open can be used to select the line
-        terminator(s) recognized.
-        """
-        ...
-    def __del__(self) -> None:
-        """Called when the instance is about to be destroyed."""
-        ...
-    @property
-    def closed(self) -> bool: ...
-    def _checkClosed(self) -> None: ...  # undocumented
+            * os.SEEK_SET or 0 -- start of stream (the default); offset should be zero or positive
+            * os.SEEK_CUR or 1 -- current stream position; offset may be negative
+            * os.SEEK_END or 2 -- end of stream; offset is usually negative
+
+            Return the new absolute position.
+            """
+            ...
+        def seekable(self) -> bool:
+            """
+            Return whether object supports random access.
+
+            If False, seek(), tell() and truncate() will raise OSError.
+            This method may need to do a test seek().
+            """
+            ...
+        def tell(self) -> int:
+            """Return current stream position."""
+            ...
+        def truncate(self, size: int | None = None, /) -> int:
+            """
+            Truncate file to size bytes.
+
+            File pointer is left unchanged. Size defaults to the current IO position
+            as reported by tell(). Return the new size.
+            """
+            ...
+        def writable(self) -> bool:
+            """
+            Return whether object was opened for writing.
+
+            If False, write() will raise OSError.
+            """
+            ...
+        write: Callable[..., Any]
+        def writelines(self, lines: Iterable[ReadableBuffer], /) -> None:
+            """
+            Write a list of lines to stream.
+
+            Line separators are not added, so it is usual for each of the
+            lines provided to have a line separator at the end.
+            """
+            ...
+        def readline(self, size: int | None = -1, /) -> bytes:
+            r"""
+            Read and return a line from the stream.
+
+            If size is specified, at most size bytes will be read.
+
+            The line terminator is always b'\n' for binary files; for text
+            files, the newlines argument to open can be used to select the line
+            terminator(s) recognized.
+            """
+            ...
+        def __del__(self) -> None:
+            """Called when the instance is about to be destroyed."""
+            ...
+        @property
+        def closed(self) -> bool: ...
+        def _checkClosed(self) -> None: ...  # undocumented
+
+else:
+    class _IOBase:
+        def __iter__(self) -> Iterator[bytes]: ...
+        def __next__(self) -> bytes: ...
+        def __enter__(self) -> Self: ...
+        def __exit__(
+            self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+        ) -> None: ...
+        def close(self) -> None: ...
+        def fileno(self) -> int: ...
+        def flush(self) -> None: ...
+        def isatty(self) -> bool: ...
+        def readable(self) -> bool: ...
+        read: Callable[..., Any]
+        def readlines(self, hint: int = -1, /) -> list[bytes]: ...
+        def seek(self, offset: int, whence: int = 0, /) -> int: ...
+        def seekable(self) -> bool: ...
+        def tell(self) -> int: ...
+        def truncate(self, size: int | None = None, /) -> int: ...
+        def writable(self) -> bool: ...
+        write: Callable[..., Any]
+        def writelines(self, lines: Iterable[ReadableBuffer], /) -> None: ...
+        def readline(self, size: int | None = -1, /) -> bytes: ...
+        def __del__(self) -> None: ...
+        @property
+        def closed(self) -> bool: ...
+        def _checkClosed(self) -> None: ...  # undocumented
 
 class _RawIOBase(_IOBase):
     """Base class for raw binary I/O."""
@@ -298,6 +330,7 @@ class _BufferedIOBase(_IOBase):
         """
         ...
 
+@disjoint_base
 class FileIO(RawIOBase, _RawIOBase, BinaryIO):  # type: ignore[misc]  # incompatible definitions of writelines in the base classes
     """
     Open a file.
@@ -343,12 +376,18 @@ class FileIO(RawIOBase, _RawIOBase, BinaryIO):  # type: ignore[misc]  # incompat
         """
         Read at most size bytes, returned as bytes.
 
-        Only makes one system call, so less data may be returned than requested.
-        In non-blocking mode, returns None if no data is available.
-        Return an empty bytes object at EOF.
+        If size is less than 0, read all bytes in the file making multiple read calls.
+        See ``FileIO.readall``.
+
+        Attempts to make only one system call, retrying only per PEP 475 (EINTR). This
+        means less data may be returned than requested.
+
+        In non-blocking mode, returns None if no data is available. Return an empty
+        bytes object at EOF.
         """
         ...
 
+@disjoint_base
 class BytesIO(BufferedIOBase, _BufferedIOBase, BinaryIO):  # type: ignore[misc]  # incompatible definitions of methods in the base classes
     """Buffered I/O implementation using an in-memory bytes buffer."""
     def __init__(self, initial_bytes: ReadableBuffer = b"") -> None: ...
@@ -391,14 +430,48 @@ class BytesIO(BufferedIOBase, _BufferedIOBase, BinaryIO):  # type: ignore[misc] 
         """
         ...
 
-class BufferedReader(BufferedIOBase, _BufferedIOBase, BinaryIO):  # type: ignore[misc]  # incompatible definitions of methods in the base classes
+@type_check_only
+class _BufferedReaderStream(Protocol):
+    def read(self, n: int = ..., /) -> bytes: ...
+    # Optional: def readall(self) -> bytes: ...
+    def readinto(self, b: memoryview, /) -> int | None: ...
+    def seek(self, pos: int, whence: int, /) -> int: ...
+    def tell(self) -> int: ...
+    def truncate(self, size: int, /) -> int: ...
+    def flush(self) -> object: ...
+    def close(self) -> object: ...
+    @property
+    def closed(self) -> bool: ...
+    def readable(self) -> bool: ...
+    def seekable(self) -> bool: ...
+
+    # The following methods just pass through to the underlying stream. Since
+    # not all streams support them, they are marked as optional here, and will
+    # raise an AttributeError if called on a stream that does not support them.
+
+    # @property
+    # def name(self) -> Any: ...  # Type is inconsistent between the various I/O types.
+    # @property
+    # def mode(self) -> str: ...
+    # def fileno(self) -> int: ...
+    # def isatty(self) -> bool: ...
+
+_BufferedReaderStreamT = TypeVar("_BufferedReaderStreamT", bound=_BufferedReaderStream, default=_BufferedReaderStream)
+
+@disjoint_base
+class BufferedReader(BufferedIOBase, _BufferedIOBase, BinaryIO, Generic[_BufferedReaderStreamT]):  # type: ignore[misc]  # incompatible definitions of methods in the base classes
     """Create a new buffered reader using the given readable raw IO object."""
-    raw: RawIOBase
-    def __init__(self, raw: RawIOBase, buffer_size: int = 8192) -> None: ...
+    raw: _BufferedReaderStreamT
+    if sys.version_info >= (3, 14):
+        def __init__(self, raw: _BufferedReaderStreamT, buffer_size: int = 131072) -> None: ...
+    else:
+        def __init__(self, raw: _BufferedReaderStreamT, buffer_size: int = 8192) -> None: ...
+
     def peek(self, size: int = 0, /) -> bytes: ...
     def seek(self, target: int, whence: int = 0, /) -> int: ...
     def truncate(self, pos: int | None = None, /) -> int: ...
 
+@disjoint_base
 class BufferedWriter(BufferedIOBase, _BufferedIOBase, BinaryIO):  # type: ignore[misc]  # incompatible definitions of writelines in the base classes
     """
     A buffer for a writeable sequential RawIO object.
@@ -408,11 +481,16 @@ class BufferedWriter(BufferedIOBase, _BufferedIOBase, BinaryIO):  # type: ignore
     DEFAULT_BUFFER_SIZE.
     """
     raw: RawIOBase
-    def __init__(self, raw: RawIOBase, buffer_size: int = 8192) -> None: ...
+    if sys.version_info >= (3, 14):
+        def __init__(self, raw: RawIOBase, buffer_size: int = 131072) -> None: ...
+    else:
+        def __init__(self, raw: RawIOBase, buffer_size: int = 8192) -> None: ...
+
     def write(self, buffer: ReadableBuffer, /) -> int: ...
     def seek(self, target: int, whence: int = 0, /) -> int: ...
     def truncate(self, pos: int | None = None, /) -> int: ...
 
+@disjoint_base
 class BufferedRandom(BufferedIOBase, _BufferedIOBase, BinaryIO):  # type: ignore[misc]  # incompatible definitions of methods in the base classes
     """
     A buffered interface to random access streams.
@@ -424,12 +502,17 @@ class BufferedRandom(BufferedIOBase, _BufferedIOBase, BinaryIO):  # type: ignore
     mode: str
     name: Any
     raw: RawIOBase
-    def __init__(self, raw: RawIOBase, buffer_size: int = 8192) -> None: ...
+    if sys.version_info >= (3, 14):
+        def __init__(self, raw: RawIOBase, buffer_size: int = 131072) -> None: ...
+    else:
+        def __init__(self, raw: RawIOBase, buffer_size: int = 8192) -> None: ...
+
     def seek(self, target: int, whence: int = 0, /) -> int: ...  # stubtest needs this
     def peek(self, size: int = 0, /) -> bytes: ...
     def truncate(self, pos: int | None = None, /) -> int: ...
 
-class BufferedRWPair(BufferedIOBase, _BufferedIOBase):
+@disjoint_base
+class BufferedRWPair(BufferedIOBase, _BufferedIOBase, Generic[_BufferedReaderStreamT]):
     """
     A buffered reader and writer object together.
 
@@ -441,7 +524,11 @@ class BufferedRWPair(BufferedIOBase, _BufferedIOBase):
     writeable respectively. If the buffer_size is omitted it defaults to
     DEFAULT_BUFFER_SIZE.
     """
-    def __init__(self, reader: RawIOBase, writer: RawIOBase, buffer_size: int = 8192, /) -> None: ...
+    if sys.version_info >= (3, 14):
+        def __init__(self, reader: _BufferedReaderStreamT, writer: RawIOBase, buffer_size: int = 131072, /) -> None: ...
+    else:
+        def __init__(self, reader: _BufferedReaderStreamT, writer: RawIOBase, buffer_size: int = 8192, /) -> None: ...
+
     def peek(self, size: int = 0, /) -> bytes: ...
 
 class _TextIOBase(_IOBase):
@@ -513,8 +600,7 @@ class _TextIOBase(_IOBase):
 @type_check_only
 class _WrappedBuffer(Protocol):
     # "name" is wrapped by TextIOWrapper. Its type is inconsistent between
-    # the various I/O types, see the comments on TextIOWrapper.name and
-    # TextIO.name.
+    # the various I/O types.
     @property
     def name(self) -> Any: ...
     @property
@@ -536,6 +622,7 @@ class _WrappedBuffer(Protocol):
 
 _BufferT_co = TypeVar("_BufferT_co", bound=_WrappedBuffer, default=_WrappedBuffer, covariant=True)
 
+@disjoint_base
 class TextIOWrapper(TextIOBase, _TextIOBase, TextIO, Generic[_BufferT_co]):  # type: ignore[misc]  # incompatible definitions of write in the base classes
     r"""
     Character and line based layer over a BufferedIOBase object, buffer.
@@ -627,6 +714,7 @@ class TextIOWrapper(TextIOBase, _TextIOBase, TextIO, Generic[_BufferT_co]):  # t
         ...
     def truncate(self, pos: int | None = None, /) -> int: ...
 
+@disjoint_base
 class StringIO(TextIOBase, _TextIOBase, TextIO):  # type: ignore[misc]  # incompatible definitions of write in the base classes
     """
     Text I/O implementation using an in-memory buffer.
@@ -665,6 +753,7 @@ class StringIO(TextIOBase, _TextIOBase, TextIO):  # type: ignore[misc]  # incomp
         """
         ...
 
+@disjoint_base
 class IncrementalNewlineDecoder:
     r"""
     Codec used when reading a file in universal newlines mode.

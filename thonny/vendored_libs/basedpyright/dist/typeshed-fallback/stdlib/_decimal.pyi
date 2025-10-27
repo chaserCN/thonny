@@ -43,6 +43,8 @@ MAX_EMAX: Final[int]
 MAX_PREC: Final[int]
 MIN_EMIN: Final[int]
 MIN_ETINY: Final[int]
+if sys.version_info >= (3, 14):
+    IEEE_CONTEXT_MAX_BITS: Final[int]
 
 def setcontext(context: Context, /) -> None:
     """Set a new default context."""
@@ -55,14 +57,14 @@ if sys.version_info >= (3, 11):
     def localcontext(
         ctx: Context | None = None,
         *,
-        prec: int | None = ...,
-        rounding: str | None = ...,
-        Emin: int | None = ...,
-        Emax: int | None = ...,
-        capitals: int | None = ...,
-        clamp: int | None = ...,
-        traps: dict[_TrapType, bool] | None = ...,
-        flags: dict[_TrapType, bool] | None = ...,
+        prec: int | None = None,
+        rounding: str | None = None,
+        Emin: int | None = None,
+        Emax: int | None = None,
+        capitals: int | None = None,
+        clamp: int | None = None,
+        traps: dict[_TrapType, bool] | None = None,
+        flags: dict[_TrapType, bool] | None = None,
     ) -> _ContextManager:
         """
         Return a context manager that will set the default context to a copy of ctx
@@ -74,6 +76,15 @@ if sys.version_info >= (3, 11):
 
 else:
     def localcontext(ctx: Context | None = None) -> _ContextManager: ...
+
+if sys.version_info >= (3, 14):
+    def IEEEContext(bits: int, /) -> Context:
+        """
+        Return a context object initialized to the proper values for one of the
+        IEEE interchange formats.  The argument must be a multiple of 32 and less
+        than IEEE_CONTEXT_MAX_BITS.
+        """
+        ...
 
 DefaultContext: Context
 BasicContext: Context

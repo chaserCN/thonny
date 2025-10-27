@@ -574,8 +574,67 @@ class DiagnosticHighlighter:
             self._tooltips_per_editor[uri] = DiagnosticTooltip(editor.get_text_widget())
         return self._tooltips_per_editor[uri]
     
+    def _should_ignore_ruff_for_pyright(self, event, ruff_diagnostic: Diagnostic, editor: Editor) -> bool:
+        """Check if Ruff diagnostic should be ignored due to Pyright priority at cursor position"""
+        uri = editor.get_uri()
+        if not uri:
+            return False
+        
+        # Get cursor position from event
+        text = editor.get_text_widget()
+        try:
+            cursor_index = text.index(f"@{event.x},{event.y}")
+            cursor_line, cursor_char = map(int, cursor_index.split('.'))
+            # Convert to 0-based LSP position
+            cursor_pos = (cursor_line - 1, cursor_char)
+        except:
+            return False
+        
+        ruff_severity = ruff_diagnostic.severity or DiagnosticSeverity.Error
+        
+        # Check all diagnostics in this file
+        for diag_info in self._diagnostics_per_uri.get(uri, []):
+            other_diagnostic = diag_info.diagnostic
+            other_source = (other_diagnostic.source or "").lower()
+            
+            # Skip if not Pyright
+            if "pyright" not in other_source and "basedpyright" not in other_source:
+                continue
+            
+            # Skip if different severity
+            other_severity = other_diagnostic.severity or DiagnosticSeverity.Error
+            if ruff_severity != other_severity:
+                continue
+            
+            # Check if cursor is in BOTH ranges (intersection zone)
+            pyright_range = other_diagnostic.range
+            ruff_range = ruff_diagnostic.range
+            
+            # Check if cursor is inside Pyright range
+            pyright_start = (pyright_range.start.line, pyright_range.start.character)
+            pyright_end = (pyright_range.end.line, pyright_range.end.character)
+            cursor_in_pyright = pyright_start <= cursor_pos < pyright_end
+            
+            # Check if cursor is inside Ruff range
+            ruff_start = (ruff_range.start.line, ruff_range.start.character)
+            ruff_end = (ruff_range.end.line, ruff_range.end.character)
+            cursor_in_ruff = ruff_start <= cursor_pos < ruff_end
+            
+            # If cursor is in both ranges (intersection) - Pyright has priority
+            if cursor_in_pyright and cursor_in_ruff:
+                logger.info(f"[Tooltip] Ignoring Ruff diagnostic - cursor in Pyright priority zone at {cursor_pos}")
+                return True
+        
+        return False
+    
     def _show_tooltip(self, event, diagnostic: Diagnostic, editor: Editor) -> None:
         """Show tooltip with diagnostic message and AI explanation"""
+        # Check if this is Ruff and should be ignored due to Pyright priority
+        diagnostic_source = (diagnostic.source or "").lower()
+        if "ruff" in diagnostic_source:
+            if self._should_ignore_ruff_for_pyright(event, diagnostic, editor):
+                return  # Don't show Ruff tooltip when Pyright has priority at cursor position
+        
         tooltip = self._get_tooltip_for_editor(editor)
         tooltip.show(event, diagnostic)
     

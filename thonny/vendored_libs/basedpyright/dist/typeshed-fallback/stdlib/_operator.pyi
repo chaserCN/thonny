@@ -12,7 +12,7 @@ import sys
 from _typeshed import SupportsGetItem
 from collections.abc import Callable, Container, Iterable, MutableMapping, MutableSequence, Sequence
 from operator import attrgetter as attrgetter, itemgetter as itemgetter, methodcaller as methodcaller
-from typing import Any, AnyStr, Protocol, SupportsAbs, SupportsIndex, TypeVar, overload
+from typing import Any, AnyStr, Protocol, SupportsAbs, SupportsIndex, TypeVar, overload, type_check_only
 from typing_extensions import ParamSpec, TypeAlias, TypeIs
 
 _R = TypeVar("_R")
@@ -26,26 +26,33 @@ _P = ParamSpec("_P")
 # operators can be overloaded to return an arbitrary object. For example,
 # the numpy.array comparison dunders return another numpy.array.
 
+@type_check_only
 class _SupportsDunderLT(Protocol):
     def __lt__(self, other: Any, /) -> Any: ...
 
+@type_check_only
 class _SupportsDunderGT(Protocol):
     def __gt__(self, other: Any, /) -> Any: ...
 
+@type_check_only
 class _SupportsDunderLE(Protocol):
     def __le__(self, other: Any, /) -> Any: ...
 
+@type_check_only
 class _SupportsDunderGE(Protocol):
     def __ge__(self, other: Any, /) -> Any: ...
 
 _SupportsComparison: TypeAlias = _SupportsDunderLE | _SupportsDunderGE | _SupportsDunderGT | _SupportsDunderLT
 
+@type_check_only
 class _SupportsInversion(Protocol[_T_co]):
     def __invert__(self) -> _T_co: ...
 
+@type_check_only
 class _SupportsNeg(Protocol[_T_co]):
     def __neg__(self) -> _T_co: ...
 
+@type_check_only
 class _SupportsPos(Protocol[_T_co]):
     def __pos__(self) -> _T_co: ...
 
@@ -257,5 +264,9 @@ def _compare_digest(a: AnyStr, b: AnyStr, /) -> bool:
     ...
 
 if sys.version_info >= (3, 14):
-    def is_none(a: object, /) -> TypeIs[None]: ...
-    def is_not_none(a: _T | None, /) -> TypeIs[_T]: ...
+    def is_none(a: object, /) -> TypeIs[None]:
+        """Same as a is None."""
+        ...
+    def is_not_none(a: _T | None, /) -> TypeIs[_T]:
+        """Same as a is not None."""
+        ...

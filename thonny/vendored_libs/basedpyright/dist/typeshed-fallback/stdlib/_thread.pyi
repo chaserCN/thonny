@@ -10,7 +10,7 @@ from collections.abc import Callable
 from threading import Thread
 from types import TracebackType
 from typing import Any, Final, NoReturn, final, overload
-from typing_extensions import TypeVarTuple, Unpack
+from typing_extensions import TypeVarTuple, Unpack, disjoint_base
 
 _Ts = TypeVarTuple("_Ts")
 
@@ -61,6 +61,14 @@ class RLock:
     def __exit__(self, t: type[BaseException] | None, v: BaseException | None, tb: TracebackType | None) -> None:
         """Release the lock."""
         ...
+    if sys.version_info >= (3, 14):
+        def locked(self) -> bool:
+            """
+            locked()
+
+            Return a boolean indicating whether this object is locked right now.
+            """
+            ...
 
 if sys.version_info >= (3, 13):
     @final
@@ -191,7 +199,7 @@ def start_new(function: Callable[..., object], args: tuple[Any, ...], kwargs: di
     ...
 
 if sys.version_info >= (3, 10):
-    def interrupt_main(signum: signal.Signals = ..., /) -> None:
+    def interrupt_main(signum: signal.Signals = signal.SIGINT, /) -> None:
         """
         Simulate the arrival of the given signal in the main thread,
         where the corresponding signal handler will be executed.
@@ -255,7 +263,7 @@ def stack_size(size: int = 0, /) -> int:
     """
     ...
 
-TIMEOUT_MAX: float
+TIMEOUT_MAX: Final[float]
 
 def get_native_id() -> int:
     """
@@ -301,6 +309,12 @@ if sys.version_info >= (3, 12):
         """
         ...
 
+if sys.version_info >= (3, 14):
+    def set_name(name: str) -> None:
+        """Set the name of the current thread."""
+        ...
+
+@disjoint_base
 class _local:
     """Thread-local data"""
     def __getattribute__(self, name: str, /) -> Any:

@@ -26,7 +26,7 @@ class XMLParserType:
         """
         Parse XML data.
 
-        `isfinal' should be true at end of input.
+        'isfinal' should be true at end of input.
         """
         ...
     def ParseFile(self, file: SupportsRead[bytes], /) -> int:

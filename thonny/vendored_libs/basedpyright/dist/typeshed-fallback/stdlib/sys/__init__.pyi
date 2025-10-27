@@ -72,14 +72,14 @@ settrace() -- set the global debug tracing function
 """
 
 import sys
-from _typeshed import MaybeNone, OptExcInfo, ProfileFunction, TraceFunction, structseq
+from _typeshed import MaybeNone, OptExcInfo, ProfileFunction, StrOrBytesPath, TraceFunction, structseq
 from _typeshed.importlib import MetaPathFinderProtocol, PathEntryFinderProtocol
 from builtins import object as _object
 from collections.abc import AsyncGenerator, Callable, Sequence
 from io import TextIOWrapper
 from types import FrameType, ModuleType, TracebackType
 from typing import Any, Final, Literal, NoReturn, Protocol, TextIO, TypeVar, final, type_check_only
-from typing_extensions import LiteralString, TypeAlias
+from typing_extensions import LiteralString, TypeAlias, deprecated
 
 _T = TypeVar("_T")
 
@@ -169,7 +169,7 @@ flags: _flags
 # This can be re-visited when typeshed drops support for 3.10,
 # at which point all supported versions will include int_max_str_digits
 # in all patch versions.
-# 3.8 and 3.9 are 15 or 16-tuple
+# 3.9 is 15 or 16-tuple
 # 3.10 is 16 or 17-tuple
 # 3.11+ is an 18-tuple.
 @final
@@ -254,10 +254,18 @@ class _flags(_UninstantiableStructseq, tuple[int, ...]):
     if sys.version_info >= (3, 11):
         @property
         def safe_path(self) -> bool: ...
+    if sys.version_info >= (3, 13):
+        @property
+        def gil(self) -> Literal[0, 1]: ...
+    if sys.version_info >= (3, 14):
+        @property
+        def thread_inherit_context(self) -> Literal[0, 1]: ...
+        @property
+        def context_aware_warnings(self) -> Literal[0, 1]: ...
     # Whether or not this exists on lower versions of Python
     # may depend on which patch release you're using
     # (it was backported to all Python versions on 3.8+ as a security fix)
-    # Added in: 3.8.14, 3.9.14, 3.10.7
+    # Added in: 3.9.14, 3.10.7
     # and present in all versions of 3.11 and later.
     @property
     def int_max_str_digits(self) -> int: ...
@@ -416,9 +424,16 @@ def call_tracing(func: Callable[..., _T], args: Any, /) -> _T:
     some other code.
     """
     ...
-def _clear_type_cache() -> None:
-    """Clear the internal type lookup cache."""
-    ...
+
+if sys.version_info >= (3, 13):
+    @deprecated("Deprecated since Python 3.13. Use `_clear_internal_caches()` instead.")
+    def _clear_type_cache() -> None:
+        """Clear the internal type lookup cache."""
+        ...
+
+else:
+    def _clear_type_cache() -> None: ...
+
 def _current_frames() -> dict[int, FrameType]:
     """
     Return a dict mapping each thread's thread id to its current stack frame.
@@ -439,6 +454,20 @@ def _getframe(depth: int = 0, /) -> FrameType:
     only.
     """
     ...
+
+if sys.version_info >= (3, 12):
+    def _getframemodulename(depth: int = 0) -> str | None:
+        """
+        Return the name of the module for a calling frame.
+
+        The default depth returns the module containing the call to this API.
+        A more typical use in a library will pass a depth of 1 to get the user's
+        module rather than the library module.
+
+        If no frame, module, or name can be found, returns None.
+        """
+        ...
+
 def _debugmallocstats() -> None:
     """
     Print summary info to stderr about the state of pymalloc's structures.
@@ -567,6 +596,7 @@ def settrace(function: TraceFunction | None, /) -> None:
 if sys.platform == "win32":
     # A tuple of length 5, even though it has more than 5 attributes.
     @final
+    @type_check_only
     class _WinVersion(_UninstantiableStructseq, tuple[int, int, int, int, str]):
         @property
         def major(self) -> int: ...
@@ -720,7 +750,14 @@ def set_asyncgen_hooks(firstiter: _AsyncgenHook = ..., finalizer: _AsyncgenHook 
     ...
 
 if sys.platform == "win32":
-    def _enablelegacywindowsfsencoding() -> None: ...
+    if sys.version_info >= (3, 13):
+        @deprecated(
+            "Deprecated since Python 3.13; will be removed in Python 3.16. "
+            "Use the `PYTHONLEGACYWINDOWSFSENCODING` environment variable instead."
+        )
+        def _enablelegacywindowsfsencoding() -> None: ...
+    else:
+        def _enablelegacywindowsfsencoding() -> None: ...
 
 def get_coroutine_origin_tracking_depth() -> int:
     """Check status of origin tracking for coroutine objects in this thread."""
@@ -736,7 +773,7 @@ def set_coroutine_origin_tracking_depth(depth: int) -> None:
     """
     ...
 
-# The following two functions were added in 3.11.0, 3.10.7, 3.9.14, and 3.8.14,
+# The following two functions were added in 3.11.0, 3.10.7, and 3.9.14,
 # as part of the response to CVE-2020-10735
 def set_int_max_str_digits(maxdigits: int) -> None:
     """Set the maximum string digits limit for non-binary int<->str conversions."""
@@ -774,3 +811,30 @@ if sys.version_info >= (3, 12):
     from . import _monitoring
 
     monitoring = _monitoring
+
+if sys.version_info >= (3, 14):
+    def is_remote_debug_enabled() -> bool:
+        """Return True if remote debugging is enabled, False otherwise."""
+        ...
+    def remote_exec(pid: int, script: StrOrBytesPath) -> None:
+        """
+        Executes a file containing Python code in a given remote Python process.
+
+        This function returns immediately, and the code will be executed by the
+        target process's main thread at the next available opportunity, similarly
+        to how signals are handled. There is no interface to determine when the
+        code has been executed. The caller is responsible for making sure that
+        the file still exists whenever the remote process tries to read it and that
+        it hasn't been overwritten.
+
+        The remote process must be running a CPython interpreter of the same major
+        and minor version as the local process. If either the local or remote
+        interpreter is pre-release (alpha, beta, or release candidate) then the
+        local and remote interpreters must be the same exact version.
+
+        Args:
+             pid (int): The process ID of the target Python process.
+             script (str|bytes): The path to a file containing
+                 the Python code to be executed.
+        """
+        ...

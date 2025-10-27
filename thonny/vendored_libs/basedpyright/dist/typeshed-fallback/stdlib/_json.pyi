@@ -20,7 +20,7 @@ class make_encoder:
         """key_separator"""
         ...
     @property
-    def indent(self) -> int | None:
+    def indent(self) -> str | None:
         """indent"""
         ...
     @property
@@ -44,7 +44,7 @@ class make_encoder:
         markers: dict[int, Any] | None,
         default: Callable[[Any], Any],
         encoder: Callable[[str], str],
-        indent: int | None,
+        indent: str | None,
         key_separator: str,
         item_separator: str,
         sort_keys: bool,
@@ -84,7 +84,7 @@ def encode_basestring_ascii(s: str, /) -> str:
     Return an ASCII-only JSON representation of a Python string
     """
     ...
-def scanstring(string: str, end: int, strict: bool = ...) -> tuple[str, int]:
+def scanstring(string: str, end: int, strict: bool = True) -> tuple[str, int]:
     """
     scanstring(string, end, strict=True) -> (string, end)
 
