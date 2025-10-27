@@ -159,7 +159,7 @@ class ClaudeAssistant(BaseAIAssistant):
             error_msg = f"❌ **Неочікувана помилка**\n\n{str(e)}"
             yield ChatResponseChunk(error_msg)
     
-    def explain_diagnostic(self, program_code: str, diagnostic_message: str, severity_type: str) -> str:
+    def explain_diagnostic(self, program_code: str, diagnostic_message: str, severity_type: str, line_number: int = None) -> str:
         """Fast diagnostic explanation using claude-haiku-4-5"""
         import anthropic
         from anthropic import APIConnectionError, APIError
@@ -176,7 +176,8 @@ class ClaudeAssistant(BaseAIAssistant):
                 language=language,
                 code=program_code,
                 diagnostic=diagnostic_message,
-                severity_type=severity_type
+                severity_type=severity_type,
+                line_number=line_number or "unknown"
             )
             
             # Use fast model

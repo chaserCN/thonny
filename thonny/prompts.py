@@ -1023,38 +1023,45 @@ Explain what this Shell output means:
 """,
     
     PromptType.USER_EXPLAIN_DIAGNOSTIC: """
-You are a helpful programming assistant.
-Response language: {language}
+Explain this Python {severity_type} in simple {language} for a 12-15 year old girl.
 
-This is a '{severity_type}' in the student's code.
+Line {line_number}: "{diagnostic}"
 
-Program code:
+Code:
 ```python
 {code}
 ```
 
-Diagnostic message: {diagnostic}
+FORMAT:
+**[severity in {language}]:** [short translation]
 
-IMPORTANT: Format your response in {language} EXACTLY like this:
+[explain what's wrong in 1-2 simple sentences]
 
-**[HEADER1]:** 
-[In 1 sentence: what's wrong? Be direct and specific]
+Severity translations:
+- error → Ukrainian: "Помилка" / Russian: "Ошибка"
+- warning → Ukrainian: "Попередження" / Russian: "Предупреждение"  
+- information → Ukrainian: "Інформація" / Russian: "Информация"
 
-**How to fix:** (translate to {language})
-[In 1-2 sentences: concrete fix, what to do]
+EXAMPLES (Ukrainian):
 
-Where [HEADER1] should be:
-- If severity_type is "error": translate "Error" to {language} (e.g., "Помилка" for Ukrainian, "Ошибка" for Russian)
-- If severity_type is "warning": translate "Warning" to {language} (e.g., "Попередження" for Ukrainian, "Предупреждение" for Russian)
-- If severity_type is "info": translate "Info" to {language}
-- If severity_type is "hint": translate "Hint" to {language}
+"Expected indented block" on line 5:
+**Помилка:** Очікується блок з відступом.
 
-Requirements:
-- Translate all headers to {language}
-- Don't mention line numbers
-- Don't use childish analogies  
-- Be specific and actionable
-- Start directly with the problem, not with "This message means..."
+Після `else:` на строці 5 має бути рядок з відступом.
+
+---
+
+"x is not defined":
+**Помилка:** Змінна `x` не визначена.
+
+Ти використовуєш `x`, але не створила цю змінну раніше в коді.
+
+---
+
+"list index out of range":
+**Помилка:** Індекс списку за межами.
+
+Ти намагаєшся взяти елемент списку під номером, якого не існує.
 """,
 }
 

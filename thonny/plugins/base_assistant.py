@@ -371,7 +371,7 @@ class BaseAIAssistant(Assistant):
         return result
     
     @abstractmethod
-    def explain_diagnostic(self, program_code: str, diagnostic_message: str, severity_type: str) -> str:
+    def explain_diagnostic(self, program_code: str, diagnostic_message: str, severity_type: str, line_number: int = None) -> str:
         """
         Request fast AI explanation for a diagnostic message (using fast model like flash/haiku/mini)
         
@@ -379,6 +379,7 @@ class BaseAIAssistant(Assistant):
             program_code: Full program code for context
             diagnostic_message: The diagnostic/error message to explain
             severity_type: Type of diagnostic (ERROR, WARNING, INFO, HINT)
+            line_number: Line number where the diagnostic occurs (1-based), optional
             
         Returns:
             AI explanation as string (brief, 2-3 sentences)
