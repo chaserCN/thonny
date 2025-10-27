@@ -1,261 +1,225 @@
 """
-NB! Stippling doesn't work on mac:
-http://wiki.tcl.tk/44444
-http://rkeene.org/projects/tcl/tk.fossil/tkthistory/2954673
+Highlights code blocks (functions, if, for, while, etc.) when cursor/mouse is inside them.
 """
 
-import os.path
 from logging import getLogger
-from tkinter import font
 
-import thonny
 from thonny import get_workbench
-from thonny.codeview import get_syntax_options_for_tag
 
 logger = getLogger(__name__)
 
 
-def create_bitmap_file(width, height, predicate, name):
-    cache_dir = os.path.join(thonny.get_thonny_user_dir(), "image_cache")
-    name = "%s_%d_%d.xbm" % (name, width, height)
-    filename = os.path.join(cache_dir, name)
-
-    # if os.path.exists(filename):
-    #    return filename
-
-    hex_lines = []
-
-    if width % 8 == 0:
-        row_size = width
-    else:
-        # need to pad row size so that it is multiple of 8
-        row_size = width + 8 - (width % 8)
-
-    for y in range(height):
-        byte_hexes = []
-        for byte_index in range(row_size // 8):
-            byte = 0
-            for bit_index in range(7, -1, -1):
-                x = byte_index * 8 + bit_index
-
-                byte <<= 1
-                if predicate(x, y):
-                    byte |= 1
-
-            byte_hexes.append(format(byte, "#04x"))
-        hex_lines.append(",".join(byte_hexes))
-
-    data = (
-        "#define im_width %d\n" % width
-        + "#define im_height %d\n" % height
-        + "static char im_bits[] = {\n"
-        + "%s\n" % ",\n".join(hex_lines)
-        + "};"
-    )
-
-    os.makedirs(cache_dir, exist_ok=True)
-    with open(filename, "w") as fp:
-        fp.write(data)
-    return filename
-
-
-def configure_text(text):
-    spacing1 = 2
-    spacing3 = 3
-    text_font = text["font"]
-    text.configure(spacing1=spacing1, spacing3=spacing3)
-    text.master._gutter.configure(spacing1=spacing1, spacing3=spacing3)
-    if isinstance(text_font, str):
-        text_font = font.nametofont(text_font)
-
-    indent_width = text_font.measure("    ")
-    bbox = text.bbox("1.0")
-    if bbox is None or bbox[3] < 5:
-        # text not ready yet
-        # TODO: Text in Tk 8.6 has sync method
-        return False
-
-    line_height = bbox[3] + spacing1 + spacing3
-
-    print(indent_width, line_height)
-
-    def ver(x: int, y: int, top: bool, bottom: bool) -> bool:
-        # tells where to show pixels in vertical border of the statement
-        # It would be convenient if tiling started from the start of
-        # 1st char, but it is offset a bit
-        # In order to make computation easier, I'm offsetting x as well
-        x = (x - 5) % indent_width
-
-        stripe_width = 8
-        gap = 3
-        left = indent_width - stripe_width - gap
-
-        return (
-            left <= x < left + stripe_width
-            or top
-            and y == 0
-            and x >= left
-            or bottom
-            and y == line_height - 1
-            and x >= left
-        )
-
-    def hor(x: int, y: int, top: bool, bottom: bool) -> bool:
-        # tells where to show pixels in statement line
-        return top and y == 0 or bottom and y == line_height - 1
-
-    color = get_syntax_options_for_tag("GUTTER").get("background", "gray")
-    for orient, base_predicate in [("hor", hor), ("ver", ver)]:
-        for top in [False, True]:
-            for bottom in [False, True]:
-
-                def predicate(
-                    x,
-                    y,
-                    # need to make base_predicate, top and bottom local
-                    base_predicate=base_predicate,
-                    top=top,
-                    bottom=bottom,
-                ):
-                    return base_predicate(x, y, top, bottom)
-
-                tag_name = "%s_%s_%s" % (orient, top, bottom)
-                bitmap_path = create_bitmap_file(indent_width, line_height, predicate, tag_name)
-                text.tag_configure(tag_name, background=color, bgstipple="@" + bitmap_path)
-
-    return True
-
-
-def print_tree(node, level=0):
-    from parso.python import tree as python_tree
-
-    indent = "  " * level
-    # if (isinstance(node, python_tree.PythonNode) and node.type == "sim"
-    if node.type in ("simple_stmt",) or isinstance(node, python_tree.Flow):
-        print(indent, node.type, node.start_pos, node.end_pos)
-
-    if hasattr(node, "children"):
-        for child in node.children:
-            print_tree(child, level + 1)
-
-
-def clear_tags(text):
-    for pos in ["ver", "hor"]:
-        for top in [True, False]:
-            for bottom in [True, False]:
-                text.tag_remove("%s_%s_%s" % (pos, top, bottom), "1.0", "end")
-
-
-def add_tags(text):
-    source = text.get("1.0", "end")
-    clear_tags(text)
-    tree = ...  # TODO
-
-    print_tree(tree)
-    last_line = 0
-    last_col = 0
-
-    def tag_tree(node):
-        nonlocal last_line, last_col
-        from parso.python import tree as python_tree
-
-        if node.type == "simple_stmt" or isinstance(node, (python_tree.Flow, python_tree.Scope)):
-            start_line, start_col = node.start_pos
-            end_line, end_col = node.end_pos
-
-            # Before dealing with this node,
-            # handle the case, where last vertical tag was meant for
-            # same column, but there were empty or comment lines between
-            if start_col == last_col:
-                for i in range(last_line + 1, start_line):
-                    # NB! tag not visible when logically empty line
-                    # doesn't have indent prefix
-                    text.tag_add(
-                        "ver_False_False", "%d.%d" % (i, last_col - 1), "%d.%d" % (i, last_col)
-                    )
-                    print("ver_False_False", "%d.%d" % (i, last_col - 1), "%d.%d" % (i, last_col))
-
-            print(node)
-
-            # usually end_col is 0
-            # exceptions: several statements on the same line (semicoloned statements)
-            # also unclosed parens in if-header
-            for lineno in range(start_line, end_line if end_col == 0 else end_line + 1):
-                top = lineno == start_line and lineno > 1
-                bottom = False  # start_line == end_line-1
-
-                # horizontal line (only for first or last line)
-                if top or bottom:
-                    text.tag_add(
-                        "hor_%s_%s" % (top, bottom),
-                        "%d.%d" % (lineno, start_col),
-                        "%d.%d" % (lineno + 1 if end_col == 0 else lineno, 0),
-                    )
-
-                    print(
-                        "hor_%s_%s" % (top, bottom),
-                        "%d.%d" % (lineno, start_col),
-                        "%d.%d" % (lineno + 1, 0),
-                    )
-
-                # vertical line (only for indented statements)
-                # Note that I'm using start col for all lines
-                # (statement's indent shouldn't decrease in continuation lines)
-                if start_col > 0:
-                    text.tag_add(
-                        "ver_%s_%s" % (top, bottom),
-                        "%d.%d" % (lineno, start_col - 1),
-                        "%d.%d" % (lineno, start_col),
-                    )
-                    print(
-                        "ver_%s_%s" % (top, bottom),
-                        "%d.%d" % (lineno, start_col - 1),
-                        "%d.%d" % (lineno, start_col),
-                    )
-
-                    last_line = lineno
-                    last_col = start_col
-
-        # Recurse
-        if node.type != "simple_stmt" and hasattr(node, "children"):
-            for child in node.children:
-                tag_tree(child)
-
-    tag_tree(tree)
+class BlockHighlighter:
+    """Highlights the current code block under cursor/mouse with a very light gray background"""
+    
+    def __init__(self, text):
+        self.text = text
+        self.blocks = []  # List of (tag_name, start_line, start_col, end_line, end_col, depth)
+        self.current_block = None
+        self._update_scheduled = False
+        
+        # Configure highlight tag - light gray
+        self.text.tag_configure("current_block", background="#d0d0d0")
+        self.text.tag_lower("current_block")  # Below selection and other tags
+        
+        # Bind cursor and mouse movement
+        self.text.bind("<KeyPress>", self._on_cursor_move, True)
+        self.text.bind("<KeyRelease>", self._on_cursor_move, True) 
+        self.text.bind("<ButtonPress>", self._on_cursor_move, True)
+        self.text.bind("<Motion>", self._on_mouse_move, True)
+    
+    def get_blocks(self):
+        """Parse code with parso and find all blocks (functions, if, for, while, etc.)"""
+        import parso
+        from parso.python import tree
+        
+        blocks = []
+        source = self.text.get("1.0", "end-1c")
+        
+        try:
+            module = parso.parse(source)
+        except Exception:
+            logger.exception("Failed to parse code")
+            return []
+        
+        def is_block(node):
+            """Check if node is a block we want to highlight"""
+            # Flow includes: if, while, for, try, with
+            # Scope includes: Function, Class, Lambda
+            return isinstance(node, (tree.Function, tree.Class, tree.Flow, tree.Scope))
+        
+        def collect_blocks(node, depth=0):
+            """Recursively collect all blocks with their positions"""
+            if is_block(node):
+                start_line, start_col = node.start_pos
+                end_line, end_col = node.end_pos
+                
+                # Create unique tag name for this block
+                tag_name = f"block_{start_line}_{start_col}_{end_line}_{end_col}"
+                blocks.append((tag_name, start_line, start_col, end_line, end_col, depth))
+                
+                # Recurse with increased depth
+                if hasattr(node, "children"):
+                    for child in node.children:
+                        collect_blocks(child, depth + 1)
+            elif hasattr(node, "children"):
+                # Not a block, but recurse through children
+                for child in node.children:
+                    collect_blocks(child, depth)
+        
+        collect_blocks(module)
+        return blocks
+    
+    def update_blocks(self):
+        """Re-parse code and update block positions"""
+        # Remove all old block tags
+        for tag_name, _, _, _, _, _ in self.blocks:
+            self.text.tag_remove(tag_name, "1.0", "end")
+        
+        # Get new blocks
+        self.blocks = self.get_blocks()
+        
+        # Add tags for each block (but don't highlight yet)
+        for tag_name, start_line, start_col, end_line, end_col, _ in self.blocks:
+            start = f"{start_line}.{start_col}"
+            end = f"{end_line}.{end_col}" if end_col > 0 else f"{end_line}.end"
+            self.text.tag_add(tag_name, start, end)
+    
+    def find_deepest_block_at_cursor(self):
+        """Find the deepest (most nested) block containing the cursor"""
+        try:
+            cursor_pos = self.text.index("insert")
+            cursor_line, cursor_col = map(int, cursor_pos.split("."))
+        except Exception:
+            return None
+        
+        # Find all blocks containing cursor, pick the deepest one
+        deepest_block = None
+        max_depth = -1
+        
+        for tag_name, start_line, start_col, end_line, end_col, depth in self.blocks:
+            # Check if cursor is inside this block
+            if start_line <= cursor_line <= end_line:
+                # For start line, check column
+                if cursor_line == start_line and cursor_col < start_col:
+                    continue
+                # For end line, check column
+                if cursor_line == end_line and end_col > 0 and cursor_col >= end_col:
+                    continue
+                
+                # Cursor is inside this block
+                if depth > max_depth:
+                    max_depth = depth
+                    deepest_block = tag_name
+        
+        return deepest_block
+    
+    def highlight_current_block(self):
+        """Highlight the block under cursor - vertical line at block start column"""
+        # Find deepest block at cursor
+        block = self.find_deepest_block_at_cursor()
+        
+        # Only update if block changed
+        if block == self.current_block:
+            return
+        
+        # Clear previous highlight
+        self.text.tag_remove("current_block", "1.0", "end")
+        self.current_block = block
+        
+        # Apply new highlight if we have a block
+        if block:
+            # Get ranges of this block and apply highlight
+            for tag_name, start_line, start_col, end_line, end_col, _ in self.blocks:
+                if tag_name == block:
+                    # Highlight vertical line at column start_col for all lines in block
+                    for line in range(start_line, end_line + 1):
+                        # Get line content to check if position exists
+                        line_content = self.text.get(f"{line}.0", f"{line}.end")
+                        
+                        # Check if line has enough content
+                        if len(line_content) > start_col:
+                            # Normal case - highlight character at start_col
+                            char_start = f"{line}.{start_col}"
+                            char_end = f"{line}.{start_col + 1}"
+                            self.text.tag_add("current_block", char_start, char_end)
+                        elif len(line_content) > 0:
+                            # Line is too short but not empty - highlight from end to newline
+                            char_start = f"{line}.{len(line_content)}"
+                            char_end = f"{line}.end"
+                            self.text.tag_add("current_block", char_start, char_end)
+                        else:
+                            # Empty line - highlight the whole empty line (newline character)
+                            char_start = f"{line}.0"
+                            char_end = f"{line}.end"
+                            self.text.tag_add("current_block", char_start, char_end)
+                    break
+    
+    def _on_cursor_move(self, event=None):
+        """Called when cursor moves (keyboard)"""
+        self.highlight_current_block()
+    
+    def _on_mouse_move(self, event=None):
+        """Called when mouse moves"""
+        self.highlight_current_block()
+    
+    def schedule_update(self):
+        """Schedule block update (after text changes)"""
+        def perform_update():
+            try:
+                self.update_blocks()
+                # Reset current block so next cursor move will re-highlight
+                self.current_block = None
+                self.highlight_current_block()
+            finally:
+                self._update_scheduled = False
+        
+        if not self._update_scheduled:
+            self._update_scheduled = True
+            # Delay update to avoid too frequent reparsing
+            self.text.after(100, perform_update)
 
 
-def handle_editor_event(event):
-    configure_and_add_tags(event.editor.get_text_widget())
-
-
-def handle_events(event):
+def update_blocks(event):
+    """Called when text changes"""
+    if not get_workbench().ready:
+        return
+    
     if hasattr(event, "text_widget"):
         text = event.text_widget
-    else:
+    elif hasattr(event, "widget"):
         text = event.widget
-
-    configure_and_add_tags(text)
-
-
-def configure_and_add_tags(text):
-    if not getattr(text, "structure_tags_configured", False):
-        try:
-            if configure_text(text):
-                text.structure_tags_configured = True
-            else:
-                text.after(500, lambda: configure_and_add_tags(text))
-                return
-        except Exception:
-            logger.exception("Problem with defining structure tags")
-            return
-
-    add_tags(text)
+    else:
+        return
+    
+    if not hasattr(text, "block_highlighter"):
+        text.block_highlighter = BlockHighlighter(text)
+        # Initial update
+        text.block_highlighter.schedule_update()
+    else:
+        text.block_highlighter.schedule_update()
 
 
-def _load_plugin() -> None:
+def init_highlighter(event):
+    """Initialize highlighter for newly opened editor"""
+    if not get_workbench().ready:
+        return
+    
+    if hasattr(event, "editor"):
+        text = event.editor.get_text_widget()
+    else:
+        return
+
+    if not hasattr(text, "block_highlighter"):
+        text.block_highlighter = BlockHighlighter(text)
+        # Initial update after a short delay to let editor finish loading
+        text.after(200, text.block_highlighter.schedule_update)
+
+
+def load_plugin() -> None:
     wb = get_workbench()
-
-    wb.set_default("view.program_structure", False)
-    wb.bind("Save", handle_editor_event, True)
-    wb.bind("Open", handle_editor_event, True)
-    wb.bind_class("EditorCodeViewText", "<<TextChange>>", handle_events, True)
+    wb.set_default("view.block_highlighting", True)
+    wb.bind_class("CodeViewText", "<<TextChange>>", update_blocks, True)
+    # Initialize when editor opens
+    wb.bind("Open", init_highlighter, True)
+    wb.bind("EditorTextCreated", init_highlighter, True)
