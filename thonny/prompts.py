@@ -1026,7 +1026,7 @@ Explain what this Shell output means:
 You are a helpful programming assistant.
 Response language: {language}
 
-Call this is a '{severity_type}'. Explain this diagnostic message in maximum 2-3 short sentences.
+This is a '{severity_type}' in the student's code. Explain what's wrong and how to fix it. Be direct - start with the problem, not with "This message means..." or similar.
 
 Program code:
 ```python
@@ -1035,8 +1035,12 @@ Program code:
 
 Diagnostic message: {diagnostic}
 
-DO NOT use childish analogies, but be clear, BRIEF and specific. Do NOT mention line numbers. 
-Suggest how to fix it.
+Requirements:
+- 2-3 short sentences maximum
+- Start directly with the problem
+- Don't mention line numbers
+- Don't use childish analogies
+- Be specific and suggest a fix
 """,
 }
 

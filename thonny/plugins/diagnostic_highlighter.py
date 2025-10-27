@@ -30,13 +30,13 @@ class DiagnosticTooltip:
         self.current_diagnostic = None
         self._translation_cache = {}
         self._cache_timestamps = {}  # Track when each cache entry was created
-        self._request_id = 0  # Track current request
         self._debounce_timer = None  # Debounce timer for Gemini requests
         self._current_request_message = None  # Message currently being requested (to avoid duplicates)
         self._current_shown_message = None  # Message currently shown in tooltip
         self._pending_message = None  # Pending message for tooltip
         self._pending_event = None  # Pending event for tooltip
         self._pending_severity = None  # Pending severity for tooltip
+        self._current_request_id = None  # Current request ID (hash of message)
         
     def show(self, event, diagnostic: Diagnostic) -> None:
         """Show tooltip with diagnostic message"""
@@ -60,10 +60,9 @@ class DiagnosticTooltip:
             self.text_widget.after_cancel(self._debounce_timer)
             self._debounce_timer = None
         
-        # Only increment request ID if message changed (to invalidate old requests)
-        if full_message != self._pending_message:
-            self._request_id += 1
-        current_request_id = self._request_id
+        # Use hash of message as request ID (stable, tied to message content)
+        current_request_id = hash(full_message)
+        self._current_request_id = current_request_id
         
         # IMPORTANT: Store event, message and severity BEFORE any async operations
         self._pending_event = event
@@ -176,8 +175,8 @@ class DiagnosticTooltip:
     
     def _show_translation(self, translation: str, request_id: int) -> None:
         """Show tooltip with translation"""
-        # Check if this request is still current
-        if request_id != self._request_id:
+        # Check if this request is still current (compare with current request ID)
+        if request_id != self._current_request_id:
             return
         
         if not hasattr(self, '_pending_event') or not self._pending_event:
@@ -250,8 +249,8 @@ class DiagnosticTooltip:
             self.text_widget.after_cancel(self._debounce_timer)
             self._debounce_timer = None
         
-        # Invalidate any pending AI requests by incrementing request_id
-        self._request_id += 1
+        # Invalidate any pending AI requests by clearing current request ID
+        self._current_request_id = None
         
         if self.tooltip_window:
             self.tooltip_window.destroy()
@@ -286,6 +285,10 @@ class DiagnosticHighlighter:
     def _request_diagnostics_for_uri(self, uri: str, ls_proxy: LanguageServerProxy) -> None:
         """Request pull-based diagnostics for a specific URI"""
         from thonny.lsp_types import DocumentDiagnosticParams, TextDocumentIdentifier
+        import time
+        
+        request_time = time.time()
+        logger.info(f"[Ruff] 📤 Requesting diagnostics for {uri}")
         
         def handle(params: PublishDiagnosticsParams) -> None:
             self._handle_diagnostics(params, ls_proxy)
@@ -297,6 +300,7 @@ class DiagnosticHighlighter:
         ):
             # Ruff returns diagnostics in response, convert to PublishDiagnostics format
             try:
+                elapsed = time.time() - request_time
                 result = response.get_result_or_raise()
                 # Extract diagnostics from result
                 diagnostics = []
@@ -309,6 +313,8 @@ class DiagnosticHighlighter:
                     elif isinstance(result, list):
                         diagnostics = result
            
+                logger.info(f"[Ruff] 📥 Received {len(diagnostics)} diagnostics for {uri} in {elapsed:.2f}s")
+                
                 # Convert to publishDiagnostics format
                 publish_params = PublishDiagnosticsParams(
                     uri=uri,
@@ -317,7 +323,8 @@ class DiagnosticHighlighter:
                 # Call in main thread
                 get_workbench().after(0, lambda: handle(publish_params))
             except Exception as e:
-                logger.debug(f"Pull diagnostics failed for {uri}: {e}")
+                elapsed = time.time() - request_time
+                logger.info(f"[Ruff] ❌ Pull diagnostics failed for {uri} after {elapsed:.2f}s: {e}")
         
         try:
             params = DocumentDiagnosticParams(
@@ -325,10 +332,10 @@ class DiagnosticHighlighter:
             )
             ls_proxy.request_text_document_diagnostic(params, handle_diagnostic_response)
         except Exception as e:
-            logger.debug(f"Failed to request diagnostics for {uri}: {e}")
+            logger.info(f"[Ruff] ❌ Failed to request diagnostics for {uri}: {e}")
     
     def _connect_to_language_server(self, ls_proxy: LanguageServerProxy) -> None:
-        logger.info("Connecting diagnostic highlighter to ls_proxy %s", ls_proxy)
+        logger.info(f"[Ruff] 🔌 Connecting diagnostic highlighter to {ls_proxy}")
         
         def handle(params: PublishDiagnosticsParams) -> None:
             self._handle_diagnostics(params, ls_proxy)
@@ -347,9 +354,11 @@ class DiagnosticHighlighter:
             try:
                 notebook = get_workbench().get_editor_notebook()
                 requested_any = False
+                logger.info(f"[Ruff] 🔄 Requesting diagnostics for all open files (retry {retry_count}/{max_retries})")
                 for editor in notebook.get_all_editors():
                     uri = editor.get_uri()
                     if uri and editor.get_language_id() in ls_proxy.get_supported_language_ids():
+                        logger.info(f"[Ruff]    → File: {uri}")
                         self._request_diagnostics_for_uri(uri, ls_proxy)
                         requested_any = True
                 
@@ -357,11 +366,13 @@ class DiagnosticHighlighter:
                 # schedule another request in case workspace wasn't ready
                 if requested_any and retry_count < max_retries:
                     delay = 2000 if retry_count == 0 else 5000  # 2s first retry, then 5s
+                    logger.info(f"[Ruff] ⏰ Scheduling retry {retry_count + 1} in {delay}ms")
                     get_workbench().after(delay, lambda: request_diagnostics_for_open_files(retry_count + 1, max_retries))
             except Exception as e:
-                logger.exception("Failed to request diagnostics for open files")
+                logger.exception("[Ruff] Failed to request diagnostics for open files")
         
         # Request diagnostics immediately (no delay) and retry a few times
+        logger.info(f"[Ruff] ⏰ Scheduling initial diagnostic request in 100ms")
         get_workbench().after(100, request_diagnostics_for_open_files)
     
     def _disconnect_from_language_server(self, ls_proxy: LanguageServerProxy) -> None:
@@ -387,6 +398,13 @@ class DiagnosticHighlighter:
     def _handle_diagnostics(self, params: PublishDiagnosticsParams, ls_proxy: LanguageServerProxy) -> None:
         uri = params.uri
         
+        # Log diagnostic update
+        logger.info(f"[Ruff] 🔄 Updating diagnostics for {uri}: {len(params.diagnostics)} items")
+        for i, diag in enumerate(params.diagnostics[:3]):  # Show first 3
+            logger.info(f"[Ruff]   {i+1}. {diag.severity.name if diag.severity else 'UNKNOWN'}: {diag.message[:60]}...")
+        if len(params.diagnostics) > 3:
+            logger.info(f"[Ruff]   ... and {len(params.diagnostics) - 3} more")
+        
         # Remove old diagnostics from same server
         current_diagnostics = self._diagnostics_per_uri.get(uri, [])
         self._diagnostics_per_uri[uri] = [
@@ -394,6 +412,7 @@ class DiagnosticHighlighter:
         ] + [DiagnosticInfo(diagnostic, ls_proxy) for diagnostic in params.diagnostics]
         
         # Update editor highlights
+        logger.info(f"[Ruff] 🎨 Updating editor highlights for {uri}")
         self._update_editor_highlights(uri)
     
     def _update_editor_highlights(self, uri: str) -> None:
@@ -494,7 +513,9 @@ class DiagnosticHighlighter:
         """Update highlights when switching editors"""
         editor = get_workbench().get_editor_notebook().get_current_editor()
         if editor:
-            self._update_editor_highlights(editor.get_uri())
+            uri = editor.get_uri()
+            logger.info(f"[Ruff] 📝 Editor switched to: {uri}")
+            self._update_editor_highlights(uri)
     
     def _on_editor_created(self, event=None) -> None:
         """Update highlights when editor is created"""
@@ -508,9 +529,11 @@ class DiagnosticHighlighter:
                 if editor:
                     uri = editor.get_uri()
                     if uri:
+                        logger.info(f"[Ruff] ✨ New editor created: {uri}")
                         for ls_proxy in self._ls_proxies:
                             if editor.get_language_id() in ls_proxy.get_supported_language_ids():
                                 # Request diagnostics with a small delay to let editor fully initialize
+                                logger.info(f"[Ruff] ⏰ Scheduling diagnostic request for new editor in 50ms")
                                 get_workbench().after(50, lambda u=uri, ls=ls_proxy: self._request_diagnostics_for_uri(u, ls))
     
     def _configure_diagnostic_tags(self, text: tk.Text) -> None:
