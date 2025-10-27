@@ -43,8 +43,9 @@ do
 	arch -x86_64 $PYTHON_CURRENT/bin/python3.12  -s -m pip install --no-binary mypy --no-binary lxml -r $req_file
 done
 arch -x86_64 $PYTHON_CURRENT/bin/python3.12 -s -m pip install --no-cache-dir certifi
-arch -x86_64 $PYTHON_CURRENT/bin/python3.12 -s -m pip install --pre --no-cache-dir "thonny==${VERSION}"
-#$PYTHON_CURRENT/bin/python3.12 -s -m pip install ../setuptools/thonny-4.1.0b1.dev0-py3-none-any.whl
+# Install Thonny from local sources (dev version not on PyPI)
+THONNY_SRC="$(cd $SCRIPT_DIR/../.. && pwd)"
+arch -x86_64 $PYTHON_CURRENT/bin/python3.12 -s -m pip install --no-cache-dir "$THONNY_SRC"
 
 rm $PYTHON_CURRENT/bin/thonny # because Thonny is not supposed to run from there
 
