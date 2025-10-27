@@ -141,8 +141,6 @@ class GeminiAssistant(BaseAIAssistant):
             try:
                 full_text = response.text
 
-                print(f"Full text: {full_text}")
-
                 if full_text:
                     yield ChatResponseChunk(full_text)
                 else:
