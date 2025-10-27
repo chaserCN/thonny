@@ -387,18 +387,19 @@ class BaseAIAssistant(Assistant):
         pass
 
 def print_request_info(request_type: str, system_prompt: str, messages: List[ChatMessage]):
-    print("=" * 80)
-    print(f"{request_type} MODE REQUEST")
-    print("=" * 80)
-    print("SYSTEM PROMPT:")
-    print("-" * 80)
-    print(system_prompt)
-    print("-" * 80)
-    print("USER MESSAGES:")
-    print("-" * 80)
-    for msg in messages:
-        print(f"[{msg.role.value}]: {msg.content}")
-    print("-" * 80)
+    pass
+    # print("=" * 80)
+    # print(f"{request_type} MODE REQUEST")
+    # print("=" * 80)
+    # print("SYSTEM PROMPT:")
+    # print("-" * 80)
+    # print(system_prompt)
+    # print("-" * 80)
+    # print("USER MESSAGES:")
+    # print("-" * 80)
+    # for msg in messages:
+    #     print(f"[{msg.role.value}]: {msg.content}")
+    # print("-" * 80)
 
 
 def get_ai_assistant():

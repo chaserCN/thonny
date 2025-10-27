@@ -131,7 +131,7 @@ class GeminiAssistant(BaseAIAssistant):
             
             chat_history = messages[:-1]  # All except last
             last_message_parts = messages[-1]["parts"]  # Last message parts
-            
+
             # Start chat with history
             chat = model.start_chat(history=chat_history)
             
