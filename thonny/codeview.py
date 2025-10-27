@@ -669,6 +669,9 @@ class CodeView(tktextext.EnhancedTextFrame):
 
         self.update_gutter(clean=True)
         self._last_toggle_breakpoint_time = time.time()
+        
+        # Generate event for plugins that need to react to breakpoint changes
+        self.text.event_generate("<<BreakpointChange>>")
 
     def _clean_selection(self):
         self.text.tag_remove("sel", "1.0", "end")

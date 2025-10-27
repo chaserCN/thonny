@@ -36,6 +36,13 @@ class BlockHighlighter:
         
         for i, color in enumerate(self.depth_colors):
             self.gutter.tag_configure(f"block_line_depth_{i}", background=color)
+        
+        # Lower priority so other gutter elements (breakpoints, text) are visible on top
+        for i in range(len(self.depth_colors)):
+            self.gutter.tag_lower(f"block_line_depth_{i}")
+        
+        # Subscribe to breakpoint changes to reapply highlights
+        self.text.bind("<<BreakpointChange>>", self._on_breakpoint_change, True)
     
     def get_blocks(self):
         """Parse code with parso and find all blocks (functions, if, for, while, etc.)"""
@@ -161,8 +168,40 @@ class BlockHighlighter:
                 gutter_start = f"{line}.0"
                 gutter_end = f"{line}.end"
                 self.gutter.tag_add(tag, gutter_start, gutter_end)
+            
+            # Lower priority so text and breakpoints are visible on top
+            self.gutter.tag_lower(tag)
         
         logger.debug("=" * 60)
+    
+    def _reapply_highlights(self, event=None):
+        """Reapply block highlights without reparsing - called after breakpoint changes"""
+        if not self.blocks:
+            return
+        
+        logger.debug("Reapplying highlights after gutter change")
+        
+        # Clear all highlights first
+        for i in range(len(self.depth_colors)):
+            self.gutter.tag_remove(f"block_line_depth_{i}", "1.0", "end")
+        
+        # Reapply all block highlights
+        for tag_name, start_line, start_col, end_line, end_col, depth in self.blocks:
+            color_index = min(depth, len(self.depth_colors) - 1)
+            tag = f"block_line_depth_{color_index}"
+            
+            for line in range(start_line, end_line + 1):
+                gutter_start = f"{line}.0"
+                gutter_end = f"{line}.end"
+                self.gutter.tag_add(tag, gutter_start, gutter_end)
+            
+            # Lower priority so text and breakpoints are visible on top
+            self.gutter.tag_lower(tag)
+    
+    def _on_breakpoint_change(self, event=None):
+        """Called when breakpoint is toggled - reapply highlights after gutter update"""
+        # Use after_idle to reapply after gutter update completes
+        self.text.after_idle(self._reapply_highlights)
     
     def schedule_update(self):
         """Schedule block update (after text changes)"""
