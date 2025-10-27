@@ -1026,7 +1026,7 @@ Explain what this Shell output means:
 You are a helpful programming assistant.
 Response language: {language}
 
-This is a '{severity_type}' in the student's code. Explain what's wrong and how to fix it. Be direct - start with the problem, not with "This message means..." or similar.
+This is a '{severity_type}' in the student's code.
 
 Program code:
 ```python
@@ -1035,12 +1035,20 @@ Program code:
 
 Diagnostic message: {diagnostic}
 
+IMPORTANT: Format your response in {language} EXACTLY like this:
+
+**Problem:** (translate header to {language})
+[In 1 sentence: what's wrong? Be direct and specific]
+
+**How to fix:** (translate header to {language})
+[In 1-2 sentences: concrete fix, what to do]
+
 Requirements:
-- 2-3 short sentences maximum
-- Start directly with the problem
+- Translate section headers ("Problem:", "How to fix:") to {language}
 - Don't mention line numbers
-- Don't use childish analogies
-- Be specific and suggest a fix
+- Don't use childish analogies  
+- Be specific and actionable
+- Start directly with the problem, not with "This message means..."
 """,
 }
 
