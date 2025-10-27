@@ -1037,6 +1037,11 @@ FORMAT:
 
 [explain what's wrong in 1-2 simple sentences]
 
+IMPORTANT: 
+- Explain ONLY the error shown above (line {line_number}: "{diagnostic}")
+- Do NOT mention other errors you see in the code
+- Focus only on this one specific problem
+
 Severity translations:
 - error → Ukrainian: "Помилка" / Russian: "Ошибка"
 - warning → Ukrainian: "Попередження" / Russian: "Предупреждение"  

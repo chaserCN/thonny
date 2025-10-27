@@ -40,34 +40,42 @@ class DiagnosticTooltip:
         
         # Clear cache when text is modified
         self.text_widget.bind("<<Modified>>", self._on_text_modified, add=True)
+        self.text_widget.bind("<<TextChange>>", self._on_text_modified, add=True)
+        self._last_text_length = len(self.text_widget.get("1.0", "end"))
     
     def _on_text_modified(self, event=None) -> None:
         """Clear translation cache when code is modified"""
-        if self._translation_cache:
-            self._translation_cache.clear()
-            self._cache_timestamps.clear()
+        try:
+            current_length = len(self.text_widget.get("1.0", "end"))
+            if current_length != self._last_text_length:
+                if self._translation_cache:
+                    logger.info(f"[Tooltip] Text changed, clearing cache ({len(self._translation_cache)} entries)")
+                    self._translation_cache.clear()
+                    self._cache_timestamps.clear()
+                self._last_text_length = current_length
+        except tk.TclError:
+            pass  # Widget might be destroyed
         
     def show(self, event, diagnostic: Diagnostic) -> None:
         """Show tooltip with diagnostic message"""
         # PROTECTION: Multiple tags can trigger <Enter> event for the same position
         # Block duplicate calls while tooltip is being shown
         if self._is_showing:
-            logger.info("[Tooltip] Already showing, ignoring")
             return
         
-        logger.info("[Tooltip] Starting to show tooltip")
         self._is_showing = True  # Lock: prevents duplicate calls during show process
         
         self.current_diagnostic = diagnostic
         message = diagnostic.message
+        # Include line number in cache key to handle same error on different lines
+        line_number = diagnostic.range.start.line + 1 if diagnostic.range else 0
         if diagnostic.source:
-            full_message = f"[{diagnostic.source}] {message}"
+            full_message = f"[{diagnostic.source}] L{line_number}: {message}"
         else:
-            full_message = message
+            full_message = f"L{line_number}: {message}"
         
         # OPTIMIZATION 1: If tooltip already shows this exact message, do nothing
         if self.tooltip_window and self._current_shown_message == full_message:
-            logger.info("[Tooltip] Already showing same message, keeping tooltip")
             self._is_showing = False  # Unlock: same message, no action needed
             return
         
@@ -77,7 +85,7 @@ class DiagnosticTooltip:
             # Re-lock: hide() unlocks, but we're continuing to show new tooltip
             self._is_showing = True
         
-        # Use hash of message as request ID (stable, tied to message content)
+        # Use hash of message (with line number) as request ID
         current_request_id = hash(full_message)
         self._current_request_id = current_request_id
         
@@ -95,11 +103,8 @@ class DiagnosticTooltip:
         # NOT in cache: request AI immediately (no debounce) since response will take time anyway
         # OPTIMIZATION 3: If request already in progress for this message, don't start new one
         if self._current_request_message == full_message:
-            logger.info("[Tooltip] Request already in progress, skipping")
             self._is_showing = False  # Unlock: AI request ongoing, will complete async
             return
-        
-        logger.info(f"[Tooltip] Starting NEW AI request for: {full_message[:60]}...")
         
         # Start AI translation immediately for uncached messages
         self._current_request_message = full_message  # Mark as in progress
@@ -153,13 +158,8 @@ class DiagnosticTooltip:
             
             def do_translation():
                 try:
-                    start_time = time.time()
-                    
                     # Use assistant's explain_diagnostic method (fast model - flash/haiku/mini)
                     translation = assistant.explain_diagnostic(program_code, clean_diagnostic, severity_str, line_number)
-                    
-                    elapsed = time.time() - start_time
-                    logger.info(f"[Tooltip] {model} responded in {elapsed:.2f}s")
                     
                     # Cache with timestamp
                     self._translation_cache[message] = translation
@@ -173,8 +173,7 @@ class DiagnosticTooltip:
                     self.text_widget.after(0, show_and_clear)
                     
                 except Exception as e:
-                    elapsed = time.time() - start_time if 'start_time' in locals() else 0
-                    logger.exception(f"[Tooltip] ❌ {model} translation failed after {elapsed:.2f}s for request {request_id}")
+                    logger.exception(f"[Tooltip] {model} translation failed for request {request_id}")
                     
                     # Fallback to original message
                     def show_error_and_clear():
@@ -610,11 +609,8 @@ class DiagnosticHighlighter:
     
     def _show_tooltip(self, event, diagnostic: Diagnostic, editor: Editor) -> None:
         """Show tooltip with diagnostic message and AI explanation"""
-        logger.info(f"[Tooltip] _show_tooltip called: enabled={self._tooltip_enabled}, source={diagnostic.source}, message={diagnostic.message[:50]}")
-        
         # Don't show tooltip if temporarily disabled (e.g. right after autocomplete)
         if not self._tooltip_enabled:
-            logger.info("[Tooltip] Tooltips disabled, skipping")
             return
         
         # Get cursor position from event
@@ -680,18 +676,19 @@ class DiagnosticHighlighter:
             return base
         
         best_diagnostic = min(diagnostics_at_cursor, key=combined_priority)
-        priority = combined_priority(best_diagnostic)
-        logger.info(f"[Tooltip] Best diagnostic selected: priority={priority}, severity={best_diagnostic.severity}, source={best_diagnostic.source}")
         
         # If the best diagnostic is the same message as currently being shown, avoid duplicate processing
         # (multiple tags can trigger for the same diagnostic)
         tooltip = self._get_tooltip_for_editor(editor)
-        best_message = f"[{best_diagnostic.source}] {best_diagnostic.message}" if best_diagnostic.source else best_diagnostic.message
+        # Include line number in message comparison (must match format from show())
+        best_line = best_diagnostic.range.start.line + 1 if best_diagnostic.range else 0
+        if best_diagnostic.source:
+            best_message = f"[{best_diagnostic.source}] L{best_line}: {best_diagnostic.message}"
+        else:
+            best_message = f"L{best_line}: {best_diagnostic.message}"
         if tooltip._is_showing and tooltip._pending_message == best_message:
-            logger.info(f"[Tooltip] Already processing same message, skipping")
             return  # Already showing this message
         
-        logger.info(f"[Tooltip] Calling tooltip.show() with best_diagnostic")
         tooltip.show(event, best_diagnostic)
     
     def _hide_tooltip(self, event, editor: Editor) -> None:
