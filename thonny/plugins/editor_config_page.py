@@ -33,6 +33,20 @@ class EditorConfigurationPage(ConfigurationPage):
         )
 
         add_vertical_separator(self)
+        
+        # LSP servers
+        add_option_checkbox(
+            self,
+            "lsp.pyright_enabled",
+            tr("Enable Pyright (type checking and code intelligence)"),
+        )
+        add_option_checkbox(
+            self,
+            "lsp.ruff_enabled",
+            tr("Enable Ruff (linting and code style)"),
+        )
+
+        add_vertical_separator(self)
 
         add_option_checkbox(
             self,
@@ -113,6 +127,16 @@ class EditorConfigurationPage(ConfigurationPage):
         shell = get_shell(create=False)
         if shell is not None:
             shell.update_appearance()
+
+        # Check if LSP options changed - they require restart
+        lsp_options = ["lsp.pyright_enabled", "lsp.ruff_enabled"]
+        if any(opt in changed_options for opt in lsp_options):
+            from tkinter import messagebox
+            messagebox.showinfo(
+                tr("Restart required"),
+                tr("Changes to LSP servers will take effect after restarting Thonny."),
+                parent=self.winfo_toplevel()
+            )
 
         return True
 

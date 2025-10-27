@@ -1724,6 +1724,22 @@ msgstr "Вимагайте доповнення за допомогою клав
 msgid "Request completions with Tab-key in Shell"
 msgstr "Запит на завершення за допомогою клавіші Tab у Shell"
 
+#: thonny/plugins/editor_config_page.py:41
+msgid "Enable Pyright (type checking and code intelligence)"
+msgstr "Увімкнути Pyright (перевірка типів та інтелект коду)"
+
+#: thonny/plugins/editor_config_page.py:46
+msgid "Enable Ruff (linting and code style)"
+msgstr "Увімкнути Ruff (лінтинг та стиль коду)"
+
+#: thonny/plugins/editor_config_page.py:136
+msgid "Restart required"
+msgstr "Потрібен перезапуск"
+
+#: thonny/plugins/editor_config_page.py:137
+msgid "Changes to LSP servers will take effect after restarting Thonny."
+msgstr "Зміни LSP серверів набудуть чинності після перезапуску Thonny."
+
 #: thonny/editors.py:213 thonny/plugins/goto_definition.py:58
 msgid "Problem"
 msgstr "Проблема"

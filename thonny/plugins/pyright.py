@@ -159,4 +159,7 @@ class PyrightProxy(LanguageServerProxy):
 
 
 def load_plugin():
-    get_workbench().add_language_server_proxy_class(PyrightProxy)
+    get_workbench().set_default("lsp.pyright_enabled", True)
+    
+    if get_workbench().get_option("lsp.pyright_enabled"):
+        get_workbench().add_language_server_proxy_class(PyrightProxy)
