@@ -132,9 +132,19 @@ class TooltipStateMachine:
         )
         
         # Check if we have cached translation
+        # Note: cached can be None (failed request), a string (success), or not in cache at all
+        cache_key_exists = message in self._cache_ref if self._cache_ref else False
         cached = self._get_cached_translation(message)
         
-        if cached:
+        if cache_key_exists and cached is None:
+            # CACHED FAILURE: Don't show tooltip, don't retry
+            self.state = TooltipState.IDLE
+            self.context = None
+            return [
+                TooltipAction('cancel_timer'),
+                TooltipAction('hide_tooltip')
+            ]
+        elif cached:
             # HAS CACHE: Start timer, wait for mouse to stop moving
             self.state = TooltipState.HOVERING
             return [
@@ -238,13 +248,11 @@ class TooltipStateMachine:
             return []
     
     def _handle_translation_error(self, data: Optional[dict]) -> list[TooltipAction]:
-        """Handle AI translation error"""
-        # Only show tooltip if mouse is still inside
+        """Handle AI translation error - just ignore and go back to idle"""
         if self.state != TooltipState.WAITING_FOR_AI or not self.context:
             return []
         
         request_id = data.get('request_id') if data else None
-        fallback = data.get('fallback') if data else self.context.message
         cache_generation = data.get('cache_generation') if data else None
         
         # Check if cache was cleared during request
@@ -255,11 +263,10 @@ class TooltipStateMachine:
         if request_id and request_id != self.context.request_id:
             return []
         
-        # Show fallback message
-        self.state = TooltipState.SHOWING
-        return [
-            TooltipAction('show_tooltip', {'translation': fallback, 'context': self.context})
-        ]
+        # Just go back to idle, don't show anything
+        self.state = TooltipState.IDLE
+        self.context = None
+        return []
     
     def _handle_text_changed(self) -> list[TooltipAction]:
         """Handle editor text change (clears cache)"""

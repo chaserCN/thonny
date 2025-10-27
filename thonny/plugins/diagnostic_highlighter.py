@@ -131,11 +131,17 @@ class DiagnosticTooltip:
     
     def _request_translation(self, message: str, severity, diagnostic: Diagnostic, request_id: int, cache_generation: int) -> None:
         """Request translation from current AI assistant"""
+        import time
+        
         # Check cache first (should already be checked by state machine, but double-check)
         if message in self._translation_cache:
+            cached_value = self._translation_cache[message]
+            # If cached as None, it means previous request failed - don't retry
+            if cached_value is None:
+                return
             actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_READY, {
                 'request_id': request_id,
-                'translation': self._translation_cache[message],
+                'translation': cached_value,
                 'cache_generation': cache_generation
             })
             self._execute_actions(actions)
@@ -149,18 +155,18 @@ class DiagnosticTooltip:
         self._pending_requests.add(message)
         
         try:
-            import time
             from thonny.plugins.base_assistant import get_ai_assistant
             from thonny.lsp_types import DiagnosticSeverity
             
             # Get current AI assistant
             assistant = get_ai_assistant()
             if not assistant:
-                # No assistant, show original message
+                # No assistant, cache failure to prevent retries
+                self._translation_cache[message] = None
+                self._cache_timestamps[message] = time.time()
                 self._pending_requests.discard(message)  # Remove from pending
                 actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
                     'request_id': request_id,
-                    'fallback': message,
                     'cache_generation': cache_generation
                 })
                 self._execute_actions(actions)
@@ -217,12 +223,15 @@ class DiagnosticTooltip:
                 except Exception as e:
                     logger.exception(f"[Tooltip] {model} translation failed for request {request_id}")
                     
-                    # Notify state machine of error in main thread
+                    # Cache failure as None to prevent retries
+                    self._translation_cache[message] = None
+                    self._cache_timestamps[message] = time.time()
+                    
+                    # Just clean up, don't show anything
                     def on_error():
                         self._pending_requests.discard(message)  # Remove from pending
                         actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
                             'request_id': request_id,
-                            'fallback': f"ℹ️ {clean_diagnostic}",
                             'cache_generation': cache_generation
                         })
                         self._execute_actions(actions)
@@ -233,19 +242,23 @@ class DiagnosticTooltip:
             threading.Thread(target=do_translation, daemon=True).start()
             
         except ImportError:
+            # Cache failure to prevent retries
+            self._translation_cache[message] = None
+            self._cache_timestamps[message] = time.time()
             self._pending_requests.discard(message)  # Remove from pending
             actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
                 'request_id': request_id,
-                'fallback': "⚠️ AI assistant not available",
                 'cache_generation': cache_generation
             })
             self._execute_actions(actions)
         except Exception as e:
             logger.exception("Failed to request translation")
+            # Cache failure to prevent retries
+            self._translation_cache[message] = None
+            self._cache_timestamps[message] = time.time()
             self._pending_requests.discard(message)  # Remove from pending
             actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_ERROR, {
                 'request_id': request_id,
-                'fallback': message,
                 'cache_generation': cache_generation
             })
             self._execute_actions(actions)
