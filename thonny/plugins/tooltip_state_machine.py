@@ -27,7 +27,7 @@ logger = getLogger(__name__)
 class TooltipState(Enum):
     """States for tooltip display lifecycle"""
     IDLE = auto()
-    HOVERING = auto()  # Mouse inside, translation cached, waiting for 300ms timer
+    HOVERING = auto()  # Mouse inside, translation cached, waiting for hover timer
     WAITING_FOR_AI = auto()  # Mouse inside, AI request in progress (no timer)
     SHOWING = auto()  # Tooltip visible
 
@@ -37,7 +37,7 @@ class TooltipEvent(Enum):
     MOUSE_ENTER = auto()
     MOUSE_MOTION = auto()  # Mouse moved inside diagnostic area
     MOUSE_LEAVE = auto()
-    TIMER_EXPIRED = auto()  # 300ms hover delay completed
+    TIMER_EXPIRED = auto()  # Hover delay completed
     TRANSLATION_READY = auto()
     TRANSLATION_ERROR = auto()
     TEXT_CHANGED = auto()
@@ -69,7 +69,7 @@ class TooltipStateMachine:
     and maintain. The machine receives events and returns actions to execute.
     """
     
-    def __init__(self, hover_delay_ms: int = 300):
+    def __init__(self, hover_delay_ms: int = 1000):
         self.state = TooltipState.IDLE
         self.hover_delay_ms = hover_delay_ms
         self.context: Optional[TooltipContext] = None
@@ -187,7 +187,7 @@ class TooltipStateMachine:
         return actions
     
     def _handle_timer_expired(self) -> list[TooltipAction]:
-        """Handle 300ms timer expiration - mouse stopped moving"""
+        """Handle hover timer expiration - mouse stopped moving"""
         # Only act if we're still hovering
         if self.state != TooltipState.HOVERING or not self.context:
             return []

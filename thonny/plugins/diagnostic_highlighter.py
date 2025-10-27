@@ -29,7 +29,7 @@ logger = getLogger(__name__)
 class DiagnosticTooltip:
     """Tooltip that shows diagnostic message with optional AI translation"""
     
-    def __init__(self, text_widget: tk.Text, hover_delay_ms: int = 300):
+    def __init__(self, text_widget: tk.Text, hover_delay_ms: int = 1000):
         self.text_widget = text_widget
         self.tooltip_window = None
         self._translation_cache = {}  # message -> translation
@@ -500,23 +500,7 @@ class DiagnosticHighlighter:
         
         # Check if diagnostics actually changed
         if not self._diagnostics_changed(uri, diagnostics):
-            logger.info(f"[DiagHighlight] {uri.split('/')[-1]}: No changes, skipping re-render")
             return  # No changes, skip re-rendering
-        
-        # Log diagnostics being rendered
-        logger.info(f"[DiagHighlight] {uri.split('/')[-1]}: Rendering {len(diagnostics)} diagnostics:")
-        for diag_info in diagnostics:
-            d = diag_info.diagnostic
-            severity_name = {
-                DiagnosticSeverity.Error: "ERROR",
-                DiagnosticSeverity.Warning: "WARN",
-                DiagnosticSeverity.Information: "INFO",
-                DiagnosticSeverity.Hint: "HINT"
-            }.get(d.severity or DiagnosticSeverity.Error, "UNKNOWN")
-            source = d.source or "unknown"
-            line = d.range.start.line + 1 if d.range else 0
-            msg = d.message[:80] + "..." if len(d.message) > 80 else d.message
-            logger.info(f"  [{source}] {severity_name} L{line}: {msg}")
         
         # Store for next comparison
         self._last_rendered_diagnostics[uri] = diagnostics.copy()

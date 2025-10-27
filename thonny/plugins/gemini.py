@@ -181,8 +181,6 @@ class GeminiAssistant(BaseAIAssistant):
                 severity_type=severity_type,
                 line_number=line_number or "unknown"
             )
-
-            print(f"Prompt: {prompt}")
             
             # Use fast model
             genai.configure(api_key=self._get_saved_api_key())
@@ -195,8 +193,6 @@ class GeminiAssistant(BaseAIAssistant):
                     'temperature': 0.2
                 }
             )
-
-            print(f"Response: {response.text}")
             
             return response.text.strip() if response.text else "⚠️ Немає відповіді від Gemini"
             
