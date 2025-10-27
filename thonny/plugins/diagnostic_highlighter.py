@@ -37,9 +37,18 @@ class DiagnosticTooltip:
         self._pending_event = None  # Pending event for tooltip
         self._pending_severity = None  # Pending severity for tooltip
         self._current_request_id = None  # Current request ID (hash of message)
+        self._is_showing = False  # Flag: tooltip in process of showing (prevents overlapping shows)
         
     def show(self, event, diagnostic: Diagnostic) -> None:
         """Show tooltip with diagnostic message"""
+        # If already showing/requesting a tooltip, ignore this request
+        if self._is_showing:
+            logger.info("[Tooltip] Already showing, ignoring")
+            return
+        
+        logger.info("[Tooltip] Starting to show tooltip")
+        self._is_showing = True  # Mark as showing immediately
+        
         self.current_diagnostic = diagnostic
         message = diagnostic.message
         if diagnostic.source:
@@ -82,7 +91,10 @@ class DiagnosticTooltip:
         # NOT in cache: request AI immediately (no debounce) since response will take time anyway
         # OPTIMIZATION 3: If request already in progress for this message, don't start new one
         if self._current_request_message == full_message:
+            logger.info("[Tooltip] Request already in progress, skipping")
             return
+        
+        logger.info(f"[Tooltip] Starting NEW AI request for: {full_message[:60]}...")
         
         # Start AI translation immediately for uncached messages
         self._current_request_message = full_message  # Mark as in progress
@@ -252,6 +264,9 @@ class DiagnosticTooltip:
         # Invalidate any pending AI requests by clearing current request ID
         self._current_request_id = None
         
+        # Clear showing flag
+        self._is_showing = False
+        
         if self.tooltip_window:
             self.tooltip_window.destroy()
             self.tooltip_window = None
@@ -269,6 +284,8 @@ class DiagnosticHighlighter:
     def __init__(self):
         self._diagnostics_per_uri: Dict[str, List[DiagnosticInfo]] = {}
         self._tooltips_per_editor: Dict[str, DiagnosticTooltip] = {}
+        self._tooltip_debounce_timer = None  # Debounce timer to prevent tooltips right after autocomplete
+        self._tooltip_enabled = True  # Flag to temporarily disable tooltips
         
         # Connect to existing language servers
         for ls_proxy in get_workbench().get_initialized_ls_proxies():
@@ -281,6 +298,9 @@ class DiagnosticHighlighter:
         # Update highlights when editor switches
         get_workbench().bind("<<NotebookTabChanged>>", self._on_editor_changed, True)
         get_workbench().bind("EditorTextCreated", self._on_editor_created, True)
+        
+        # Temporarily disable tooltips when autocomplete is used
+        get_workbench().bind("AutocompletionInserted", self._on_autocomplete_inserted, True)
     
     def _request_diagnostics_for_uri(self, uri: str, ls_proxy: LanguageServerProxy) -> None:
         """Request pull-based diagnostics for a specific URI"""
@@ -288,7 +308,6 @@ class DiagnosticHighlighter:
         import time
         
         request_time = time.time()
-        logger.info(f"[Ruff] 📤 Requesting diagnostics for {uri}")
         
         def handle(params: PublishDiagnosticsParams) -> None:
             self._handle_diagnostics(params, ls_proxy)
@@ -312,8 +331,6 @@ class DiagnosticHighlighter:
                         diagnostics = result.items if hasattr(result, 'items') else []
                     elif isinstance(result, list):
                         diagnostics = result
-           
-                logger.info(f"[Ruff] 📥 Received {len(diagnostics)} diagnostics for {uri} in {elapsed:.2f}s")
                 
                 # Convert to publishDiagnostics format
                 publish_params = PublishDiagnosticsParams(
@@ -323,8 +340,7 @@ class DiagnosticHighlighter:
                 # Call in main thread
                 get_workbench().after(0, lambda: handle(publish_params))
             except Exception as e:
-                elapsed = time.time() - request_time
-                logger.info(f"[Ruff] ❌ Pull diagnostics failed for {uri} after {elapsed:.2f}s: {e}")
+                logger.debug(f"Pull diagnostics failed for {uri}: {e}")
         
         try:
             params = DocumentDiagnosticParams(
@@ -332,10 +348,9 @@ class DiagnosticHighlighter:
             )
             ls_proxy.request_text_document_diagnostic(params, handle_diagnostic_response)
         except Exception as e:
-            logger.info(f"[Ruff] ❌ Failed to request diagnostics for {uri}: {e}")
+            logger.debug(f"Failed to request diagnostics for {uri}: {e}")
     
     def _connect_to_language_server(self, ls_proxy: LanguageServerProxy) -> None:
-        logger.info(f"[Ruff] 🔌 Connecting diagnostic highlighter to {ls_proxy}")
         
         def handle(params: PublishDiagnosticsParams) -> None:
             self._handle_diagnostics(params, ls_proxy)
@@ -354,11 +369,9 @@ class DiagnosticHighlighter:
             try:
                 notebook = get_workbench().get_editor_notebook()
                 requested_any = False
-                logger.info(f"[Ruff] 🔄 Requesting diagnostics for all open files (retry {retry_count}/{max_retries})")
                 for editor in notebook.get_all_editors():
                     uri = editor.get_uri()
                     if uri and editor.get_language_id() in ls_proxy.get_supported_language_ids():
-                        logger.info(f"[Ruff]    → File: {uri}")
                         self._request_diagnostics_for_uri(uri, ls_proxy)
                         requested_any = True
                 
@@ -366,13 +379,11 @@ class DiagnosticHighlighter:
                 # schedule another request in case workspace wasn't ready
                 if requested_any and retry_count < max_retries:
                     delay = 2000 if retry_count == 0 else 5000  # 2s first retry, then 5s
-                    logger.info(f"[Ruff] ⏰ Scheduling retry {retry_count + 1} in {delay}ms")
                     get_workbench().after(delay, lambda: request_diagnostics_for_open_files(retry_count + 1, max_retries))
             except Exception as e:
-                logger.exception("[Ruff] Failed to request diagnostics for open files")
+                logger.exception("Failed to request diagnostics for open files")
         
         # Request diagnostics immediately (no delay) and retry a few times
-        logger.info(f"[Ruff] ⏰ Scheduling initial diagnostic request in 100ms")
         get_workbench().after(100, request_diagnostics_for_open_files)
     
     def _disconnect_from_language_server(self, ls_proxy: LanguageServerProxy) -> None:
@@ -398,13 +409,6 @@ class DiagnosticHighlighter:
     def _handle_diagnostics(self, params: PublishDiagnosticsParams, ls_proxy: LanguageServerProxy) -> None:
         uri = params.uri
         
-        # Log diagnostic update
-        logger.info(f"[Ruff] 🔄 Updating diagnostics for {uri}: {len(params.diagnostics)} items")
-        for i, diag in enumerate(params.diagnostics[:3]):  # Show first 3
-            logger.info(f"[Ruff]   {i+1}. {diag.severity.name if diag.severity else 'UNKNOWN'}: {diag.message[:60]}...")
-        if len(params.diagnostics) > 3:
-            logger.info(f"[Ruff]   ... and {len(params.diagnostics) - 3} more")
-        
         # Remove old diagnostics from same server
         current_diagnostics = self._diagnostics_per_uri.get(uri, [])
         self._diagnostics_per_uri[uri] = [
@@ -412,7 +416,6 @@ class DiagnosticHighlighter:
         ] + [DiagnosticInfo(diagnostic, ls_proxy) for diagnostic in params.diagnostics]
         
         # Update editor highlights
-        logger.info(f"[Ruff] 🎨 Updating editor highlights for {uri}")
         self._update_editor_highlights(uri)
     
     def _update_editor_highlights(self, uri: str) -> None:
@@ -495,8 +498,8 @@ class DiagnosticHighlighter:
                     hover_bg = "#f0f0f0"  # Light gray
                 
                 # Bind events to unique tag so each diagnostic has its own handler
-                text.tag_bind(unique_tag, "<Enter>", lambda e, t=unique_tag, bg=hover_bg: self._highlight_diagnostic(e, t, bg))
-                text.tag_bind(unique_tag, "<Motion>", lambda e, d=diagnostic, ed=editor: self._show_tooltip(e, d, ed))
+                # Use <Enter> instead of <Motion> to avoid hundreds of calls when mouse moves
+                text.tag_bind(unique_tag, "<Enter>", lambda e, t=unique_tag, bg=hover_bg, d=diagnostic, ed=editor: (self._highlight_diagnostic(e, t, bg), self._show_tooltip(e, d, ed)))
                 text.tag_bind(unique_tag, "<Leave>", lambda e, t=unique_tag, ed=editor: self._unhighlight_diagnostic(e, t, ed))
             except tk.TclError as e:
                 logger.warning(f"Could not add diagnostic tag: {e}")
@@ -514,7 +517,6 @@ class DiagnosticHighlighter:
         editor = get_workbench().get_editor_notebook().get_current_editor()
         if editor:
             uri = editor.get_uri()
-            logger.info(f"[Ruff] 📝 Editor switched to: {uri}")
             self._update_editor_highlights(uri)
     
     def _on_editor_created(self, event=None) -> None:
@@ -529,11 +531,9 @@ class DiagnosticHighlighter:
                 if editor:
                     uri = editor.get_uri()
                     if uri:
-                        logger.info(f"[Ruff] ✨ New editor created: {uri}")
                         for ls_proxy in self._ls_proxies:
                             if editor.get_language_id() in ls_proxy.get_supported_language_ids():
                                 # Request diagnostics with a small delay to let editor fully initialize
-                                logger.info(f"[Ruff] ⏰ Scheduling diagnostic request for new editor in 50ms")
                                 get_workbench().after(50, lambda u=uri, ls=ls_proxy: self._request_diagnostics_for_uri(u, ls))
     
     def _configure_diagnostic_tags(self, text: tk.Text) -> None:
@@ -622,13 +622,34 @@ class DiagnosticHighlighter:
             
             # If cursor is in both ranges (intersection) - Pyright has priority
             if cursor_in_pyright and cursor_in_ruff:
-                logger.info(f"[Tooltip] Ignoring Ruff diagnostic - cursor in Pyright priority zone at {cursor_pos}")
                 return True
         
         return False
     
+    def _on_autocomplete_inserted(self, event=None) -> None:
+        """Temporarily disable tooltips after autocomplete to prevent immediate tooltip on mouse"""
+        self._tooltip_enabled = False
+        
+        # Cancel previous debounce timer if any
+        if self._tooltip_debounce_timer:
+            get_workbench().after_cancel(self._tooltip_debounce_timer)
+        
+        # Re-enable tooltips after 500ms
+        def enable_tooltips():
+            self._tooltip_enabled = True
+            self._tooltip_debounce_timer = None
+        
+        self._tooltip_debounce_timer = get_workbench().after(500, enable_tooltips)
+    
     def _show_tooltip(self, event, diagnostic: Diagnostic, editor: Editor) -> None:
         """Show tooltip with diagnostic message and AI explanation"""
+        logger.info(f"[Tooltip] _show_tooltip called: enabled={self._tooltip_enabled}, source={diagnostic.source}")
+        
+        # Don't show tooltip if temporarily disabled (e.g. right after autocomplete)
+        if not self._tooltip_enabled:
+            logger.info("[Tooltip] Tooltips disabled, skipping")
+            return
+        
         # Check if this is Ruff and should be ignored due to Pyright priority
         diagnostic_source = (diagnostic.source or "").lower()
         if "ruff" in diagnostic_source:

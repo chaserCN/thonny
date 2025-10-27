@@ -76,16 +76,38 @@ class CompletionsBox(EditorInfoBox):
         def sort_key(completion: lsp_types.CompletionItem):
             sort_text = completion.sortText or completion.label
             label = completion.label
-            print(f"{prefix=!r}, {label=!r}, {sort_text=!r}")
+            kind = completion.kind
 
+            # Trust LSP sortText (e.g. Pyright prioritizes locals with "00...", builtins with "03...")
+            # but give a small bonus to prefix matches
             if not prefix:
-                return (2 if label.startswith("_") else 1, sort_text, label)
+                # No prefix: sort by LSP priority, push _ items down
+                prefix_priority = 1 if label.startswith("_") else 0
             elif label.startswith(prefix):
-                return (1, sort_text, label)
+                # Exact case match: prioritize user-defined items
+                # kind: Variable(6), Function(3), Class(7), Module(9)
+                # vs keywords(14), builtins
+                # Use sortText to distinguish user-defined (00.*, 01.*, 02.*) from builtins (09.9999.*)
+                is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
+                
+                if kind and kind.value == 6:  # Variable - highest priority
+                    prefix_priority = -3
+                elif kind and kind.value in (3, 7, 9) and is_user_defined:  # User-defined Function/Class/Module
+                    prefix_priority = -2
+                elif kind and kind.value in (3, 7, 9):  # Builtin Function/Class
+                    prefix_priority = -1.5
+                else:
+                    prefix_priority = -1  # Keywords and other builtins
             elif label.lower().startswith(prefix.lower()):
-                return (2, sort_text, label)
+                # Case-insensitive match: tiny bonus (priority -0.5)
+                prefix_priority = -0.5
             else:
-                return (4 if label.startswith("_") else 3, sort_text, label)
+                # No match: neutral
+                prefix_priority = 0
+            
+            # Use case-insensitive sorting so 'anext' comes before 'SyntaxError'
+            result = (prefix_priority, sort_text.lower(), label.lower(), label)
+            return result
 
         sorted_completions = sorted(completions, key=sort_key)
         if not prefix.startswith("__"):
@@ -294,6 +316,9 @@ class CompletionsBox(EditorInfoBox):
         )
 
         self.hide()
+        
+        # Ensure focus returns to the text widget after mouse selection
+        self._target_text_widget.focus_set()
 
     def _find_completion_insertion_index(self):
         line, col = map(int, self._target_text_widget.index("insert").split("."))

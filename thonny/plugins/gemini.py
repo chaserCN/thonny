@@ -181,7 +181,7 @@ class GeminiAssistant(BaseAIAssistant):
                 severity_type=severity_type
             )
 
-            print(f"Prompt: {prompt}")
+            #print(f"Prompt: {prompt}")
             
             # Use fast model
             genai.configure(api_key=self._get_saved_api_key())
@@ -195,7 +195,7 @@ class GeminiAssistant(BaseAIAssistant):
                 }
             )
 
-            print(f"Response: {response}")
+            #print(f"Response: {response}")
             
             return response.text.strip() if response.text else "⚠️ Немає відповіді від Gemini"
             
