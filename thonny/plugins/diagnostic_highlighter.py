@@ -39,8 +39,9 @@ class DiagnosticTooltip:
         
         # State machine manages tooltip lifecycle
         self.state_machine = TooltipStateMachine(hover_delay_ms=hover_delay_ms)
-        # Give state machine access to cache
+        # Give state machine access to cache and pending requests
         self.state_machine.set_cache(self._translation_cache)
+        self.state_machine.set_pending_requests(self._pending_requests)
         
         # Clear cache when text is modified
         self.text_widget.bind("<<Modified>>", self._on_text_modified, add=True)
@@ -212,6 +213,14 @@ class DiagnosticTooltip:
                     # Notify state machine in main thread
                     def on_success():
                         self._pending_requests.discard(message)  # Remove from pending
+                        
+                        # Verify this is still the current diagnostic (not stale)
+                        current_msg = self.state_machine.context.message if self.state_machine.context else None
+                        
+                        if current_msg != message:
+                            # Stale response - cache it but don't show
+                            return
+                        
                         actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_READY, {
                             'request_id': request_id,
                             'translation': translation,
@@ -347,6 +356,7 @@ class DiagnosticHighlighter:
         self._tooltips_per_editor: Dict[str, DiagnosticTooltip] = {}
         self._text_change_timers: Dict[str, any] = {}  # uri -> timer_id for debounce
         self._last_rendered_diagnostics: Dict[str, List[DiagnosticInfo]] = {}  # uri -> last rendered diagnostics
+        self._tag_to_diagnostic_per_uri: Dict[str, Dict[str, Diagnostic]] = {}  # uri -> {tag -> diagnostic}
         
         # Connect to existing language servers
         for ls_proxy in get_workbench().get_initialized_ls_proxies():
@@ -557,6 +567,9 @@ class DiagnosticHighlighter:
             if tag.startswith("diag_"):
                 text.tag_delete(tag)
         
+        # Clear tag mapping for this URI
+        self._tag_to_diagnostic_per_uri[uri] = {}
+        
         # Add new tags
         diagnostics = self._diagnostics_per_uri.get(uri, [])
         for diag_info in diagnostics:
@@ -586,29 +599,32 @@ class DiagnosticHighlighter:
             # Create unique tag for this specific diagnostic (for event binding)
             unique_tag = f"diag_{id(diagnostic)}"
             
+            # Store mapping for priority checking
+            self._tag_to_diagnostic_per_uri[uri][unique_tag] = diagnostic
+            
             try:
                 # Add both tags: base for styling, unique for events
                 text.tag_add(base_tag, start_index, end_index)
                 text.tag_add(unique_tag, start_index, end_index)
                 
-                # Choose highlight colors based on severity (hover and default)
+                # Choose highlight colors based on severity (hover only, no default background)
                 if severity == DiagnosticSeverity.Error:
-                    hover_bg = "#ffe0e0"  # Brighter red on hover
-                    default_bg = "#ffebee"  # Subtle red (from tag config)
+                    hover_bg = "#ffe6cc"  # Soft orange on hover (friendly, not scary)
+                    default_bg = ""  # No background by default
                 elif severity == DiagnosticSeverity.Warning:
-                    hover_bg = "#ffe6cc"  # Brighter orange on hover
-                    default_bg = "#fff8e1"  # Subtle orange
+                    hover_bg = "#f0f0f0"  # Light gray on hover
+                    default_bg = ""  # No background by default
                 elif severity == DiagnosticSeverity.Information:
-                    hover_bg = "#e6f2ff"  # Brighter blue on hover
-                    default_bg = "#e8f4fd"  # Subtle blue
+                    hover_bg = "#e6f2ff"  # Light blue on hover
+                    default_bg = ""  # No background by default
                 else:  # Hint
-                    hover_bg = "#f0f0f0"  # Brighter gray on hover
-                    default_bg = "#f5f5f5"  # Subtle gray
+                    hover_bg = "#f5f5f5"  # Very light gray on hover
+                    default_bg = ""  # No background by default
                 
                 # Bind events to unique tag so each diagnostic has its own handler
                 # Use simple show() instead of _show_tooltip to respect the specific diagnostic from this tag
-                text.tag_bind(unique_tag, "<Enter>", lambda e, t=unique_tag, bg=hover_bg, d=diagnostic, ed=editor: (self._highlight_diagnostic(e, t, bg), self._get_tooltip_for_editor(ed).show(e, d)))
-                text.tag_bind(unique_tag, "<Motion>", lambda e, d=diagnostic, ed=editor: self._on_tooltip_motion(e, d, ed))
+                text.tag_bind(unique_tag, "<Enter>", lambda e, t=unique_tag, bg=hover_bg, d=diagnostic, ed=editor: self._on_diagnostic_enter(e, t, bg, d, ed))
+                text.tag_bind(unique_tag, "<Motion>", lambda e, t=unique_tag, d=diagnostic, ed=editor: self._on_diagnostic_motion(e, t, d, ed))
                 text.tag_bind(unique_tag, "<Leave>", lambda e, t=unique_tag, def_bg=default_bg, ed=editor: self._unhighlight_diagnostic(e, t, def_bg, ed))
             except tk.TclError as e:
                 logger.warning(f"Could not add diagnostic tag: {e}")
@@ -686,20 +702,20 @@ class DiagnosticHighlighter:
     
     def _configure_diagnostic_tags(self, text: tk.Text) -> None:
         """Configure visual style for diagnostic tags"""
-        # Hint: gray underline with subtle background - lowest priority
-        text.tag_configure("diagnostic_hint", underline=True, underlinefg="gray", background="#f5f5f5")
+        # Hint: light gray underline, no background - lowest priority
+        text.tag_configure("diagnostic_hint", underline=True, underlinefg="#cccccc")
         text.tag_raise("diagnostic_hint")
         
-        # Info: blue underline with subtle background
-        text.tag_configure("diagnostic_info", underline=True, underlinefg="blue", background="#e8f4fd")
+        # Info: blue underline, no background
+        text.tag_configure("diagnostic_info", underline=True, underlinefg="#6699cc")
         text.tag_raise("diagnostic_info")
         
-        # Warning: orange underline with subtle background
-        text.tag_configure("diagnostic_warning", underline=True, underlinefg="orange", background="#fff8e1")
+        # Warning: light gray underline, no background (less aggressive than orange)
+        text.tag_configure("diagnostic_warning", underline=True, underlinefg="#bbbbbb")
         text.tag_raise("diagnostic_warning")
         
-        # Error: red underline with subtle background - highest priority
-        text.tag_configure("diagnostic_error", underline=True, underlinefg="red", background="#ffebee")
+        # Error: orange underline, no background (less scary than red) - highest priority
+        text.tag_configure("diagnostic_error", underline=True, underlinefg="#ff9933")
         text.tag_raise("diagnostic_error")
     
     def _highlight_diagnostic(self, event, tag: str, background: str) -> None:
@@ -712,7 +728,11 @@ class DiagnosticHighlighter:
     def _unhighlight_diagnostic(self, event, tag: str, default_bg: str, editor: Editor) -> None:
         """Restore default background when mouse leaves diagnostic"""
         text = editor.get_text_widget()
-        text.tag_configure(tag, background=default_bg)
+        if default_bg:
+            text.tag_configure(tag, background=default_bg)
+        else:
+            # Remove background entirely by setting to empty string
+            text.tag_configure(tag, background="")
         self._hide_tooltip(event, editor)
     
     def _get_tooltip_for_editor(self, editor: Editor) -> DiagnosticTooltip:
@@ -721,6 +741,107 @@ class DiagnosticHighlighter:
         if uri not in self._tooltips_per_editor:
             self._tooltips_per_editor[uri] = DiagnosticTooltip(editor.get_text_widget())
         return self._tooltips_per_editor[uri]
+    
+    def _on_diagnostic_enter(self, event, unique_tag: str, bg: str, diagnostic: Diagnostic, editor: Editor) -> None:
+        """Handle mouse entering diagnostic - only process if this is the topmost diagnostic"""
+        text = editor.get_text_widget()
+        
+        # Get all tags at mouse position
+        try:
+            tags_at_pos = text.tag_names(f"@{event.x},{event.y}")
+        except:
+            return
+        
+        # Find all diagnostic unique tags at this position
+        diag_tags = [t for t in tags_at_pos if t.startswith("diag_")]
+        
+        # Find the highest priority diagnostic among all overlapping
+        from thonny.lsp_types import DiagnosticSeverity
+        uri = editor.get_uri()
+        tag_map = self._tag_to_diagnostic_per_uri.get(uri, {})
+        
+        # Build list of (tag, diagnostic, priority_score) for all overlapping
+        overlapping_diagnostics = []
+        for tag in diag_tags:
+            diag = tag_map.get(tag)
+            if diag:
+                sev = diag.severity or DiagnosticSeverity.Error
+                source = (diag.source or "").lower()
+                
+                # Calculate priority score: Error(1) > Warning(2) > Info(3) > Hint(4)
+                # Within same severity: Ruff(0) > Pyright(1)
+                severity_score = {
+                    DiagnosticSeverity.Error: 1,
+                    DiagnosticSeverity.Warning: 2,
+                    DiagnosticSeverity.Information: 3,
+                    DiagnosticSeverity.Hint: 4
+                }.get(sev, 5)
+                
+                source_score = 0 if "ruff" in source else 1
+                
+                # Lower score = higher priority
+                priority_score = (severity_score, source_score)
+                overlapping_diagnostics.append((tag, diag, priority_score))
+        
+        # Sort by priority (lowest score first = highest priority)
+        overlapping_diagnostics.sort(key=lambda x: x[2])
+        
+        # Check if our diagnostic is the highest priority
+        if overlapping_diagnostics and overlapping_diagnostics[0][0] != unique_tag:
+            return  # Ignore, not highest priority
+        
+        # Our diagnostic is highest priority - process normally
+        self._highlight_diagnostic(event, unique_tag, bg)
+        self._get_tooltip_for_editor(editor).show(event, diagnostic)
+    
+    def _on_diagnostic_motion(self, event, unique_tag: str, diagnostic: Diagnostic, editor: Editor) -> None:
+        """Handle mouse motion inside diagnostic - only process if this is the highest priority diagnostic"""
+        text = editor.get_text_widget()
+        
+        # Get all tags at mouse position
+        try:
+            tags_at_pos = text.tag_names(f"@{event.x},{event.y}")
+        except:
+            return
+        
+        # Find all diagnostic unique tags at this position
+        diag_tags = [t for t in tags_at_pos if t.startswith("diag_")]
+        
+        # Check if our diagnostic is the highest priority (same logic as _on_diagnostic_enter)
+        from thonny.lsp_types import DiagnosticSeverity
+        uri = editor.get_uri()
+        tag_map = self._tag_to_diagnostic_per_uri.get(uri, {})
+        
+        # Find highest priority among overlapping
+        highest_priority_score = None
+        highest_tag = None
+        
+        for tag in diag_tags:
+            diag = tag_map.get(tag)
+            if diag:
+                sev = diag.severity or DiagnosticSeverity.Error
+                source = (diag.source or "").lower()
+                
+                severity_score = {
+                    DiagnosticSeverity.Error: 1,
+                    DiagnosticSeverity.Warning: 2,
+                    DiagnosticSeverity.Information: 3,
+                    DiagnosticSeverity.Hint: 4
+                }.get(sev, 5)
+                
+                source_score = 0 if "ruff" in source else 1
+                priority_score = (severity_score, source_score)
+                
+                if highest_priority_score is None or priority_score < highest_priority_score:
+                    highest_priority_score = priority_score
+                    highest_tag = tag
+        
+        # If our tag is not the highest priority - ignore
+        if highest_tag != unique_tag:
+            return
+        
+        # Our tag is highest priority - process normally
+        self._on_tooltip_motion(event, diagnostic, editor)
     
     def _on_tooltip_motion(self, event, diagnostic: Diagnostic, editor: Editor) -> None:
         """Handle mouse motion inside diagnostic - restart hover timer or switch diagnostic"""

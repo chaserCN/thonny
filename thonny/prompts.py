@@ -1049,20 +1049,15 @@ Code:
 ```
 
 FORMAT:
-**[severity in {language}]:** [short translation]
+**[{severity_type} translation in {language}]:** [short translation of diagnostic message in {language}]
 
-[explain what's wrong in 1-2 simple sentences]
+[explain what's wrong in 1-2 simple sentences in {language}]
 
 IMPORTANT: 
 - Explain ONLY the error shown above (line {line_number}: "{diagnostic}")
 - Do NOT mention other errors you see in the code
 - Focus only on this one specific problem
 - Don't use analogies or metaphors
-
-Severity translations:
-- error → Ukrainian: "Помилка" / Russian: "Ошибка"
-- warning → Ukrainian: "Попередження" / Russian: "Предупреждение"  
-- information → Ukrainian: "Інформація" / Russian: "Информация"
 
 EXAMPLES (Ukrainian):
 

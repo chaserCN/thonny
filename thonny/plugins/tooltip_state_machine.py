@@ -77,6 +77,8 @@ class TooltipStateMachine:
         self._cache_ref: Optional[dict] = None
         # Cache generation - incremented when cache is cleared
         self._cache_generation = 0
+        # External pending requests reference (managed by DiagnosticTooltip)
+        self._pending_requests_ref: Optional[set] = None
         
     def handle_event(self, event: TooltipEvent, data: Optional[dict] = None) -> list[TooltipAction]:
         """
@@ -153,6 +155,15 @@ class TooltipStateMachine:
                 TooltipAction('start_timer', {'delay_ms': self.hover_delay_ms})
             ]
         else:
+            # Check if request is already pending
+            if self._pending_requests_ref and message in self._pending_requests_ref:
+                # Request already in progress, just wait
+                self.state = TooltipState.WAITING_FOR_AI
+                return [
+                    TooltipAction('cancel_timer'),
+                    TooltipAction('hide_tooltip')
+                ]
+            
             # NO CACHE: Start AI request immediately (no timer needed, AI takes ~2s)
             self.state = TooltipState.WAITING_FOR_AI
             return [
@@ -292,6 +303,10 @@ class TooltipStateMachine:
     def set_cache(self, cache_dict: dict) -> None:
         """Set reference to external cache dictionary"""
         self._cache_ref = cache_dict
+    
+    def set_pending_requests(self, pending_set: set) -> None:
+        """Set reference to external pending requests set"""
+        self._pending_requests_ref = pending_set
     
     def _cache_translation(self, message: str, translation: str) -> None:
         """Cache translation for message (delegates to external cache)"""

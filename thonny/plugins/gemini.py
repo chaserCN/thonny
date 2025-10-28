@@ -180,6 +180,8 @@ class GeminiAssistant(BaseAIAssistant):
                 line_number=line_number or "unknown"
             )
             
+            print(f"sending a diagnostic prompt to Gemini")
+
             # Use fast model
             genai.configure(api_key=self._get_saved_api_key())
             model = genai.GenerativeModel('gemini-2.5-flash-lite')

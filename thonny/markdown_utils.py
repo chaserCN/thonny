@@ -51,7 +51,7 @@ COLOR_CODE_BLOCK_BG = "#FAF8F5"    # Very light beige for code blocks
 COLOR_KEYWORD = "#0000FF"    # Blue
 COLOR_STRING = "#008000"     # Green
 COLOR_COMMENT = "#999999"    # Gray
-COLOR_NUMBER = "#8B4513"     # Saddle Brown
+COLOR_NUMBER = "#0066AA"     # Darker blue (same as editor)
 COLOR_BUILTIN = "#9900CC"    # Purple
 
 # Selection colors

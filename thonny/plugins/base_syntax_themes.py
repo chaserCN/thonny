@@ -34,7 +34,7 @@ def default_light() -> SyntaxThemeSettings:
         "tab": {"background": "#f5ecd7"},
         "keyword": {"foreground": "#7f0055", "font": "BoldEditorFont"},
         "builtin": {"foreground": "#7f0055"},
-        "number": {"foreground": "#B04600"},
+        "number": {"foreground": "#0066AA"},  # Darker blue instead of orange-brown to avoid confusion with errors
         "comment": {"foreground": light_fg},
         "welcome": {"foreground": light_fg},
         "magic": {"foreground": light_fg},
