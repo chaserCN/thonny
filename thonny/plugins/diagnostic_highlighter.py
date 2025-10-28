@@ -75,7 +75,6 @@ class DiagnosticTooltip:
     
     def _on_context_menu_showing(self, event=None) -> None:
         """Handle <<ContextMenuShowing>> event from codeview"""
-        logger.debug(f"Context menu showing - setting _menu_open = True")
         # Set flag FIRST to prevent tooltip from showing while menu is open
         self._menu_open = True
         # Then hide any existing tooltip and cancel timers
@@ -92,7 +91,6 @@ class DiagnosticTooltip:
     
     def _reset_menu_flag(self) -> None:
         """Reset the menu open flag"""
-        logger.debug(f"Resetting menu flag (was {self._menu_open})")
         self._menu_open = False
         if self._menu_timer:
             try:
@@ -251,7 +249,6 @@ class DiagnosticTooltip:
                         
                         # Don't show tooltip if menu is open
                         if self._menu_open:
-                            logger.debug("Translation ready but menu is open, not showing tooltip")
                             return
                         
                         # Verify this is still the current diagnostic (not stale)
@@ -259,7 +256,6 @@ class DiagnosticTooltip:
                         
                         if current_msg != message:
                             # Stale response - cache it but don't show
-                            logger.debug("Translation ready but message is stale")
                             return
                         
                         actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_READY, {
