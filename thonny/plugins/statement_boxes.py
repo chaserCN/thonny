@@ -9,7 +9,7 @@ from thonny import get_workbench
 
 logger = getLogger(__name__)
 # Uncomment to enable debug logging:
-# logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.DEBUG)
 
 
 class BlockHighlighter:
@@ -70,12 +70,15 @@ class BlockHighlighter:
         
         def collect_blocks(node, depth=0):
             """Recursively collect all blocks with their positions"""
-            if is_block(node):
+            # Skip file_input/module but recurse through their children
+            skip_but_recurse = hasattr(node, 'type') and node.type in ('file_input', 'module')
+            
+            if is_block(node) and not skip_but_recurse:
                 start_line, start_col = node.start_pos
                 end_line, end_col = node.end_pos
                 
                 node_type = getattr(node, 'type', node.__class__.__name__)
-                logger.debug(f"Found block: {node_type} at ({start_line},{start_col})-({end_line},{end_col}), depth={depth}")
+                logger.info(f"Found block: {node_type} at ({start_line},{start_col})-({end_line},{end_col}), depth={depth}")
                 
                 # If end_col is 0, it means end_pos is at the start of the next line
                 # We need to adjust to the end of the previous line
@@ -129,14 +132,14 @@ class BlockHighlighter:
                 # Create unique tag name for this block
                 tag_name = f"block_{start_line}_{start_col}_{end_line}_{end_col}"
                 blocks.append((tag_name, start_line, start_col, end_line, end_col, depth))
-                logger.debug(f"  Added block: lines {start_line}-{end_line}")
+                logger.info(f"  Added block: lines {start_line}-{end_line}")
                 
                 # Recurse with increased depth
                 if hasattr(node, "children"):
                     for child in node.children:
                         collect_blocks(child, depth + 1)
             elif hasattr(node, "children"):
-                # Not a block, but recurse through children
+                # Not a block (or skipped file_input), recurse through children with same depth
                 for child in node.children:
                     collect_blocks(child, depth)
         
@@ -145,8 +148,8 @@ class BlockHighlighter:
     
     def update_blocks(self):
         """Re-parse code and update block positions and highlights"""
-        logger.debug("=" * 60)
-        logger.debug("UPDATE_BLOCKS called")
+        logger.info("=" * 60)
+        logger.info("UPDATE_BLOCKS called")
         
         # Clear all previous highlights in gutter
         for i in range(len(self.depth_colors)):
@@ -154,23 +157,27 @@ class BlockHighlighter:
         
         # Get new blocks
         self.blocks = self.get_blocks()
-        logger.debug(f"Total blocks found: {len(self.blocks)}")
+        logger.info(f"Total blocks found: {len(self.blocks)}")
+        
+        # Sort blocks by depth (shallowest first) so deeper blocks are applied last and appear on top
+        sorted_blocks = sorted(self.blocks, key=lambda b: b[5])  # Sort by depth, shallowest first
         
         # Highlight blocks in gutter
-        for tag_name, start_line, start_col, end_line, end_col, depth in self.blocks:
+        for tag_name, start_line, start_col, end_line, end_col, depth in sorted_blocks:
             # Highlight in gutter with depth-based color
             color_index = min(depth, len(self.depth_colors) - 1)
             tag = f"block_line_depth_{color_index}"
             
-            logger.debug(f"Highlighting lines {start_line}-{end_line} with depth={depth}")
+            logger.info(f"Highlighting lines {start_line}-{end_line}, start_col={start_col}, depth={depth}, color_index={color_index}, color={self.depth_colors[color_index]}")
             
             for line in range(start_line, end_line + 1):
                 gutter_start = f"{line}.0"
                 gutter_end = f"{line}.end"
                 self.gutter.tag_add(tag, gutter_start, gutter_end)
-            
-            # Lower priority so text and breakpoints are visible on top
-            self.gutter.tag_lower(tag)
+        
+        # Lower all block tags below text and breakpoints (in reverse order to maintain depth priority)
+        for i in range(len(self.depth_colors) - 1, -1, -1):
+            self.gutter.tag_lower(f"block_line_depth_{i}")
         
         logger.debug("=" * 60)
     
@@ -185,8 +192,11 @@ class BlockHighlighter:
         for i in range(len(self.depth_colors)):
             self.gutter.tag_remove(f"block_line_depth_{i}", "1.0", "end")
         
+        # Sort blocks by depth (shallowest first) so deeper blocks are applied last and appear on top
+        sorted_blocks = sorted(self.blocks, key=lambda b: b[5])  # Sort by depth, shallowest first
+        
         # Reapply all block highlights
-        for tag_name, start_line, start_col, end_line, end_col, depth in self.blocks:
+        for tag_name, start_line, start_col, end_line, end_col, depth in sorted_blocks:
             color_index = min(depth, len(self.depth_colors) - 1)
             tag = f"block_line_depth_{color_index}"
             
@@ -194,9 +204,10 @@ class BlockHighlighter:
                 gutter_start = f"{line}.0"
                 gutter_end = f"{line}.end"
                 self.gutter.tag_add(tag, gutter_start, gutter_end)
-            
-            # Lower priority so text and breakpoints are visible on top
-            self.gutter.tag_lower(tag)
+        
+        # Lower all block tags below text and breakpoints (in reverse order to maintain depth priority)
+        for i in range(len(self.depth_colors) - 1, -1, -1):
+            self.gutter.tag_lower(f"block_line_depth_{i}")
     
     def _on_breakpoint_change(self, event=None):
         """Called when breakpoint is toggled - reapply highlights after gutter update"""
@@ -248,12 +259,12 @@ def update_blocks(event):
 def init_highlighter(event):
     """Initialize highlighter for newly opened editor"""
     if not get_workbench().ready:
-        return
+                return
     
     # Check if block highlighting is enabled
     if not get_workbench().get_option("view.block_highlighting"):
-        return
-    
+            return
+
     if hasattr(event, "editor"):
         text = event.editor.get_text_widget()
     else:
