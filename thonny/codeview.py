@@ -189,6 +189,10 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
             except:
                 pass
 
+        # Notify all interested parties that context menu is about to show
+        logger.debug("Generating <<ContextMenuShowing>> event")
+        self.event_generate("<<ContextMenuShowing>>")
+        
         popup_menu.tk_popup(event.x_root, event.y_root)
     
     def explain_token_under_cursor(self):

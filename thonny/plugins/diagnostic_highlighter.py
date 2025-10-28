@@ -36,6 +36,8 @@ class DiagnosticTooltip:
         self._cache_timestamps = {}  # message -> timestamp
         self._hover_timer = None  # Timer for hover delay
         self._pending_requests = set()  # Set of message hashes currently being requested
+        self._menu_open = False  # Flag to prevent tooltip during menu
+        self._menu_timer = None  # Timer to reset menu flag
         
         # State machine manages tooltip lifecycle
         self.state_machine = TooltipStateMachine(hover_delay_ms=hover_delay_ms)
@@ -47,6 +49,11 @@ class DiagnosticTooltip:
         self.text_widget.bind("<<Modified>>", self._on_text_modified, add=True)
         self.text_widget.bind("<<TextChange>>", self._on_text_modified, add=True)
         self._last_text_length = len(self.text_widget.get("1.0", "end"))
+        
+        # Hide tooltip when context menu appears
+        self.text_widget.bind("<<ContextMenuShowing>>", self._on_context_menu_showing, add=True)
+        # Reset menu flag when clicking back in editor
+        self.text_widget.bind("<Button-1>", self._on_left_click, add=True)
     
     def _on_text_modified(self, event=None) -> None:
         """Clear translation cache when code is modified"""
@@ -65,6 +72,34 @@ class DiagnosticTooltip:
                 self._execute_actions(actions)
         except tk.TclError:
             pass  # Widget might be destroyed
+    
+    def _on_context_menu_showing(self, event=None) -> None:
+        """Handle <<ContextMenuShowing>> event from codeview"""
+        logger.debug(f"Context menu showing - setting _menu_open = True")
+        # Set flag FIRST to prevent tooltip from showing while menu is open
+        self._menu_open = True
+        # Then hide any existing tooltip and cancel timers
+        self.hide()
+        # Cancel any pending menu timer
+        if self._menu_timer:
+            self.text_widget.after_cancel(self._menu_timer)
+        # Auto-reset flag after 3 seconds (in case menu is dismissed without clicking)
+        self._menu_timer = self.text_widget.after(3000, self._reset_menu_flag)
+    
+    def _on_left_click(self, event=None) -> None:
+        """Reset menu flag when clicking back in editor"""
+        self._reset_menu_flag()
+    
+    def _reset_menu_flag(self) -> None:
+        """Reset the menu open flag"""
+        logger.debug(f"Resetting menu flag (was {self._menu_open})")
+        self._menu_open = False
+        if self._menu_timer:
+            try:
+                self.text_widget.after_cancel(self._menu_timer)
+            except:
+                pass
+            self._menu_timer = None
         
     def show(self, event, diagnostic: Diagnostic) -> None:
         """Show tooltip with diagnostic message (entry point from mouse hover)"""
@@ -214,11 +249,17 @@ class DiagnosticTooltip:
                     def on_success():
                         self._pending_requests.discard(message)  # Remove from pending
                         
+                        # Don't show tooltip if menu is open
+                        if self._menu_open:
+                            logger.debug("Translation ready but menu is open, not showing tooltip")
+                            return
+                        
                         # Verify this is still the current diagnostic (not stale)
                         current_msg = self.state_machine.context.message if self.state_machine.context else None
                         
                         if current_msg != message:
                             # Stale response - cache it but don't show
+                            logger.debug("Translation ready but message is stale")
                             return
                         
                         actions = self.state_machine.handle_event(TooltipEvent.TRANSLATION_READY, {
@@ -277,6 +318,9 @@ class DiagnosticTooltip:
         if not context or not context.event:
             return
         
+        # Don't show tooltip if context menu is open
+        if self._menu_open:
+            return
         # Create tooltip window
         self.tooltip_window = tw = tk.Toplevel(self.text_widget)
         tw.wm_overrideredirect(True)
