@@ -244,8 +244,8 @@ class BlockHighlighter:
             self._clear_hover_highlight()
             self._hover_line = line
         
-        # Schedule highlight after 2 seconds
-        self._hover_timer = self.text.after(2000, lambda: self._highlight_block_at_line(line))
+        # Schedule highlight after 300ms (same as variable highlighting)
+        self._hover_timer = self.text.after(300, lambda: self._highlight_block_at_line(line))
     
     def _on_gutter_leave(self, event):
         """Handle mouse leaving gutter"""
