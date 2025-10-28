@@ -43,6 +43,23 @@ class BlockHighlighter:
         
         # Subscribe to breakpoint changes to reapply highlights
         self.text.bind("<<BreakpointChange>>", self._on_breakpoint_change, True)
+        
+        # Mouse hover state for block highlighting in editor
+        self._hover_timer = None
+        self._hover_line = None
+        self._highlighted_block = None
+        
+        # Configure tag for highlighting block in editor on hover
+        self.text.tag_configure("hover_block", background="")  # Will be set dynamically
+        self.text.tag_lower("hover_block")
+        
+        # Subscribe to mouse events in gutter
+        self.gutter.bind("<Motion>", self._on_gutter_motion, True)
+        self.gutter.bind("<Leave>", self._on_gutter_leave, True)
+        
+        # Subscribe to focus events to cancel timer when window loses focus
+        self.text.bind("<FocusOut>", self._on_focus_lost, True)
+        self.gutter.bind("<FocusOut>", self._on_focus_lost, True)
     
     def get_blocks(self):
         """Parse code with parso and find all blocks (functions, if, for, while, etc.)"""
@@ -78,13 +95,11 @@ class BlockHighlighter:
                 end_line, end_col = node.end_pos
                 
                 node_type = getattr(node, 'type', node.__class__.__name__)
-                logger.info(f"Found block: {node_type} at ({start_line},{start_col})-({end_line},{end_col}), depth={depth}")
                 
                 # If end_col is 0, it means end_pos is at the start of the next line
                 # We need to adjust to the end of the previous line
                 if end_col == 0 and end_line > start_line:
                     end_line = end_line - 1
-                    logger.debug(f"  Adjusted end to line {end_line} (was pointing to start of next line)")
                 
                 # Extend to include trailing empty/whitespace lines
                 # that have indentation > the block's start column
@@ -105,34 +120,25 @@ class BlockHighlighter:
                     if not line.strip():
                         # Completely empty line (0 chars) - NOT in block
                         if not line:
-                            logger.debug(f"  Line {line_num + 1} is completely empty, ending block")
                             break
                         # Whitespace-only - check if indentation is enough
                         elif indent > start_col:
-                            logger.debug(f"  Line {line_num + 1} has indent={indent} > {start_col}, including in block")
                             end_line = line_num + 1
                             continue
                         else:
-                            logger.debug(f"  Line {line_num + 1} has indent={indent} <= {start_col}, ending block")
                             break
                     
                     # Non-empty line with code - check if it's more indented than block start
                     if indent > start_col:
                         # This line is more indented, include it
-                        logger.debug(f"  Line {line_num + 1} has indent={indent} > {start_col}, including in block")
                         end_line = line_num + 1
                     else:
                         # Less or equal indentation - block ends
-                        logger.debug(f"  Line {line_num + 1} has indent={indent} <= {start_col}, ending block")
                         break
-                
-                if end_line != original_end:
-                    logger.debug(f"  Extended block to line {end_line} (from {original_end}) to include trailing whitespace")
                 
                 # Create unique tag name for this block
                 tag_name = f"block_{start_line}_{start_col}_{end_line}_{end_col}"
                 blocks.append((tag_name, start_line, start_col, end_line, end_col, depth))
-                logger.info(f"  Added block: lines {start_line}-{end_line}")
                 
                 # Recurse with increased depth
                 if hasattr(node, "children"):
@@ -148,8 +154,6 @@ class BlockHighlighter:
     
     def update_blocks(self):
         """Re-parse code and update block positions and highlights"""
-        logger.info("=" * 60)
-        logger.info("UPDATE_BLOCKS called")
         
         # Clear all previous highlights in gutter
         for i in range(len(self.depth_colors)):
@@ -157,7 +161,6 @@ class BlockHighlighter:
         
         # Get new blocks
         self.blocks = self.get_blocks()
-        logger.info(f"Total blocks found: {len(self.blocks)}")
         
         # Sort blocks by depth (shallowest first) so deeper blocks are applied last and appear on top
         sorted_blocks = sorted(self.blocks, key=lambda b: b[5])  # Sort by depth, shallowest first
@@ -168,8 +171,6 @@ class BlockHighlighter:
             color_index = min(depth, len(self.depth_colors) - 1)
             tag = f"block_line_depth_{color_index}"
             
-            logger.info(f"Highlighting lines {start_line}-{end_line}, start_col={start_col}, depth={depth}, color_index={color_index}, color={self.depth_colors[color_index]}")
-            
             for line in range(start_line, end_line + 1):
                 gutter_start = f"{line}.0"
                 gutter_end = f"{line}.end"
@@ -178,15 +179,11 @@ class BlockHighlighter:
         # Lower all block tags below text and breakpoints (in reverse order to maintain depth priority)
         for i in range(len(self.depth_colors) - 1, -1, -1):
             self.gutter.tag_lower(f"block_line_depth_{i}")
-        
-        logger.debug("=" * 60)
     
     def _reapply_highlights(self, event=None):
         """Reapply block highlights without reparsing - called after breakpoint changes"""
         if not self.blocks:
             return
-        
-        logger.debug("Reapplying highlights after gutter change")
         
         # Clear all highlights first
         for i in range(len(self.depth_colors)):
@@ -219,13 +216,107 @@ class BlockHighlighter:
         # Remove all block highlight tags from gutter
         for i in range(len(self.depth_colors)):
             self.gutter.tag_remove(f"block_line_depth_{i}", "1.0", "end")
-        logger.debug("Block highlights hidden for screenshot")
+        
+        # Also clear hover highlight from editor
+        self._clear_hover_highlight()
     
     def _show_after_screenshot(self, event=None):
         """Show block highlights after screenshot"""
         # Reapply all block highlights
         self._reapply_highlights()
-        logger.debug("Block highlights restored after screenshot")
+    
+    def _on_gutter_motion(self, event):
+        """Handle mouse movement in gutter"""
+        # Cancel previous timer if any
+        if self._hover_timer:
+            self.text.after_cancel(self._hover_timer)
+            self._hover_timer = None
+        
+        # Get line number under mouse
+        try:
+            line_index = self.gutter.index(f"@{event.x},{event.y}")
+            line = int(line_index.split('.')[0])
+        except:
+            return
+        
+        # If moved to different line, clear highlight
+        if self._hover_line != line:
+            self._clear_hover_highlight()
+            self._hover_line = line
+        
+        # Schedule highlight after 2 seconds
+        self._hover_timer = self.text.after(2000, lambda: self._highlight_block_at_line(line))
+    
+    def _on_gutter_leave(self, event):
+        """Handle mouse leaving gutter"""
+        # Cancel timer
+        if self._hover_timer:
+            self.text.after_cancel(self._hover_timer)
+            self._hover_timer = None
+        
+        # Clear highlight
+        self._clear_hover_highlight()
+        self._hover_line = None
+    
+    def _on_focus_lost(self, event):
+        """Handle window/widget losing focus (e.g., when popup appears)"""
+        # Cancel timer to prevent highlighting when focus is lost
+        if self._hover_timer:
+            self.text.after_cancel(self._hover_timer)
+            self._hover_timer = None
+        
+        # Also clear any existing highlight
+        self._clear_hover_highlight()
+        self._hover_line = None
+    
+    def _highlight_block_at_line(self, line):
+        """Highlight the block that contains the given line"""
+        # Get all tags at this line in gutter
+        line_index = f"{line}.0"
+        tags_at_line = self.gutter.tag_names(line_index)
+        
+        # Find the deepest block depth tag (highest number)
+        hover_depth = None
+        for i in range(len(self.depth_colors) - 1, -1, -1):  # Check from deepest to shallowest
+            tag = f"block_line_depth_{i}"
+            if tag in tags_at_line:
+                hover_depth = i
+                break
+        
+        if hover_depth is None:
+            return
+        
+        # Find the block with this depth at this line
+        target_block = None
+        for tag_name, start_line, start_col, end_line, end_col, depth in self.blocks:
+            if start_line <= line <= end_line and depth == hover_depth:
+                target_block = (tag_name, start_line, start_col, end_line, end_col, depth)
+                break
+        
+        if not target_block:
+            return
+        
+        # Unpack block info
+        tag_name, start_line, start_col, end_line, end_col, depth = target_block
+        
+        # Get color for this depth
+        color_index = min(depth, len(self.depth_colors) - 1)
+        color = self.depth_colors[color_index]
+        
+        # Configure and apply tag to entire block in editor
+        self.text.tag_configure("hover_block", background=color)
+        
+        for line_num in range(start_line, end_line + 1):
+            line_start = f"{line_num}.0"
+            line_end = f"{line_num}.end"
+            self.text.tag_add("hover_block", line_start, line_end)
+        
+        self._highlighted_block = target_block
+    
+    def _clear_hover_highlight(self):
+        """Clear hover highlight from editor"""
+        self.text.tag_remove("hover_block", "1.0", "end")
+        self._highlighted_block = None
     
     def schedule_update(self):
         """Schedule block update (after text changes)"""
