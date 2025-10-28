@@ -7,7 +7,7 @@ def default_light() -> SyntaxThemeSettings:
     default_bg = "#fdfdfd"
     light_fg = "DarkGray"
     string_fg = "DarkGreen"
-    open_string_bg = "#c3f9d3"
+    open_string_bg = "#e8ffe8"  # Very light green
     gutter_foreground = "#999999"
     gutter_background = "#e0e0e0"
 

@@ -113,7 +113,9 @@ class ParenMatcher:
                 # incorrect closure
                 opener = stack[-1]
                 open_index = "%d.%d" % opener.start
-                self.text.tag_add("unclosed_expression", open_index, end_index)
+                # Highlight only to end of current line, not to end of file
+                line_end_index = "%d.end" % opener.start[0]
+                self.text.tag_add("unclosed_expression", open_index, line_end_index)
                 break
             else:
                 # found a pair
@@ -136,7 +138,9 @@ class ParenMatcher:
             # something was left without closure
             opener = stack[-1]
             open_index = "%d.%d" % opener.start
-            self.text.tag_add("unclosed_expression", open_index, end_index)
+            # Highlight only to end of current line, not to end of file
+            line_end_index = "%d.end" % opener.start[0]
+            self.text.tag_add("unclosed_expression", open_index, line_end_index)
 
     def _get_paren_tokens(self, start_index, end_index):
         import tokenize
