@@ -38,6 +38,7 @@ class DiagnosticTooltip:
         self._pending_requests = set()  # Set of message hashes currently being requested
         self._menu_open = False  # Flag to prevent tooltip during menu
         self._menu_timer = None  # Timer to reset menu flag
+        self._current_language = None  # Track current language to detect changes
         
         # State machine manages tooltip lifecycle
         self.state_machine = TooltipStateMachine(hover_delay_ms=hover_delay_ms)
@@ -166,6 +167,20 @@ class DiagnosticTooltip:
     def _request_translation(self, message: str, severity, diagnostic: Diagnostic, request_id: int, cache_generation: int) -> None:
         """Request translation from current AI assistant"""
         import time
+        from thonny import get_workbench
+        
+        # Check if language changed and clear cache if needed
+        try:
+            current_lang = get_workbench().get_option("ai.language", "uk")
+            if self._current_language != current_lang:
+                # Language changed, clear cache
+                if self._translation_cache:
+                    self._translation_cache.clear()
+                    self._cache_timestamps.clear()
+                    self._pending_requests.clear()
+                self._current_language = current_lang
+        except Exception:
+            pass
         
         # Check cache first (should already be checked by state machine, but double-check)
         if message in self._translation_cache:

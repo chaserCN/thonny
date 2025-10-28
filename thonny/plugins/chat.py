@@ -1219,6 +1219,7 @@ class ChatView(tktextext.TextFrame):
         Supported formats:
         - fix{replace:N-M:original} - replace lines N to M (original line numbers)
         - fix{delete:N-M:original} - delete lines N to M
+        - fix{insert-before:N:original} - insert before line N
         - fix{insert-after:N:original} - insert after line N
         - fix{append} - append to end of file
         
@@ -1232,8 +1233,8 @@ class ChatView(tktextext.TextFrame):
         fixes = []
         
         # Pattern: ```fix{operation:params[:original]}
-        # Groups: (1) operation (replace/delete/insert-after/append), (2) params, (3) code
-        pattern = r'```fix\{(replace|delete|insert-after|append)(?::([^\}]+))?\}\s*\n(.*?)```'
+        # Groups: (1) operation (replace/delete/insert-before/insert-after/append), (2) params, (3) code
+        pattern = r'```fix\{(replace|delete|insert-before|insert-after|append)(?::([^\}]+))?\}\s*\n(.*?)```'
         
         for match in re.finditer(pattern, markdown_text, re.DOTALL):
             operation = match.group(1)  # "replace", "delete", "insert-after", "append"
@@ -1252,6 +1253,13 @@ class ChatView(tktextext.TextFrame):
                 # Append to end - no line numbers needed
                 start_line = None  # Will be determined later based on file length
                 end_line = None
+            elif operation == "insert-before":
+                # Insert before line N - params is just N
+                if not params:
+                    logger.error(f"Fix operation 'insert-before' requires line number, skipping")
+                    continue
+                start_line = int(params)
+                end_line = start_line
             elif operation == "insert-after":
                 # Insert after line N - params is just N
                 if not params:
@@ -1309,7 +1317,7 @@ class ChatView(tktextext.TextFrame):
             reason = re.sub(r'\*\*[^*]+:\*\*\s*$', '', reason).strip()
             
             # Validation based on operation
-            if operation in ["replace", "insert-after"]:
+            if operation in ["replace", "insert-before", "insert-after"]:
                 # Replace and insert need code
                 if not code.strip():
                     logger.warning(f"{operation.title()} operation at lines {start_line}-{end_line} has no code, skipping")
@@ -1444,6 +1452,10 @@ class ChatView(tktextext.TextFrame):
             # Adjust end_line if it's after the change point
             if end and end > change_point:
                 fix['end_line'] = end + delta
+            
+            # Adjust _insert_before if present
+            if '_insert_before' in fix and fix['_insert_before'] > change_point:
+                fix['_insert_before'] += delta
             
             # Adjust _insert_after if present
             if '_insert_after' in fix and fix['_insert_after'] > change_point:
@@ -2128,6 +2140,21 @@ def _handle_show_fix_suggestion(event):
             fix['_actual_start'] = max_line
             fix['start_line'] = max_line + 1  # For display purposes
             fix['end_line'] = max_line + 1
+        
+        elif operation == "insert-before":
+            # Insert before line N - validate N exists
+            if start_line is None or start_line < 1 or start_line > max_line:
+                logger.error(f"⚠️ Insert-before line {start_line} is invalid, file has {max_line} lines, trying next fix")
+                try:
+                    chat_view = get_workbench().get_view("ChatView")
+                    if chat_view:
+                        chat_view.on_fix_popup_closed(applied_successfully=False)
+                except:
+                    pass
+                return
+            # Store operation info for popup
+            fix['_is_insert'] = True
+            fix['_insert_before'] = start_line
         
         elif operation == "insert-after":
             # Insert after line N - validate N exists

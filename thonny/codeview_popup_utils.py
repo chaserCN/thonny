@@ -419,10 +419,17 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         end_index = start_index
         old_code = ""
     elif is_insert:
-        # Insert after line N - position at end of line N
-        insert_after = fix['_insert_after']
-        start_index = f"{insert_after}.end"
-        end_index = start_index
+        # Insert before or after line N
+        if '_insert_before' in fix:
+            # Insert before line N - position at start of line N
+            insert_before = fix['_insert_before']
+            start_index = f"{insert_before}.0"
+            end_index = start_index
+        else:
+            # Insert after line N - position at end of line N
+            insert_after = fix['_insert_after']
+            start_index = f"{insert_after}.end"
+            end_index = start_index
         old_code = ""
     else:
         # Replace or delete - work with range of lines
@@ -601,8 +608,12 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
         if reason:
             markdown_content += f"\n\n{reason}"
     elif is_insert:
-        insert_after = fix['_insert_after']
-        label_text = "Вставити після рядка {}:".format(insert_after) if is_content_ukrainian else "Вставить после строки {}:".format(insert_after)
+        if '_insert_before' in fix:
+            insert_before = fix['_insert_before']
+            label_text = "Вставити перед рядком {}:".format(insert_before) if is_content_ukrainian else "Вставить перед строкой {}:".format(insert_before)
+        else:
+            insert_after = fix['_insert_after']
+            label_text = "Вставити після рядка {}:".format(insert_after) if is_content_ukrainian else "Вставить после строки {}:".format(insert_after)
         markdown_content = f"**{label_text}**\n\n```python\n{fix['new']}\n```"
         if reason:
             markdown_content += f"\n\n{reason}"
@@ -647,8 +658,13 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 success_end = text_widget.index(f"{start_index} + {len(fixed_code)}c")
                 
             elif is_insert:
-                # INSERT-AFTER operation - add newline + code after current line
-                fixed_code = '\n' + fix['new']
+                # INSERT-BEFORE or INSERT-AFTER operation
+                if '_insert_before' in fix:
+                    # INSERT-BEFORE: add code + newline before line
+                    fixed_code = fix['new'] + '\n'
+                else:
+                    # INSERT-AFTER: add newline + code after current line
+                    fixed_code = '\n' + fix['new']
                 if hasattr(text_widget, 'direct_insert'):
                     text_widget.direct_insert(start_index, fixed_code)
                 else:
@@ -706,8 +722,13 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 change_point = start_line - 1  # Change occurred after line before deletion
                 delta = -(end_line - start_line + 1)  # Negative delta (removed lines)
             elif is_insert:
-                # INSERT-AFTER: added lines after insert_after line
-                change_point = fix.get('_insert_after', start_line)
+                # INSERT-BEFORE or INSERT-AFTER: added lines
+                if '_insert_before' in fix:
+                    # INSERT-BEFORE: added lines before insert_before line
+                    change_point = fix.get('_insert_before') - 1  # Change occurred after line before insertion
+                else:
+                    # INSERT-AFTER: added lines after insert_after line
+                    change_point = fix.get('_insert_after', start_line)
                 new_lines_count = fixed_code.count('\n')
                 delta = new_lines_count  # Positive delta (added lines)
             elif is_append:

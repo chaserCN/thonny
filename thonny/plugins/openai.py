@@ -70,8 +70,26 @@ class OpenAIApiKeyDialog(tk.Toplevel):
 class OpenAIAssistant(BaseAIAssistant):
     """OpenAI assistant implementation"""
     
+    def __init__(self):
+        super().__init__()
+        self._client = None  # Cached OpenAI client
+        self._configured_api_key = None  # Track which API key was configured
+    
     def _get_saved_api_key(self) -> Optional[str]:
         return get_workbench().get_secret(API_KEY_SECRET_KEY)
+    
+    def _get_client(self):
+        """Get or create cached OpenAI client"""
+        from openai import OpenAI
+        
+        api_key = self._get_saved_api_key()
+        
+        # Recreate client if API key changed
+        if api_key != self._configured_api_key or self._client is None:
+            self._client = OpenAI(api_key=api_key)
+            self._configured_api_key = api_key
+        
+        return self._client
 
     def _request_new_api_key(self) -> None:
         from logging import getLogger
@@ -121,9 +139,8 @@ class OpenAIAssistant(BaseAIAssistant):
         logger = getLogger(__name__)
 
         try:
-            api_key = self._get_saved_api_key()
-            logger.info(f"OpenAI API key from secrets: exists={api_key is not None}, length={len(api_key) if api_key else 0}")
-            client = OpenAI(api_key=api_key)
+            # Use cached client
+            client = self._get_client()
 
             # Combine system message with history
             all_messages = [{"role": "system", "content": system_prompt}] + messages
@@ -172,8 +189,8 @@ class OpenAIAssistant(BaseAIAssistant):
                 line_number=line_number or "unknown"
             )
             
-            # Use fast model
-            client = OpenAI(api_key=self._get_saved_api_key())
+            # Use cached client and fast model
+            client = self._get_client()
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
@@ -185,6 +202,84 @@ class OpenAIAssistant(BaseAIAssistant):
         except Exception as e:
             logger.exception("Error in explain_diagnostic")
             return f"⚠️ Помилка: {str(e)}"
+    
+    def rerank_completions(self, code_context: str, cursor_line: str, completions: List[str], max_results: int = 10, completion_kinds: dict = None) -> List[str]:
+        """Rerank completions using gpt-4o-mini"""
+        from openai import OpenAI, APIConnectionError, APIError
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
+        
+        try:
+            # If very few completions (< 5), no point in reranking
+            if len(completions) < 5:
+                logger.info(f"OpenAI: too few completions ({len(completions)}), no reranking needed")
+                return completions
+            
+            # Build prompt for reranking with type information
+            if completion_kinds:
+                # Include type information (Function, Variable, Class, Method, Keyword)
+                completions_with_types = []
+                for c in completions[:50]:
+                    kind = completion_kinds.get(c, 'Unknown')
+                    completions_with_types.append(f'"{c}" ({kind})')
+                completions_list = ", ".join(completions_with_types)
+            else:
+                # Fallback: just names
+                completions_list = ", ".join([f'"{c}"' for c in completions[:50]])
+            
+            prompt = f"""You are a code completion assistant. Given code context and a list of possible completions with their types, return ONLY the {max_results} most relevant completion labels, ordered by relevance (most relevant first).
+
+Code context:
+```python
+{code_context}
+{cursor_line}█ <- cursor here
+```
+
+Available completions with types:
+{completions_list}
+
+Consider:
+- After "for x in ": prefer Function (range, enumerate) over Class/Variable
+- After "obj.": prefer Method over Function/Class
+- At start of line: prefer Keyword (for, def, if) or Function calls
+- Inside expression: prefer Variable/Function over Keyword
+
+Return ONLY a comma-separated list of the {max_results} most relevant labels (WITHOUT types), nothing else. No explanations, no markdown, just: label1, label2, label3, ...
+
+Example output: range, enumerate, list, zip, map"""
+
+            # Use cached client and fast model
+            client = self._get_client()
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=200
+            )
+            
+            if not response.choices[0].message.content:
+                logger.warning("Empty response from OpenAI for completion reranking")
+                return completions[:max_results]
+            
+            # Parse response - should be comma-separated list
+            reranked_labels = [label.strip().strip('"').strip("'") for label in response.choices[0].message.content.strip().split(",")]
+            
+            # Filter to only include valid completions and limit to max_results
+            valid_reranked = [label for label in reranked_labels if label in completions][:max_results]
+            
+            # If we got fewer than max_results, append remaining from original list
+            if len(valid_reranked) < max_results:
+                remaining = [c for c in completions if c not in valid_reranked]
+                valid_reranked.extend(remaining[:max_results - len(valid_reranked)])
+            
+            logger.debug(f"Reranked {len(completions)} completions to {len(valid_reranked)}")
+            return valid_reranked
+            
+        except Exception as e:
+            logger.exception("Error in rerank_completions")
+            # Fallback: return first max_results items
+            return completions[:max_results]
 
 
 def load_plugin():

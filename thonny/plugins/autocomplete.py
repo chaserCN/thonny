@@ -62,7 +62,7 @@ class CompletionsBox(EditorInfoBox):
         self._update_theme()
 
     def present_completions(
-        self, text: SyntaxText, completions: List[lsp_types.CompletionItem]
+        self, text: SyntaxText, completions: List[lsp_types.CompletionItem], skip_sorting: bool = False
     ) -> None:
         # Next events need to know this
         assert completions
@@ -109,7 +109,14 @@ class CompletionsBox(EditorInfoBox):
             result = (prefix_priority, sort_text.lower(), label.lower(), label)
             return result
 
-        sorted_completions = sorted(completions, key=sort_key)
+        if skip_sorting:
+            # AI already sorted - don't re-sort!
+            logger.info(f"🎯 Using AI-sorted order (skip_sorting=True)")
+            sorted_completions = completions
+        else:
+            # Apply our sorting algorithm
+            sorted_completions = sorted(completions, key=sort_key)
+        
         if not prefix.startswith("__"):
             sorted_completions = [
                 comp
@@ -392,6 +399,70 @@ class CompletionsBox(EditorInfoBox):
                     break
                 finally:
                     self._tweaking_listbox_selection = old_flag
+    
+    def update_order_from_ai(self, reranked_labels: List[str], original_completions: List[CompletionItem]) -> None:
+        """Update completion order based on AI reranking (called async from background thread result)"""
+        try:
+            # Create mapping from label to completion item
+            label_to_item = {item.label: item for item in original_completions}
+            
+            # Build reordered list
+            reordered = []
+            seen = set()
+            
+            # Add reranked items first (in AI's preferred order)
+            for label in reranked_labels:
+                if label in label_to_item and label not in seen:
+                    reordered.append(label_to_item[label])
+                    seen.add(label)
+            
+            # Add remaining items that AI didn't rank
+            for item in self._completions:
+                if item.label not in seen:
+                    reordered.append(item)
+            
+            logger.info(f"📤 Final order shown to user ({len(reordered)} items):")
+            for i, comp in enumerate(reordered[:20]):  # Show first 20
+                kind_name = lsp_types.CompletionItemKind(comp.kind).name if comp.kind else "Unknown"
+                logger.info(f"  [{i:2d}] {comp.label:30s} | {kind_name:12s}")
+            if len(reordered) > 20:
+                logger.info(f"  ... and {len(reordered) - 20} more")
+            logger.info(f"━" * 80)
+            
+            # Update internal list
+            self._completions = reordered
+            
+            # Update listbox display
+            old_flag = self._tweaking_listbox_selection
+            self._tweaking_listbox_selection = True
+            try:
+                # Remember current selection
+                sel = self._listbox.curselection()
+                selected_label = None
+                if len(sel) == 1:
+                    selected_label = self._listbox.get(sel[0])
+                
+                # Rebuild listbox
+                self._listbox.delete(0, self._listbox.size())
+                self._listbox.insert(0, *[c.label for c in reordered])
+                
+                # Restore selection if possible
+                if selected_label:
+                    for i, comp in enumerate(reordered):
+                        if comp.label == selected_label:
+                            self._listbox.selection_set(i)
+                            self._listbox.activate(i)
+                            break
+                else:
+                    # Default to first item
+                    self._listbox.selection_set(0)
+                    self._listbox.activate(0)
+                    
+            finally:
+                self._tweaking_listbox_selection = old_flag
+                
+        except Exception as e:
+            logger.exception("Error updating completion order from AI")
 
 
 class Completer:
@@ -579,10 +650,296 @@ class Completer:
             self._close_box()
             return
         else:
+            # Log what LSP provided (FULL LIST)
+            logger.info(f"📥 LSP gave us {len(completions)} completions:")
+            for i, item in enumerate(completions):
+                kind_name = lsp_types.CompletionItemKind(item.kind).name if item.kind else "Unknown"
+                detail = item.detail if item.detail else ""
+                logger.info(f"  [{i:2d}] {item.label:30s} | {kind_name:12s} | {detail}")
+            logger.info(f"━" * 80)
+            
+            # Show completions
             if not self._completions_box:
                 self._completions_box = CompletionsBox(self)
             self._completions_box.present_completions(self._last_request_text, completions)
 
+    def _rerank_completions_with_ai_async_and_show(self, completions: List[lsp_types.CompletionItem], text: SyntaxText) -> None:
+        """Rerank completions using AI in background, then show (non-blocking - UI doesn't freeze!)"""
+        import threading
+        from thonny.plugins.base_assistant import get_ai_assistant
+        
+        # Mark AI request as in progress
+        self._ai_request_in_progress = True
+        logger.info(f"🔒 AI request started (blocking new requests)")
+        
+        # Get AI assistant
+        assistant = get_ai_assistant()
+        if not assistant:
+            logger.info("No AI assistant available, showing completions immediately")
+            self._ai_request_in_progress = False  # Release lock
+            if not self._completions_box:
+                self._completions_box = CompletionsBox(self)
+            self._completions_box.present_completions(self._last_request_text, completions)  # Will apply our sorting
+            return
+        
+        try:
+            # Step 1: Apply our smart sorting (local variables first, etc.)
+            prefix_start_index = text.tag_ranges("sel")
+            if prefix_start_index:
+                prefix_start_index = prefix_start_index[0]
+            else:
+                prefix_start_index = self._completions_box._find_completion_insertion_index() if self._completions_box else text.index("insert")
+            
+            prefix = text.get(prefix_start_index, "insert") if text.compare(prefix_start_index, "<=", "insert") else ""
+            
+            def sort_key(completion: lsp_types.CompletionItem):
+                sort_text = completion.sortText or completion.label
+                label = completion.label
+                kind = completion.kind
+                
+                # Same logic as in present_completions
+                if not prefix:
+                    prefix_priority = 1 if label.startswith("_") else 0
+                elif label.startswith(prefix):
+                    is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
+                    
+                    if kind and kind.value == 6:  # Variable - highest priority
+                        prefix_priority = -3
+                    elif kind and kind.value in (3, 7, 9) and is_user_defined:  # User-defined Function/Class/Module
+                        prefix_priority = -2
+                    elif kind and kind.value in (3, 7, 9):  # Builtin Function/Class
+                        prefix_priority = -1.5
+                    else:
+                        prefix_priority = -1  # Keywords and other builtins
+                elif label.lower().startswith(prefix.lower()):
+                    prefix_priority = -0.5
+                else:
+                    prefix_priority = 0
+                
+                return (prefix_priority, sort_text.lower(), label.lower(), label)
+            
+            sorted_completions = sorted(completions, key=sort_key)
+            
+            logger.info(f"🔄 Sorted {len(sorted_completions)} completions by our algorithm (local vars first)")
+            for i, item in enumerate(sorted_completions[:20]):
+                kind_name = lsp_types.CompletionItemKind(item.kind).name if item.kind else "Unknown"
+                logger.info(f"  [{i:2d}] {item.label:30s} | {kind_name:12s}")
+            if len(sorted_completions) > 20:
+                logger.info(f"  ... and {len(sorted_completions) - 20} more")
+            logger.info(f"━" * 80)
+            
+            # Step 2: Take top 50 for AI reranking
+            top_completions = sorted_completions[:50]
+            
+            # Extract labels and kinds
+            labels = [item.label for item in top_completions]
+            completion_kinds = {}
+            for item in top_completions:
+                if item.kind:
+                    kind_name = lsp_types.CompletionItemKind(item.kind).name
+                    completion_kinds[item.label] = kind_name
+            
+            logger.info(f"🤖 Sending top {len(labels)} to AI for reranking")
+            
+            # Step 3: Get reasonable context (last 100 lines or less)
+            try:
+                cursor_index = text.index("insert")
+                cursor_line_num = int(cursor_index.split(".")[0])
+                
+                # Get last 100 lines (or from start if file is small)
+                context_start_line = max(1, cursor_line_num - 100)
+                code_context = text.get(f"{context_start_line}.0", cursor_index)
+                cursor_line = text.get(f"{cursor_line_num}.0", cursor_index)
+                
+                logger.info(f"📝 Sending context: {len(code_context)} chars, lines {context_start_line}-{cursor_line_num}")
+                logger.info(f"   Current line: '{cursor_line}' ← cursor here")
+                
+            except Exception as e:
+                logger.warning(f"Failed to get full context: {e}")
+                code_context = text.get("1.0", "end")
+                cursor_line = ""
+            
+            # Remember current request to detect if it's stale
+            request_text = text
+            original_completions_list = sorted_completions
+            
+            # Step 4: Call AI in BACKGROUND THREAD (non-blocking!)
+            logger.info(f"⏳ Starting AI request in background (UI не зависає!)...")
+            
+            def do_ai_reranking():
+                try:
+                    reranked_labels = assistant.rerank_completions(
+                        code_context=code_context,
+                        cursor_line=cursor_line,
+                        completions=labels,
+                        max_results=len(labels),  # Rerank ALL top-50
+                        completion_kinds=completion_kinds
+                    )
+                    
+                    logger.info(f"✅ AI returned {len(reranked_labels)} labels")
+                    
+                    # Step 5: Reorder based on AI ranking
+                    label_to_item = {item.label: item for item in top_completions}
+                    reordered = []
+                    seen = set()
+                    
+                    for label in reranked_labels:
+                        if label in label_to_item and label not in seen:
+                            reordered.append(label_to_item[label])
+                            seen.add(label)
+                    
+                    # Add any remaining from top-50 that AI didn't include
+                    for item in top_completions:
+                        if item.label not in seen:
+                            reordered.append(item)
+                    
+                    # Add rest of completions (beyond top-50) at the end
+                    for item in original_completions_list[50:]:
+                        reordered.append(item)
+                    
+                    logger.info(f"📤 Final reranked list ({len(reordered)} items):")
+                    for i, comp in enumerate(reordered[:20]):
+                        kind_name = lsp_types.CompletionItemKind(comp.kind).name if comp.kind else "Unknown"
+                        logger.info(f"  [{i:2d}] {comp.label:30s} | {kind_name:12s}")
+                    if len(reordered) > 20:
+                        logger.info(f"  ... and {len(reordered) - 20} more")
+                    logger.info(f"━" * 80)
+                    
+                    # Show completions in UI thread
+                    def show_completions():
+                        try:
+                            # Check if request is still valid (user didn't type more)
+                            if self._last_request_text == request_text:
+                                if not self._completions_box:
+                                    self._completions_box = CompletionsBox(self)
+                                # Pass skip_sorting=True so AI order is preserved!
+                                self._completions_box.present_completions(request_text, reordered, skip_sorting=True)
+                                logger.info(f"✅ Completions box shown to user (with AI sorting)")
+                            else:
+                                logger.info(f"⏭️  AI response ignored (user typed more, request stale)")
+                        finally:
+                            # Always release the lock
+                            self._ai_request_in_progress = False
+                            logger.info(f"🔓 AI request finished (accepting new requests)")
+                    
+                    # Schedule showing in UI thread
+                    get_workbench().after(0, show_completions)
+                    
+                except Exception as e:
+                    logger.exception(f"❌ AI reranking failed: {e}")
+                    # Fallback: show original completions (pre-sorted by our algorithm)
+                    def show_fallback():
+                        try:
+                            if self._last_request_text == request_text:
+                                if not self._completions_box:
+                                    self._completions_box = CompletionsBox(self)
+                                # Original list is already sorted by our algorithm, skip re-sorting
+                                self._completions_box.present_completions(request_text, original_completions_list, skip_sorting=True)
+                        finally:
+                            # Always release the lock
+                            self._ai_request_in_progress = False
+                            logger.info(f"🔓 AI request finished (error fallback, accepting new requests)")
+                    get_workbench().after(0, show_fallback)
+            
+            # Start background thread
+            thread = threading.Thread(target=do_ai_reranking, daemon=True)
+            thread.start()
+            # Return immediately - UI не зависає!
+            
+        except Exception as e:
+            logger.exception(f"❌ AI reranking setup failed: {e}")
+            # Release lock
+            self._ai_request_in_progress = False
+            logger.info(f"🔓 AI request failed to start (accepting new requests)")
+            # Fallback: show completions immediately (without sorting - will be sorted by present_completions)
+            if not self._completions_box:
+                self._completions_box = CompletionsBox(self)
+            self._completions_box.present_completions(self._last_request_text, completions)  # Let it sort naturally
+    
+    def _rerank_completions_with_ai_async(self, completions: List[lsp_types.CompletionItem], text: SyntaxText) -> None:
+        """Rerank completions using AI in background (non-blocking)"""
+        import threading
+        from thonny.plugins.base_assistant import get_ai_assistant
+        
+        # Get AI assistant
+        assistant = get_ai_assistant()
+        if not assistant:
+            return  # No AI available
+        
+        # Extract labels and kinds from completions
+        labels = [item.label for item in completions]
+        completion_kinds = {}
+        for item in completions:
+            if item.kind:
+                kind_name = lsp_types.CompletionItemKind(item.kind).name
+                completion_kinds[item.label] = kind_name
+        
+        logger.info(f"🤖 Starting AI reranking for {len(labels)} completions:")
+        logger.info(f"   All labels: {labels}")
+        logger.info(f"   With types: {completion_kinds}")
+        
+        # Get code context (10 lines before and after cursor)
+        try:
+            cursor_index = text.index("insert")
+            cursor_line_num = int(cursor_index.split(".")[0])
+            
+            # Get surrounding lines
+            start_line = max(1, cursor_line_num - 10)
+            end_line = cursor_line_num + 10
+            
+            code_context = text.get(f"{start_line}.0", f"{end_line}.0")
+            cursor_line = text.get(f"{cursor_line_num}.0", f"{cursor_line_num}.end")
+            
+            logger.info(f"📝 Code context (lines {start_line}-{end_line}, cursor at line {cursor_line_num}):")
+            logger.info(f"━" * 80)
+            logger.info(code_context)
+            logger.info(f"   Current line: '{cursor_line}' ← cursor here")
+            logger.info(f"━" * 80)
+            
+        except:
+            # Fallback: use whole file
+            code_context = text.get("1.0", "end")
+            cursor_line = ""
+            logger.info(f"⚠️  Failed to get cursor context, using whole file")
+        
+        # Remember current request to detect if it's stale
+        request_text = text
+        original_completions = completions
+        
+        def do_reranking():
+            try:
+                reranked_labels = assistant.rerank_completions(
+                    code_context=code_context,
+                    cursor_line=cursor_line,
+                    completions=labels,
+                    max_results=15,  # Limit to top 15
+                    completion_kinds=completion_kinds  # Pass type information
+                )
+                
+                # Update UI in main thread
+                def update_ui():
+                    # Check if completions box is still open and for the same text widget
+                    if (self._completions_box and 
+                        self._completions_box.winfo_exists() and 
+                        self._last_request_text == request_text):
+                        
+                        logger.info(f"✅ AI returned {len(reranked_labels)} labels: {reranked_labels}")
+                        self._completions_box.update_order_from_ai(reranked_labels, original_completions)
+                    else:
+                        logger.info(f"⏭️  AI response ignored (completions box closed or stale)")
+                        logger.info(f"   Box exists: {self._completions_box is not None and self._completions_box.winfo_exists()}, Same text: {self._last_request_text == request_text}")
+                
+                # Schedule UI update in main thread
+                if self._completions_box:
+                    get_workbench().after(0, update_ui)
+                    
+            except Exception as e:
+                logger.info(f"❌ AI reranking failed (async): {e}")
+        
+        # Start background thread (no join - truly async!)
+        thread = threading.Thread(target=do_reranking, daemon=True)
+        thread.start()
+    
     def patched_perform_midline_tab(self, event):
         self.cancel_active_request()
 

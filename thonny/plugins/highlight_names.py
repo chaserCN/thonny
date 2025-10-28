@@ -110,7 +110,7 @@ class OccurrencesHighlighter:
         # This catches cases like pressing Enter where cursor moves to a different line
         current_cursor_pos = self.text.index("insert")
         if hasattr(self, '_request_cursor_pos') and current_cursor_pos != self._request_cursor_pos:
-            logger.info("Name highlighting: ignoring stale response (cursor moved)")
+            logger.debug("Name highlighting: ignoring stale response (cursor moved)")
             return
 
         result = response.get_result_or_raise()
@@ -138,12 +138,12 @@ class OccurrencesHighlighter:
                 
                 # All words must be identical and valid Python identifiers
                 if not words or not all(w == words[0] for w in words):
-                    logger.info(f"Name highlighting: ignoring mismatched words {words} (document desync)")
+                    logger.debug(f"Name highlighting: ignoring mismatched words {words} (document desync)")
                     return
                 
                 expected_word = words[0]
                 if not expected_word or not expected_word.isidentifier():
-                    logger.info(f"Name highlighting: ignoring invalid word '{expected_word}'")
+                    logger.debug(f"Name highlighting: ignoring invalid word '{expected_word}'")
                     return
                 
                 # Second pass: add highlights (we know all are valid now)

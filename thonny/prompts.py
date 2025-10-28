@@ -219,17 +219,20 @@ System will automatically adjust line numbers when applying fixes in order.
 
 For single fix, :original is optional (but doesn't hurt).
 
-4 OPERATIONS:
+5 OPERATIONS:
 1. **REPLACE lines** - fix{{replace:N-M:original}} or fix{{replace:N:original}}
    Replaces lines N to M with new code
 
 2. **DELETE lines** - fix{{delete:N-M:original}}
    Removes lines N to M (leave code block empty or with explanation comment)
 
-3. **INSERT after line** - fix{{insert-after:N:original}}
-   Inserts ONE new line after line N (not before!)
+3. **INSERT before line** - fix{{insert-before:N:original}}
+   Inserts code BEFORE line N (use this to add imports at the beginning!)
 
-4. **APPEND to end** - fix{{append}}
+4. **INSERT after line** - fix{{insert-after:N:original}}
+   Inserts code AFTER line N
+
+5. **APPEND to end** - fix{{append}}
    Adds code to the end of file (no :original needed)
 
 EXAMPLE 1 - Replace single line (fix typo):
@@ -261,7 +264,23 @@ In line 5, no indentation - `print(i)` should be inside `for` loop.
 ```
 Note: added 4 spaces because line 5 should be INSIDE the loop (line 4).
 
-EXAMPLE 3 - Insert new line:
+EXAMPLE 3 - Insert before first line (add import):
+───────────────────────────────────────────────────────────────────
+Program context:
+```
+1: x = random.randint(1, 10)
+2: print(x)
+```
+
+**What's wrong:**
+Missing `import random` at the beginning.
+
+**How to fix:**
+```fix{{insert-before:1}}
+import random
+```
+
+EXAMPLE 4 - Insert after line:
 ───────────────────────────────────────────────────────────────────
 **What's wrong:**
 Missing input validation after line 3.
@@ -272,7 +291,7 @@ Missing input validation after line 3.
         n = 0
 ```
 
-EXAMPLE 4 - Delete lines:
+EXAMPLE 6 - Delete lines:
 ───────────────────────────────────────────────────────────────────
 **What's wrong:**
 Lines 8-9 contain debug print statements that should be removed.
@@ -282,7 +301,7 @@ Lines 8-9 contain debug print statements that should be removed.
 # These debug lines are removed
 ```
 
-EXAMPLE 5 - Multiple fixes (with :original tag):
+EXAMPLE 7 - Multiple fixes (with :original tag):
 ───────────────────────────────────────────────────────────────────
 Original code (10 lines):
 ```
@@ -1048,37 +1067,48 @@ Code:
 {code}
 ```
 
-FORMAT:
-**[{severity_type} translation in {language}]:** [short translation of diagnostic message in {language}]
+FORMAT (write everything in {language}):
+**[{severity_type}]:** short translation of diagnostic message
 
-[explain what's wrong in 1-2 simple sentences in {language}]
+**[Explanation]:** what's wrong in 1-2 simple sentences
 
 IMPORTANT: 
 - Explain ONLY the error shown above (line {line_number}: "{diagnostic}")
 - Do NOT mention other errors you see in the code
 - Focus only on this one specific problem
 - Don't use analogies or metaphors
+- For "undefined name" / "not defined" errors:
+  * Explain that the variable/function doesn't exist in the code
+  * If it looks like a module name (e.g., "random", "math", "os"), suggest importing it first
+  * If it's a typo of an existing name, mention it
 
 EXAMPLES (Ukrainian):
 
 "Expected indented block" on line 5:
 **Помилка:** Очікується блок з відступом.
 
-Після `else:` на строці 5 має бути рядок з відступом.
+**Пояснення:** Після `else:` на строці 5 має бути рядок з відступом.
 
 ---
 
 "x is not defined":
 **Помилка:** Змінна `x` не визначена.
 
-Ти використовуєш `x`, але не створила цю змінну раніше в коді.
+**Пояснення:** Ти використовуєш `x`, але не створила цю змінну раніше в коді.
+
+---
+
+"random is not defined":
+**Помилка:** Модуль `random` не визначений.
+
+**Пояснення:** Щоб використати модуль `random`, спочатку потрібно його імпортувати: `import random`.
 
 ---
 
 "list index out of range":
 **Помилка:** Індекс списку за межами.
 
-Ти намагаєшся взяти елемент списку під номером, якого не існує.
+**Пояснення:** Ти намагаєшся взяти елемент списку під номером, якого не існує.
 """,
 }
 

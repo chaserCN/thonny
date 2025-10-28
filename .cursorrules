@@ -14,11 +14,32 @@
   3. WAIT for explicit permission ("yes", "rewrite", "ок" etc.)
   4. NEVER proceed without permission
 
-### 2. Git Operations
-- **NEVER commit without explicit user request**
-- Wait for user to say "commit", "закоммить", "коммит" or similar
-- NEVER push without explicit permission
-- Always show what will be committed before committing
+### 2. Git Operations - STRICT RULES
+
+**After code changes:**
+1. Show what was changed
+2. **DO NOT ask "Commit?"** - user will say when ready
+3. **WAIT for explicit user command:** "commit", "коммит", "закоммить"
+4. **NEVER assume "yes"**
+5. **NEVER commit automatically**
+
+**DO NOT commit if user said:**
+- "done?" (question, not command)
+- "all good?" (question)
+- "looks good" (assessment, not command)
+- "ok" without explicit commit context
+
+**Git commit workflow:**
+- Show what will be committed before committing
+- **NEVER push without explicit permission**
+- Always use `git add -u` for modified files
+- Show `git status` before committing
+
+**Commit Messages:**
+- **ALL commit messages MUST be in English** (never Russian/Ukrainian)
+- Use clear, descriptive format: "Fix X", "Add Y", "Remove Z"
+- Be concise but informative
+- Include "why" if not obvious from "what"
 
 ### 3. Debugging
 - Add extensive logging when debugging issues
@@ -36,6 +57,11 @@
 - Ask for clarification if requirements are unclear
 - Confirm understanding before making significant changes
 - Use Russian/Ukrainian when user uses it
+- **IMPORTANT: When user reports a bug or problem:**
+  1. FIRST - ask clarifying questions to fully understand the issue
+  2. Summarize what you understood and ASK if it's correct
+  3. ONLY THEN start making code changes
+  4. NEVER jump straight to fixing without confirming understanding
 
 ## Project-Specific Notes
 

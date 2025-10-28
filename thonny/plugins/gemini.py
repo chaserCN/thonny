@@ -70,8 +70,31 @@ class GeminiApiKeyDialog(tk.Toplevel):
 class GeminiAssistant(BaseAIAssistant):
     """Gemini assistant implementation"""
     
+    def __init__(self):
+        super().__init__()
+        self._model_cache = {}  # Cache models by name
+        self._configured_api_key = None  # Track which API key was configured
+    
     def _get_saved_api_key(self) -> Optional[str]:
         return get_workbench().get_secret(API_KEY_SECRET_KEY)
+    
+    def _get_model(self, model_name: str):
+        """Get or create cached model"""
+        import google.generativeai as genai
+        
+        api_key = self._get_saved_api_key()
+        
+        # Reconfigure if API key changed
+        if api_key != self._configured_api_key:
+            genai.configure(api_key=api_key)
+            self._configured_api_key = api_key
+            self._model_cache.clear()  # Clear cache on key change
+        
+        # Return cached model or create new one
+        if model_name not in self._model_cache:
+            self._model_cache[model_name] = genai.GenerativeModel(model_name)
+        
+        return self._model_cache[model_name]
 
     def _request_new_api_key(self) -> None:
         from logging import getLogger
@@ -118,10 +141,11 @@ class GeminiAssistant(BaseAIAssistant):
         from google.api_core import exceptions as google_exceptions
 
         try:
-            genai.configure(api_key=self._get_saved_api_key())
-            
-            # Create model with system instruction
+            # Get configured model (with caching)
             model_name = get_workbench().get_option("ai.gemini_model", "gemini-2.5-pro")
+            # Note: Can't cache models with system_instruction since it varies
+            # But configure() is cached in _get_model()
+            self._get_model(model_name)  # Ensure API is configured
             model = genai.GenerativeModel(model_name, system_instruction=system_prompt)
             
             # Separate last message from history
@@ -140,6 +164,8 @@ class GeminiAssistant(BaseAIAssistant):
             
             try:
                 full_text = response.text
+
+                print(f"Gemini response: {full_text}")
 
                 if full_text:
                     yield ChatResponseChunk(full_text)
@@ -179,12 +205,9 @@ class GeminiAssistant(BaseAIAssistant):
                 severity_type=severity_type,
                 line_number=line_number or "unknown"
             )
-            
-            print(f"sending a diagnostic prompt to Gemini")
 
-            # Use fast model
-            genai.configure(api_key=self._get_saved_api_key())
-            model = genai.GenerativeModel('gemini-2.5-flash-lite')
+            # Use cached fast model
+            model = self._get_model('gemini-2.5-flash-lite')
             
             # Fast request
             response = model.generate_content(
@@ -199,6 +222,106 @@ class GeminiAssistant(BaseAIAssistant):
         except Exception as e:
             logger.exception("Error in explain_diagnostic")
             return f"⚠️ Помилка: {str(e)}"
+    
+    def rerank_completions(self, code_context: str, cursor_line: str, completions: List[str], max_results: int = 10, completion_kinds: dict = None) -> List[str]:
+        """Rerank completions using gemini-2.5-flash-lite"""
+        import google.generativeai as genai
+        from logging import getLogger
+        
+        logger = getLogger(__name__)
+        
+        try:
+            # If very few completions (< 5), no point in reranking
+            if len(completions) < 5:
+                logger.info(f"Gemini: too few completions ({len(completions)}), no reranking needed")
+                return completions
+            
+            # Build prompt for reranking with type information
+            if completion_kinds:
+                # Include type information (Function, Variable, Class, Method, Keyword)
+                completions_with_types = []
+                for c in completions[:50]:
+                    kind = completion_kinds.get(c, 'Unknown')
+                    completions_with_types.append(f'"{c}" ({kind})')
+                completions_list = ", ".join(completions_with_types)
+            else:
+                # Fallback: just names
+                completions_list = ", ".join([f'"{c}"' for c in completions[:50]])
+            
+            prompt = f"""You are a code completion assistant. Given code context and a list of possible completions with their types, return ONLY the {max_results} most relevant completion labels, ordered by relevance (most relevant first).
+
+Code context:
+```python
+{code_context}
+{cursor_line}█ <- cursor here
+```
+
+Available completions with types:
+{completions_list}
+
+Consider:
+- After "for x in ": prefer Function (range, enumerate) over Class/Variable
+- After "obj.": prefer Method over Function/Class
+- At start of line: prefer Keyword (for, def, if) or Function calls
+- Inside expression: prefer Variable/Function over Keyword
+
+Return ONLY a comma-separated list of the {max_results} most relevant labels (WITHOUT types), nothing else. No explanations, no markdown, just: label1, label2, label3, ...
+
+Example output: range, enumerate, list, zip, map"""
+
+            logger.info(f"🧠 Sending to Gemini:")
+            logger.info(f"━" * 80)
+            logger.info(prompt)
+            logger.info(f"━" * 80)
+
+            # Use cached fast model
+            model = self._get_model('gemini-2.5-flash-lite')
+            
+            # Fast request with very low temperature for consistency
+            response = model.generate_content(
+                prompt,
+                generation_config={
+                    'temperature': 0.1,
+                    'max_output_tokens': 200
+                }
+            )
+            
+            if not response.text:
+                logger.warning("❌ Empty response from Gemini for completion reranking")
+                return completions[:max_results]
+            
+            logger.info(f"💬 Gemini full response:")
+            logger.info(f"━" * 80)
+            logger.info(response.text)
+            logger.info(f"━" * 80)
+            
+            # Parse response - should be comma-separated list
+            reranked_labels = [label.strip().strip('"').strip("'") for label in response.text.strip().split(",")]
+            
+            logger.info(f"✨ Parsed {len(reranked_labels)} labels from Gemini:")
+            logger.info(f"   {reranked_labels}")
+            
+            # Filter to only include valid completions and limit to max_results
+            valid_reranked = [label for label in reranked_labels if label in completions][:max_results]
+            invalid = [label for label in reranked_labels if label not in completions]
+            
+            logger.info(f"✅ Valid labels ({len(valid_reranked)}): {valid_reranked}")
+            if invalid:
+                logger.info(f"⚠️  Invalid/hallucinated labels ({len(invalid)}): {invalid}")
+            
+            # If we got fewer than max_results, append remaining from original list
+            if len(valid_reranked) < max_results:
+                remaining = [c for c in completions if c not in valid_reranked][:max_results - len(valid_reranked)]
+                logger.info(f"➕ Adding {len(remaining)} remaining items: {remaining}")
+                valid_reranked.extend(remaining)
+            
+            logger.info(f"🎯 Final list to return ({len(valid_reranked)}): {valid_reranked}")
+            return valid_reranked
+            
+        except Exception as e:
+            logger.exception("Error in rerank_completions")
+            # Fallback: return first max_results items
+            return completions[:max_results]
 
 
 def load_plugin():

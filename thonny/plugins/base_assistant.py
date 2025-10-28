@@ -83,7 +83,7 @@ class BaseAIAssistant(Assistant):
             )
             messages_to_send = messages_to_send + [current_with_context]
         
-        print_request_info("NORMAL", system_prompt, messages_to_send)
+        #print_request_info("NORMAL", system_prompt, messages_to_send)
         
         # Prepare messages (API-specific format)
         prepared_messages = self._prepare_messages(messages_to_send)
@@ -305,12 +305,9 @@ class BaseAIAssistant(Assistant):
                     
         except Exception as e:
             logger.exception("Error requesting token explanation")
-            if lang == "ru":
-                return f"Ошибка при запросе к AI: {str(e)}"
-            else:
-                return f"Помилка при запиті до AI: {str(e)}"
+            return f"Помилка при запиті до AI: {str(e)}"
         
-        result = "".join(response_parts) if response_parts else ("Нет ответа от AI" if lang == "ru" else "Немає відповіді від AI")
+        result = "".join(response_parts) if response_parts else "Немає відповіді від AI"
         
         return result
     
@@ -361,12 +358,9 @@ class BaseAIAssistant(Assistant):
                     
         except Exception as e:
             logger.exception("Error requesting selection explanation")
-            if lang == "ru":
-                return f"Ошибка при запросе к AI: {str(e)}"
-            else:
-                return f"Помилка при запиті до AI: {str(e)}"
+            return f"Помилка при запиті до AI: {str(e)}"
         
-        result = "".join(response_parts) if response_parts else ("Нет ответа от AI" if lang == "ru" else "Немає відповіді від AI")
+        result = "".join(response_parts) if response_parts else "Немає відповіді від AI"
         
         return result
     
@@ -385,21 +379,37 @@ class BaseAIAssistant(Assistant):
             AI explanation as string (brief, 2-3 sentences)
         """
         pass
+    
+    @abstractmethod
+    def rerank_completions(self, code_context: str, cursor_line: str, completions: List[str], max_results: int = 10, completion_kinds: dict = None) -> List[str]:
+        """
+        Rerank code completions based on context (using fast model like flash-lite/haiku/mini)
+        
+        Args:
+            code_context: Code around cursor (5-10 lines before and after)
+            cursor_line: The line where cursor is located
+            completions: List of completion labels from LSP (e.g., ["range", "list", "enumerate"])
+            max_results: Maximum number of results to return (default: 10)
+            completion_kinds: Optional dict mapping completion label to kind (e.g., {"range": "Function", "my_var": "Variable"})
+            
+        Returns:
+            Reranked list of completion labels (most relevant first), limited to max_results
+        """
+        pass
 
 def print_request_info(request_type: str, system_prompt: str, messages: List[ChatMessage]):
-    pass
-    # print("=" * 80)
-    # print(f"{request_type} MODE REQUEST")
-    # print("=" * 80)
-    # print("SYSTEM PROMPT:")
-    # print("-" * 80)
-    # print(system_prompt)
-    # print("-" * 80)
-    # print("USER MESSAGES:")
-    # print("-" * 80)
-    # for msg in messages:
-    #     print(f"[{msg.role.value}]: {msg.content}")
-    # print("-" * 80)
+    print("=" * 80)
+    print(f"{request_type} MODE REQUEST")
+    print("=" * 80)
+    print("SYSTEM PROMPT:")
+    print("-" * 80)
+    print(system_prompt)
+    print("-" * 80)
+    print("USER MESSAGES:")
+    print("-" * 80)
+    for msg in messages:
+        print(f"[{msg.role.value}]: {msg.content}")
+    print("-" * 80)
 
 
 def get_ai_assistant():
