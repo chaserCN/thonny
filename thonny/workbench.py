@@ -158,7 +158,7 @@ class Workbench(tk.Tk):
     """
 
     def __init__(self, parsed_args: Dict[str, Any]) -> None:
-        logger.info("Starting Workbench")
+        logger.debug("Starting Workbench")
         thonny._workbench = self
         self._initial_args = parsed_args
         self._have_seen_visibility_events = False
@@ -221,12 +221,12 @@ class Workbench(tk.Tk):
         )
 
         assistance.init()
-        logger.info("Creating runner")
+        logger.debug("Creating runner")
         self._runner = Runner()
         self._init_hooks()  # Plugins may register hooks, so initialized them before to load plugins.
-        logger.info("Start loading plugins")
+        logger.debug("Start loading plugins")
         self._load_plugins()
-        logger.info("Done loading plugins")
+        logger.debug("Done loading plugins")
 
         self._editor_notebook = None  # type: Optional[EditorNotebook]
         self._init_fonts()
@@ -251,7 +251,7 @@ class Workbench(tk.Tk):
 
         self._init_commands()
         self._init_icon()
-        logger.info("Opening views")
+        logger.debug("Opening views")
         self._try_action(self._restore_selected_views)
 
         self.bind_class("EditorCodeViewText", "<<CursorMove>>", self.update_title, True)
@@ -290,12 +290,12 @@ class Workbench(tk.Tk):
     def _on_visibility(self, event):
         if not self._have_seen_visibility_events:
             self._have_seen_visibility_events = True
-            logger.info("First <Visibility> event")
+            logger.debug("First <Visibility> event")
             self.update_idletasks()
             self.after_idle(self.finalize_startup)
 
     def finalize_startup(self):
-        logger.info("Finalizing startup")
+        logger.debug("Finalizing startup")
         try:
             self.ready = True
             self._editor_notebook.update_appearance()
@@ -332,7 +332,7 @@ class Workbench(tk.Tk):
         return self._initial_args.get("profile", "default")
 
     def _load_stuff_from_command_line(self, parsed_args: Dict[str, Any]) -> None:
-        logger.info("Processing arguments %r", parsed_args)
+        logger.debug("Processing arguments %r", parsed_args)
         try:
             for file in parsed_args["files"]:
                 if not os.path.isabs(file):
@@ -440,7 +440,7 @@ class Workbench(tk.Tk):
         self.shut_down_language_servers()
 
         for class_ in self._language_server_proxy_classes:
-            logger.info("Constructing language server %s", class_)
+            logger.debug("Constructing language server %s", class_)
             ls_proxy = class_(
                 InitializeParams(
                     capabilities=ClientCapabilities(
@@ -1232,7 +1232,7 @@ class Workbench(tk.Tk):
                 logger.warning("Problem with switcher popup", exc_info=e)
 
     def _on_backend_restart(self, event):
-        logger.info("Handling backend restart")
+        logger.debug("Handling backend restart")
         proxy = get_runner().get_backend_proxy()
         if proxy:
             conf = proxy.get_current_switcher_configuration()
@@ -2136,7 +2136,7 @@ class Workbench(tk.Tk):
                 label = view.get_tab_text()
             if not label:
                 label = self._view_records[view_id]["label"]
-            logger.info("Adding view %r to notebook %s", view, notebook)
+            logger.debug("Adding view %r to notebook %s", view, notebook)
 
             # Compute the position among current visible views in this notebook
             nb_view_order: List[str] = self.get_option("layout.notebook_" + nb_name + ".views")
@@ -2181,7 +2181,7 @@ class Workbench(tk.Tk):
         raise ValueError("Could not find the notebook of " + view_id)
 
     def _notebook_page_opened(self, event) -> None:
-        logger.info("Notebook page opened: %r", event)
+        logger.debug("Notebook page opened: %r", event)
         page: CustomNotebookPage = event.page
         view_id = getattr(page.content, "view_id", None)
         if view_id is not None:

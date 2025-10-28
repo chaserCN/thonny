@@ -216,7 +216,7 @@ class EventLogger:
             get_log_dir(), format_time_range(session_start_time, None) + ".jsonl"
         )
         self._out_fp = open(self._file_path, mode="w", encoding="utf-8", buffering=1)
-        logger.info("Starting logging user events into %r", self._file_path)
+        logger.debug("Starting logging user events into %r", self._file_path)
 
     def _close_session(self):
         # save the file, compress it and remove the uncompressed copy

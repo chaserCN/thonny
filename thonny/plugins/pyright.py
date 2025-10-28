@@ -36,7 +36,7 @@ class PyrightProxy(LanguageServerProxy):
         }
 
         project_path = get_workbench().get_local_project_path()
-        logger.info("Detected project path: %s", project_path)
+        logger.debug("Detected project path: %s", project_path)
         if project_path is not None:
             base_path = project_path
         else:
@@ -73,7 +73,7 @@ class PyrightProxy(LanguageServerProxy):
         # Explicitly set extraPaths to empty to prevent auto-discovery of packages
         result["basedpyright"]["analysis"]["extraPaths"] = []
 
-        logger.info("Using following basedpyright configuration: %r", result)
+        logger.debug("Using following basedpyright configuration: %r", result)
         return result
 
     def _folder_may_contain_stubs_beyond_typeshed(self, path) -> bool:
@@ -95,8 +95,8 @@ class PyrightProxy(LanguageServerProxy):
             os.path.dirname(__file__), "..", "vendored_libs", "basedpyright"
         )
         langserv_js = os.path.join(basedpyright_dir, "langserver.index.js")
-        logger.info("Node path: %r", node_path)
-        logger.info("Pyright launcher: %r", langserv_js)
+        logger.debug("Node path: %r", node_path)
+        logger.debug("Pyright launcher: %r", langserv_js)
 
         if os.name == "nt":
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW

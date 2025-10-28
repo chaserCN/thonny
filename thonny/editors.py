@@ -756,7 +756,7 @@ class Editor(BaseEditor):
             self._file_source = "-"  # should not match any machine id
 
     def _language_server_initialized(self, ls_proxy: LanguageServerProxy) -> None:
-        logger.info("Registering initialized language server %s", ls_proxy)
+        logger.debug("Registering initialized language server %s", ls_proxy)
         self._initialized_ls_proxies.append(ls_proxy)
         self._update_language_servers()
 
@@ -790,7 +790,7 @@ class Editor(BaseEditor):
         self._last_fully_published_version = self._get_version_to_be_published()
 
     def _prime_language_server(self, ls_proxy: LanguageServerProxy) -> None:
-        logger.info("Connecting %r to language server %s", self.get_uri(), ls_proxy)
+        logger.debug("Connecting %r to language server %s", self.get_uri(), ls_proxy)
         assert ls_proxy not in self._primed_ls_proxies
         current_content = self.get_content(up_to_end=True)
         ls_proxy.notify_did_open_text_document(

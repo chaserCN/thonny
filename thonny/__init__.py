@@ -283,13 +283,13 @@ def configure_logging(log_file, console_level=None):
             logger.addHandler(console_handler)
 
     # Log most important info as soon as possible
-    main_logger.info("Thonny version: %s", get_version())
-    main_logger.info("cwd: %s", os.getcwd())
-    main_logger.info("original argv: %s", _get_orig_argv())
-    main_logger.info("sys.executable: %s", sys.executable)
-    main_logger.info("sys.argv: %s", sys.argv)
-    main_logger.info("sys.path: %s", sys.path)
-    main_logger.info("sys.flags: %s", sys.flags)
+    main_logger.debug("Thonny version: %s", get_version())
+    main_logger.debug("cwd: %s", os.getcwd())
+    main_logger.debug("original argv: %s", _get_orig_argv())
+    main_logger.debug("sys.executable: %s", sys.executable)
+    main_logger.debug("sys.argv: %s", sys.argv)
+    main_logger.debug("sys.path: %s", sys.path)
+    main_logger.debug("sys.flags: %s", sys.flags)
 
     import faulthandler
     import signal

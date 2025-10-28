@@ -802,7 +802,7 @@ class Runner:
 
     def restart_backend(self, clean: bool, first: bool = False, automatic: bool = False) -> None:
         """Recreate (or replace) backend proxy / backend process."""
-        logger.info(
+        logger.debug(
             "Restarting back-end, clean: %r, first: %r, automatic: %r", clean, first, automatic
         )
         was_running = self.is_running()
@@ -817,7 +817,7 @@ class Runner:
         backend_class = get_workbench().get_backends()[backend_name].proxy_class
         self._set_state("running")
         self._proxy = None
-        logger.info("Starting backend %r", backend_class)
+        logger.debug("Starting backend %r", backend_class)
         self._proxy = backend_class(clean)
 
         if not first:
@@ -829,7 +829,7 @@ class Runner:
         get_workbench().after_idle(self._poll_backend_messages)
 
     def destroy_backend(self, for_restart: bool = False) -> None:
-        logger.info("Destroying backend")
+        logger.debug("Destroying backend")
 
         if self._polling_after_id is not None:
             get_workbench().after_cancel(self._polling_after_id)
@@ -1274,7 +1274,7 @@ class SubprocessProxy(BackendProxy, ABC):
 
     def _start_background_process(self, clean=None, extra_args=[]):
         # deque, because in one occasion I need to put messages back
-        logger.info("Starting background process, clean: %r, extra_args: %r", clean, extra_args)
+        logger.debug("Starting background process, clean: %r, extra_args: %r", clean, extra_args)
         self._response_queue = collections.deque()
 
         exe_validation_error = self.get_mgmt_executable_validation_error()
@@ -1296,7 +1296,7 @@ class SubprocessProxy(BackendProxy, ABC):
         if running_on_windows():
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
 
-        logger.info("Starting the backend: %s %s", cmd_line, get_workbench().get_local_cwd())
+        logger.debug("Starting the backend: %s %s", cmd_line, get_workbench().get_local_cwd())
 
         self._proc = subprocess.Popen(
             cmd_line,
@@ -1537,7 +1537,7 @@ class SubprocessProxy(BackendProxy, ABC):
             self._reported_base_executable = msg["base_executable"]
 
         if "logfile" in msg:
-            logger.info("Back-end reported logfile: %s", msg["logfile"])
+            logger.debug("Back-end reported logfile: %s", msg["logfile"])
 
     def _check_set_board_specific_stubs(self, board_id: str) -> bool:
         user_stubs_location = self.get_user_stubs_location()

@@ -85,13 +85,13 @@ class LanguageServerProxy(ABC):
         self.server_capabilities: Optional[lsp_types.ServerCapabilities] = None
         self.server_info: Optional[lsp_types.ServerCapabilities] = None
 
-        logger.info("Starting language server")
+        logger.debug("Starting language server")
         self._proc = self._create_server_process()
         self._keep_processing_messages_from_server()
         threading.Thread(target=self._listen_stdout, daemon=True).start()
         threading.Thread(target=self._listen_stderr, daemon=True).start()
 
-        logger.info("Initializing language server")
+        logger.debug("Initializing language server")
         if isinstance(initialize_params, dict):
             initialize_params["initializationOptions"] = self.get_settings()
         else:
@@ -113,8 +113,8 @@ class LanguageServerProxy(ABC):
         self.server_capabilities = result.capabilities
         self.server_info = result.serverInfo
 
-        logger.info("Server initialized. Server info: %s", self.server_info)
-        logger.info("Server capabilities: %s", self.server_capabilities)
+        logger.debug("Server initialized. Server info: %s", self.server_info)
+        logger.debug("Server capabilities: %s", self.server_capabilities)
 
         self.notify_initialized(InitializedParams())
 
@@ -1150,10 +1150,10 @@ class LanguageServerProxy(ABC):
                 if "No settings available" in decoded and "falling back to default settings" in decoded:
                     continue
                 
-                logger.error("Language server STDERR: %s", decoded)
+                logger.debug("Language server STDERR: %s", decoded)
         except Exception:
             logger.exception("_listen_stderr failed")
-        logger.info("_listen_stderr done")
+        logger.debug("_listen_stderr done")
 
     def _handle_message_from_server(self, msg: Dict) -> None:
         logger.debug("Handling message from server: %r", msg)
