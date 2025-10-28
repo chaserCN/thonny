@@ -9,7 +9,7 @@ from thonny import get_workbench
 
 logger = getLogger(__name__)
 # Uncomment to enable debug logging:
-logger.setLevel(logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
 
 
 class BlockHighlighter:

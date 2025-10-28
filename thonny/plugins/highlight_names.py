@@ -107,8 +107,10 @@ class OccurrencesHighlighter:
             return
 
         # Check if cursor moved since request - ignore stale response
+        # This catches cases like pressing Enter where cursor moves to a different line
         current_cursor_pos = self.text.index("insert")
         if hasattr(self, '_request_cursor_pos') and current_cursor_pos != self._request_cursor_pos:
+            logger.info("Name highlighting: ignoring stale response (cursor moved)")
             return
 
         result = response.get_result_or_raise()
@@ -118,47 +120,38 @@ class OccurrencesHighlighter:
 
         try:
             if len(result) > 1:
-                # Check if cursor is actually on a word from the result
-                cursor_pos = self.text.index("insert")
-                cursor_line, cursor_col = map(int, cursor_pos.split('.'))
-                cursor_on_word = False
-                
-                for ref in result:
-                    range = ref.range
-                    ref_line = range.start.line + 1
-                    ref_start_col = range.start.character
-                    ref_end_col = range.end.character
-                    
-                    if (ref_line == cursor_line and ref_start_col <= cursor_col <= ref_end_col):
-                        # Cursor position matches - but check if text is still correct
-                        start_index = f"{ref_line}.{ref_start_col}"
-                        end_index = f"{ref_line}.{ref_end_col}"
-                        actual_text = self.text.get(start_index, end_index)
-                        if actual_text.strip():  # Not just whitespace
-                            cursor_on_word = True
-                            break
-                
-                if not cursor_on_word:
-                    return
-                
-                # Get word at cursor (what we're highlighting)
-                expected_word = None
+                # Validate that all highlights refer to the same word
+                # This catches document desync issues (e.g., pressing TAB before LSP gets text update)
+                # LSP returns positions for old document, but we apply them to new document
+                # If positions don't match → words will be different → ignore the response
+                words = []
                 
                 for ref in result:
                     # TODO: UTF-16
                     range = ref.range
                     start_index = f"{range.start.line + 1}.{range.start.character}"
                     end_index = f"{range.end.line + 1}.{range.end.character}"
-                    # Get what character is at this position
-                    char = self.text.get(start_index, end_index)
                     
-                    # First occurrence - remember the word we're looking for
-                    if expected_word is None and char.strip():
-                        expected_word = char
-                    
-                    # Validate: only add tag if character matches expected word
-                    if char == expected_word:
-                        self.text.tag_add("matched_name", start_index, end_index)
+                    # Get what text is at this position
+                    word = self.text.get(start_index, end_index).strip()
+                    words.append(word)
+                
+                # All words must be identical and valid Python identifiers
+                if not words or not all(w == words[0] for w in words):
+                    logger.info(f"Name highlighting: ignoring mismatched words {words} (document desync)")
+                    return
+                
+                expected_word = words[0]
+                if not expected_word or not expected_word.isidentifier():
+                    logger.info(f"Name highlighting: ignoring invalid word '{expected_word}'")
+                    return
+                
+                # Second pass: add highlights (we know all are valid now)
+                for ref in result:
+                    range = ref.range
+                    start_index = f"{range.start.line + 1}.{range.start.character}"
+                    end_index = f"{range.end.line + 1}.{range.end.character}"
+                    self.text.tag_add("matched_name", start_index, end_index)
         except Exception as e:
             logger.exception("Problem when updating name highlighting", exc_info=e)
 
