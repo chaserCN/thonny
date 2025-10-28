@@ -69,7 +69,7 @@ class TooltipStateMachine:
     and maintain. The machine receives events and returns actions to execute.
     """
     
-    def __init__(self, hover_delay_ms: int = 1000):
+    def __init__(self, hover_delay_ms: int = 1500):
         self.state = TooltipState.IDLE
         self.hover_delay_ms = hover_delay_ms
         self.context: Optional[TooltipContext] = None

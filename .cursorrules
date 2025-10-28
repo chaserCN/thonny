@@ -1,0 +1,53 @@
+# Cursor AI Assistant Rules for Thonny Project
+
+## CRITICAL RULES - ALWAYS FOLLOW
+
+### 1. Code Changes
+- **NEVER rewrite entire files without explicit permission**
+- **ALWAYS use `search_replace` for editing existing code**
+- Only use `write` tool for creating NEW files
+- If code changes are large, ASK first before applying
+- Show the proposed changes and wait for confirmation
+- **Exception:** If a complete rewrite is genuinely needed (e.g., severe indentation issues):
+  1. EXPLAIN why `search_replace` won't work
+  2. SHOW what will change (use git diff or summary)
+  3. WAIT for explicit permission ("yes", "rewrite", "ок" etc.)
+  4. NEVER proceed without permission
+
+### 2. Git Operations
+- **NEVER commit without explicit user request**
+- Wait for user to say "commit", "закоммить", "коммит" or similar
+- NEVER push without explicit permission
+- Always show what will be committed before committing
+
+### 3. Debugging
+- Add extensive logging when debugging issues
+- Use `logger.debug()` for detailed traces
+- Always ask user to test changes after modifications
+- Don't assume something works - wait for user confirmation
+
+### 4. Code Style
+- Preserve existing code style and indentation
+- Don't remove useful comments
+- Keep existing structure unless explicitly asked to refactor
+
+### 5. Communication
+- Explain what you're doing and why
+- Ask for clarification if requirements are unclear
+- Confirm understanding before making significant changes
+- Use Russian/Ukrainian when user uses it
+
+## Project-Specific Notes
+
+### Thonny Plugin Development
+- Test plugins by restarting Thonny
+- Check logs in View → Shell
+- Be careful with tag priorities in Tkinter
+- Events may need `after_idle()` for proper timing
+
+### Common Pitfalls
+- Tkinter tags need `tag_lower()` for proper layering
+- Parso AST requires careful handling of `end_pos`
+- Block extension logic needs to account for empty lines
+- Depth counting must handle `file_input` nodes specially
+

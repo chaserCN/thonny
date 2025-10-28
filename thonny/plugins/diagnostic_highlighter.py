@@ -29,7 +29,7 @@ logger = getLogger(__name__)
 class DiagnosticTooltip:
     """Tooltip that shows diagnostic message with optional AI translation"""
     
-    def __init__(self, text_widget: tk.Text, hover_delay_ms: int = 1000):
+    def __init__(self, text_widget: tk.Text, hover_delay_ms: int = 1500):
         self.text_widget = text_widget
         self.tooltip_window = None
         self._translation_cache = {}  # message -> translation
@@ -517,6 +517,16 @@ class DiagnosticHighlighter:
         
         # Store for next comparison
         self._last_rendered_diagnostics[uri] = diagnostics.copy()
+        
+        # Diagnostics changed → clear tooltip cache to avoid showing stale tooltips
+        if uri in self._tooltips_per_editor:
+            tooltip = self._tooltips_per_editor[uri]
+            tooltip._translation_cache.clear()
+            tooltip._cache_timestamps.clear()
+            tooltip._pending_requests.clear()
+            # Notify state machine
+            actions = tooltip.state_machine.handle_event(TooltipEvent.TEXT_CHANGED)
+            tooltip._execute_actions(actions)
         
         # Clear old translation cache entries (older than 3 minutes)
         if uri in self._tooltips_per_editor:
