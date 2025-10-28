@@ -755,10 +755,7 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 from thonny import get_workbench
                 chat_view = get_workbench().get_view("ChatView")
                 if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
-                    logger.info(f"✅ [apply_fix] Calling chat_view.on_fix_popup_closed(applied=True, fix_info={fix_info})")
                     chat_view.on_fix_popup_closed(applied_successfully=True, fix_info=fix_info)
-                else:
-                    logger.warning(f"⚠️ [apply_fix] ChatView not found or doesn't have on_fix_popup_closed")
             except Exception as e:
                 logger.error(f"Failed to notify ChatView: {e}")
             

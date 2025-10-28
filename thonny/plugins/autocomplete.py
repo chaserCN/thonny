@@ -25,6 +25,269 @@ asynchronous.
 """
 
 
+def _infer_variable_types_with_parso(source_code: str) -> dict:
+    """Use parso to infer simple types for variables (list, dict, set, tuple)."""
+    try:
+        import parso
+        from parso.python import tree
+        
+        var_types = {}  # {var_name: type_hint}
+        
+        module = parso.parse(source_code)
+        
+        assignments_found = []  # For logging
+        
+        def get_outermost_function_name(node):
+            """Extract outermost function name from expression like list(map(...))"""
+            if node.type == 'atom_expr' and hasattr(node, 'children') and len(node.children) >= 2:
+                # atom_expr: list(...) or foo.bar(...)
+                # children[0] = name, children[1] = trailer (the parentheses)
+                first_child = node.children[0]
+                if first_child.type == 'name':
+                    return first_child.value
+            elif node.type == 'power' and hasattr(node, 'children'):
+                # power = name + trailer*
+                if node.children[0].type == 'name':
+                    return node.children[0].value
+            elif node.type == 'name':
+                return node.value
+            return None
+        
+        def analyze_node(node):
+            # Look for assignments: x = [...]
+            if isinstance(node, tree.ExprStmt) and node.children[0].type == 'name':
+                var_name = node.children[0].value
+                
+                # Check if it's simple assignment (x = ...)
+                if len(node.children) >= 3 and node.children[1].value == '=':
+                    value = node.children[2]
+                    value_type = value.type
+                    inferred_type = None
+                    
+                    # Check for literals by looking at first character
+                    if hasattr(value, 'children') and value.children:
+                        first_char = value.children[0].value if hasattr(value.children[0], 'value') else None
+                        
+                        # List literal: x = [1, 2, 3]
+                        if first_char == '[':
+                            var_types[var_name] = 'list'
+                            inferred_type = 'list'
+                        
+                        # Dict or Set literal: x = {1: 2} or x = {1, 2}
+                        elif first_char == '{':
+                            # Check if it's dict (has ':') or set (no ':')
+                            # Empty {} is always dict
+                            if len(value.children) == 2:  # Just { and }
+                                var_types[var_name] = 'dict'
+                                inferred_type = 'dict'
+                            else:
+                                # Look for ':' to distinguish dict from set
+                                has_colon = False
+                                for child in value.children:
+                                    if hasattr(child, 'value') and child.value == ':':
+                                        has_colon = True
+                                        break
+                                    # Also check in nested children
+                                    if hasattr(child, 'children'):
+                                        for subchild in child.children:
+                                            if hasattr(subchild, 'value') and subchild.value == ':':
+                                                has_colon = True
+                                                break
+                                
+                                if has_colon:
+                                    var_types[var_name] = 'dict'
+                                    inferred_type = 'dict'
+                                else:
+                                    var_types[var_name] = 'set'
+                                    inferred_type = 'set'
+                        
+                        # Tuple literal: x = (1, 2)
+                        elif first_char == '(':
+                            var_types[var_name] = 'tuple'
+                            inferred_type = 'tuple'
+                    
+                    # Tuple from testlist (without parens): x = 1, 2
+                    if not inferred_type and value.type == 'testlist':
+                        var_types[var_name] = 'tuple'
+                        inferred_type = 'tuple'
+                    
+                # Function calls: x = list(...), x = dict(...), even nested like list(map(...))
+                if not inferred_type:
+                    func_name = get_outermost_function_name(value)
+                    if func_name and func_name in ('list', 'dict', 'set', 'tuple', 'range', 'enumerate', 
+                                                   'zip', 'map', 'filter', 'reversed', 'sorted'):
+                        var_types[var_name] = func_name
+                        inferred_type = func_name
+                    
+                    # Track what we found
+                    if inferred_type:
+                        assignments_found.append(f"{var_name}={inferred_type}")
+            
+            # Recursively process children
+            if hasattr(node, 'children'):
+                for child in node.children:
+                    analyze_node(child)
+        
+        analyze_node(module)
+        
+        if var_types:
+            logger.info(f"🔬 Parso: {', '.join(assignments_found)}")
+        
+        return var_types
+        
+    except Exception as e:
+        logger.warning(f"Parso type inference failed: {e}")
+        return {}
+
+
+def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_after_cursor: str, 
+                                   source_code: str = None):
+    """
+    Factory function that creates a sort_key function for context-aware completion ranking.
+    
+    This enables fast local ranking (< 5ms) without AI, by analyzing:
+    - Prefix matching (existing logic)
+    - Context (for loops, imports, dot access, etc.)
+    - Type information from LSP
+    - Simple type inference via Parso (for small files)
+    
+    Args:
+        prefix: The text user has typed so far
+        line_before_cursor: Text from line start to cursor
+        line_after_cursor: Text from cursor to line end
+        source_code: Full source code (optional, for parso inference)
+        
+    Returns:
+        A sort_key function that can be used with sorted()
+    """
+    
+    # Try to infer types with parso (only for small files)
+    var_types = {}
+    if source_code and len(source_code) < 5000:  # Only for small files (< 5KB)
+        var_types = _infer_variable_types_with_parso(source_code)
+    
+    def sort_key(completion: lsp_types.CompletionItem):
+        sort_text = completion.sortText or completion.label
+        label = completion.label
+        kind = completion.kind
+        detail = completion.detail or ""
+
+        # Base prefix priority (existing Thonny logic)
+        if not prefix:
+            prefix_priority = 1 if label.startswith("_") else 0
+        elif label.startswith(prefix):
+            is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
+            
+            if kind and kind.value == 6:  # Variable - highest priority
+                prefix_priority = -3
+            elif kind and kind.value in (3, 7, 9) and is_user_defined:  # User-defined Function/Class/Module
+                prefix_priority = -2
+            elif kind and kind.value in (3, 7, 9):  # Builtin Function/Class
+                prefix_priority = -1.5
+            else:
+                prefix_priority = -1  # Keywords and other builtins
+        elif label.lower().startswith(prefix.lower()):
+            prefix_priority = -0.5
+        else:
+            prefix_priority = 0
+        
+        # Context-aware boost (NEW: makes autocomplete smarter!)
+        context_boost = 0
+        boost_reason = None  # For logging
+        
+        # 1. FOR LOOPS: boost iterables after "for x in "
+        if " in " in line_before_cursor or line_before_cursor.strip().startswith("for "):
+            if " in " in line_before_cursor:
+                after_in = line_before_cursor.split(" in ")[-1].strip()
+                # If cursor right after "in" or user started typing
+                if len(after_in) <= len(prefix) + 3:
+                    # STRONG boost for known iterable-returning functions/classes
+                    if label in ["range", "enumerate", "zip", "map", "filter", "reversed", 
+                               "sorted", "list", "tuple", "set", "dict", "keys", "values", "items"]:
+                        # These can be Class or Function in LSP - boost both!
+                        context_boost -= 5  # Very strong boost
+                        boost_reason = f"for..in: iterable {lsp_types.CompletionItemKind(kind).name if kind else ''}"
+                    
+                    # Boost variables/objects (STRONGEST for user-defined!)
+                    elif kind and kind.value == 6:  # Variable
+                        # Check if it's user-defined (sortText starts with 00., 01., 02.)
+                        is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
+                        detail_lower = detail.lower()
+                        
+                        # Check parso-inferred type
+                        parso_type = var_types.get(label, '')
+                        
+                        if is_user_defined:
+                            # User-defined variable - STRONGEST boost!
+                            # Extra boost if we know it's iterable from parso
+                            if parso_type in ('list', 'dict', 'set', 'tuple', 'range', 'enumerate', 'zip', 'map', 'filter'):
+                                context_boost -= 10  # SUPER STRONG for known iterable locals
+                                boost_reason = f"for..in: local {parso_type}"
+                            else:
+                                context_boost -= 8  # Strong for any local
+                                boost_reason = f"for..in: user-defined var" + (f" ({detail[:30]})" if detail else "")
+                        elif parso_type in ('list', 'dict', 'set', 'tuple', 'range'):
+                            # Parso knows it's iterable
+                            context_boost -= 7
+                            boost_reason = f"for..in: {parso_type} (parso)"
+                        elif any(t in detail_lower for t in ["list", "tuple", "set", "dict", "str", 
+                                                           "iterator", "iterable", "sequence",
+                                                           "range", "generator"]):
+                            context_boost -= 6  # Strong boost for typed iterable variables
+                            boost_reason = f"for..in: iterable var ({detail[:30]})"
+                        else:
+                            # Still boost regular variables (they might be iterables)
+                            context_boost -= 2
+                            boost_reason = f"for..in: variable"
+                    
+                    # Demote keywords in "for...in" context (we want functions/variables, not keywords)
+                    elif kind and kind.value == 14:  # Keyword
+                        context_boost += 3  # Push keywords down
+                        boost_reason = f"for..in: demote keyword"
+                    
+                    # Demote classes (we want instances/functions, not class constructors)
+                    elif kind and kind.value == 7:  # Class
+                        context_boost += 1
+                        boost_reason = f"for..in: demote class"
+        
+        # 2. IMPORT statements: boost modules
+        if line_before_cursor.strip().startswith("import ") or line_before_cursor.strip().startswith("from "):
+            if kind and kind.value == 9:  # Module
+                context_boost -= 1
+                boost_reason = "import: module"
+        
+        # 3. After DOT: boost methods/properties over functions
+        if line_before_cursor.rstrip().endswith("."):
+            if kind and kind.value in (2, 10):  # Method or Property
+                context_boost -= 0.8
+                boost_reason = "after dot: method/property"
+            elif kind and kind.value == 3:  # Function - lower priority after dot
+                context_boost += 0.5
+                boost_reason = "after dot: demote function"
+        
+        # 4. Start of line: boost keywords and statements
+        if len(line_before_cursor.strip()) <= len(prefix):
+            if kind and kind.value == 14:  # Keyword
+                if label in ["for", "if", "while", "def", "class", "return", "import"]:
+                    context_boost -= 0.5
+                    boost_reason = "line start: statement keyword"
+        
+        # 5. Inside expressions (after operators): prefer variables/functions over keywords  
+        if any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]):
+            if kind and kind.value == 14:  # Keyword - lower priority in expressions
+                context_boost += 0.3
+                boost_reason = "in expression: demote keyword"
+            elif kind and kind.value in (3, 6):  # Function or Variable - higher priority
+                context_boost -= 0.3
+                boost_reason = "in expression: boost func/var"
+        
+        # Combined priority: base prefix matching + context boost
+        final_priority = prefix_priority + context_boost
+        return (final_priority, sort_text.lower(), label.lower(), label)
+    
+    return sort_key
+
+
 class CompletionsDetailsBox(DocuBox):
     def __init__(self, completions_box: "CompletionsBox"):
         super().__init__()
@@ -72,42 +335,19 @@ class CompletionsBox(EditorInfoBox):
         prefix_start_index = self._find_completion_insertion_index()
         assert self._target_text_widget.compare(prefix_start_index, "<=", "insert")
         prefix = self._target_text_widget.get(prefix_start_index, "insert")
+        
+        # Get context for context-aware ranking
+        try:
+            line_before_cursor = text.get("insert linestart", "insert")
+            line_after_cursor = text.get("insert", "insert lineend")
+            source_code = text.get("1.0", "end")
+        except:
+            line_before_cursor = ""
+            line_after_cursor = ""
+            source_code = ""
 
-        def sort_key(completion: lsp_types.CompletionItem):
-            sort_text = completion.sortText or completion.label
-            label = completion.label
-            kind = completion.kind
-
-            # Trust LSP sortText (e.g. Pyright prioritizes locals with "00...", builtins with "03...")
-            # but give a small bonus to prefix matches
-            if not prefix:
-                # No prefix: sort by LSP priority, push _ items down
-                prefix_priority = 1 if label.startswith("_") else 0
-            elif label.startswith(prefix):
-                # Exact case match: prioritize user-defined items
-                # kind: Variable(6), Function(3), Class(7), Module(9)
-                # vs keywords(14), builtins
-                # Use sortText to distinguish user-defined (00.*, 01.*, 02.*) from builtins (09.9999.*)
-                is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
-                
-                if kind and kind.value == 6:  # Variable - highest priority
-                    prefix_priority = -3
-                elif kind and kind.value in (3, 7, 9) and is_user_defined:  # User-defined Function/Class/Module
-                    prefix_priority = -2
-                elif kind and kind.value in (3, 7, 9):  # Builtin Function/Class
-                    prefix_priority = -1.5
-                else:
-                    prefix_priority = -1  # Keywords and other builtins
-            elif label.lower().startswith(prefix.lower()):
-                # Case-insensitive match: tiny bonus (priority -0.5)
-                prefix_priority = -0.5
-            else:
-                # No match: neutral
-                prefix_priority = 0
-            
-            # Use case-insensitive sorting so 'anext' comes before 'SyntaxError'
-            result = (prefix_priority, sort_text.lower(), label.lower(), label)
-            return result
+        # Use shared context-aware sorting logic
+        sort_key = create_context_aware_sort_key(prefix, line_before_cursor, line_after_cursor, source_code)
 
         if skip_sorting:
             # AI already sorted - don't re-sort!
@@ -116,6 +356,11 @@ class CompletionsBox(EditorInfoBox):
         else:
             # Apply our sorting algorithm
             sorted_completions = sorted(completions, key=sort_key)
+            
+            # Log top results for debugging
+            if sorted_completions:
+                top_5 = ", ".join([comp.label for comp in sorted_completions[:5]])
+                logger.info(f"📋 Top 5 completions: {top_5}")
         
         if not prefix.startswith("__"):
             sorted_completions = [
@@ -650,13 +895,8 @@ class Completer:
             self._close_box()
             return
         else:
-            # Log what LSP provided (FULL LIST)
-            logger.info(f"📥 LSP gave us {len(completions)} completions:")
-            for i, item in enumerate(completions):
-                kind_name = lsp_types.CompletionItemKind(item.kind).name if item.kind else "Unknown"
-                detail = item.detail if item.detail else ""
-                logger.info(f"  [{i:2d}] {item.label:30s} | {kind_name:12s} | {detail}")
-            logger.info(f"━" * 80)
+            # Log completion count
+            logger.info(f"📥 LSP: {len(completions)} completions")
             
             # Show completions
             if not self._completions_box:
@@ -692,38 +932,26 @@ class Completer:
             
             prefix = text.get(prefix_start_index, "insert") if text.compare(prefix_start_index, "<=", "insert") else ""
             
-            def sort_key(completion: lsp_types.CompletionItem):
-                sort_text = completion.sortText or completion.label
-                label = completion.label
-                kind = completion.kind
-                
-                # Same logic as in present_completions
-                if not prefix:
-                    prefix_priority = 1 if label.startswith("_") else 0
-                elif label.startswith(prefix):
-                    is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
-                    
-                    if kind and kind.value == 6:  # Variable - highest priority
-                        prefix_priority = -3
-                    elif kind and kind.value in (3, 7, 9) and is_user_defined:  # User-defined Function/Class/Module
-                        prefix_priority = -2
-                    elif kind and kind.value in (3, 7, 9):  # Builtin Function/Class
-                        prefix_priority = -1.5
-                    else:
-                        prefix_priority = -1  # Keywords and other builtins
-                elif label.lower().startswith(prefix.lower()):
-                    prefix_priority = -0.5
-                else:
-                    prefix_priority = 0
-                
-                return (prefix_priority, sort_text.lower(), label.lower(), label)
+            # Get context for context-aware ranking
+            try:
+                line_before_cursor = text.get("insert linestart", "insert")
+                line_after_cursor = text.get("insert", "insert lineend")
+                source_code = text.get("1.0", "end")
+            except:
+                line_before_cursor = ""
+                line_after_cursor = ""
+                source_code = ""
             
+            # Use shared context-aware sorting logic
+            logger.info(f"🔄 Applying context-aware sort to {len(completions)} completions (AI path)")
+            sort_key = create_context_aware_sort_key(prefix, line_before_cursor, line_after_cursor, source_code)
             sorted_completions = sorted(completions, key=sort_key)
             
-            logger.info(f"🔄 Sorted {len(sorted_completions)} completions by our algorithm (local vars first)")
+            logger.info(f"📋 Top 20 after context-aware sort:")
             for i, item in enumerate(sorted_completions[:20]):
                 kind_name = lsp_types.CompletionItemKind(item.kind).name if item.kind else "Unknown"
-                logger.info(f"  [{i:2d}] {item.label:30s} | {kind_name:12s}")
+                detail_str = f" ({item.detail[:20]}...)" if item.detail and len(item.detail) > 20 else f" ({item.detail})" if item.detail else ""
+                logger.info(f"  [{i+1:2d}] {item.label:25s} | {kind_name:12s}{detail_str}")
             if len(sorted_completions) > 20:
                 logger.info(f"  ... and {len(sorted_completions) - 20} more")
             logger.info(f"━" * 80)
