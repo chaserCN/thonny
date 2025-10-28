@@ -886,6 +886,10 @@ class CodeView(tktextext.EnhancedTextFrame):
             bg_color = self._gutter.cget("background")
             self._gutter.tag_configure("info_button", foreground=bg_color)
             self._info_buttons_hidden = True
+        
+        # Hide block highlighter if present
+        if hasattr(self.text, 'block_highlighter'):
+            self.text.block_highlighter._hide_for_screenshot()
     
     def show_after_screenshot(self):
         """Show UI elements after screenshot"""
@@ -893,6 +897,10 @@ class CodeView(tktextext.EnhancedTextFrame):
             # Restore original color
             self._gutter.tag_configure("info_button", foreground="#0066cc")
             self._info_buttons_hidden = False
+        
+        # Show block highlighter if present
+        if hasattr(self.text, 'block_highlighter'):
+            self.text.block_highlighter._show_after_screenshot()
     
     def _show_line_explanation_popup(self, line_num, line_content, event):
         """Show popup with AI explanation of the code line"""

@@ -214,6 +214,19 @@ class BlockHighlighter:
         # Use after_idle to reapply after gutter update completes
         self.text.after_idle(self._reapply_highlights)
     
+    def _hide_for_screenshot(self, event=None):
+        """Hide block highlights for screenshot"""
+        # Remove all block highlight tags from gutter
+        for i in range(len(self.depth_colors)):
+            self.gutter.tag_remove(f"block_line_depth_{i}", "1.0", "end")
+        logger.debug("Block highlights hidden for screenshot")
+    
+    def _show_after_screenshot(self, event=None):
+        """Show block highlights after screenshot"""
+        # Reapply all block highlights
+        self._reapply_highlights()
+        logger.debug("Block highlights restored after screenshot")
+    
     def schedule_update(self):
         """Schedule block update (after text changes)"""
         # Skip if already updating
