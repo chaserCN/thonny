@@ -576,9 +576,14 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
         
         # Check for headings with #
         if stripped.startswith("#"):
-            heading_text = stripped.lstrip("#").strip() + "\n"
+            heading_text = stripped.lstrip("#").strip()
             start = text_widget.index("end-1c")
-            insert_method("end", heading_text)
+            
+            # Parse inline formatting (bold, italic, code) within heading
+            insert_formatted_text(heading_text)
+            insert_method("end", "\n")
+            
+            # Apply heading style to the entire line
             text_widget.tag_add("md_heading", start, text_widget.index("end-1c"))
             i += 1
             continue
