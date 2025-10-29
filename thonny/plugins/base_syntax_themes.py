@@ -31,6 +31,7 @@ def default_light() -> SyntaxThemeSettings:
             "background": open_string_bg,
             "font": "EditorFont",
         },
+        "fstring_brace": {"foreground": "#006400", "font": "BoldEditorFont"},  # Dark green for f-string braces
         "tab": {"background": "#f5ecd7"},
         "keyword": {"foreground": "#7f0055", "font": "BoldEditorFont"},
         "builtin": {"foreground": "#7f0055"},
