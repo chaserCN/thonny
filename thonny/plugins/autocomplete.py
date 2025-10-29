@@ -379,6 +379,15 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         # BUT: skip if inside range() - that has its own context!
         is_inside_range = "range(" in line_before_cursor
         
+        # Extract loop variable name from "for <var> in " to demote it
+        # (prevents "for i in i" which is nonsensical)
+        loop_var_name = None
+        if " in " in line_before_cursor and not is_inside_range:
+            # Try to extract: "for item in " -> "item"
+            match = re.search(r'\bfor\s+(\w+)\s+in\s', line_before_cursor)
+            if match:
+                loop_var_name = match.group(1)
+        
         if (" in " in line_before_cursor or line_before_cursor.strip().startswith("for ")) and not is_inside_range:
             # Check if this is a user-defined function (for Functions kind=3)
             is_user_function = (kind and kind.value == 3 and label in user_functions)
@@ -388,6 +397,11 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 # If cursor right after "in" or user started typing
                 if len(after_in) <= len(prefix) + 3:
                     pass  # Context applies to all completions
+            
+            # DEMOTE the loop variable itself (for i in i is nonsensical!)
+            if loop_var_name and label == loop_var_name and kind and kind.value == 6:
+                context_boost += 2000  # Strong demotion - push to bottom
+                boost_reason = f"for..in: demote loop var itself (for {loop_var_name} in {loop_var_name})"
                     
             # SPECIAL: range() is very common, but user-defined vars are more important!
             if label == "range":
@@ -514,8 +528,19 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         # 3. BOOLEAN CONTEXTS (if, while, elif): boost variables/functions, demote keywords
         # Check if we're in a boolean condition (strip whitespace/newlines first!)
         line_clean = line_before_cursor.rstrip()
-        boolean_keywords = ["if ", "while ", "elif ", "and ", "or ", "not "]
-        is_boolean_context = any(line_clean.endswith(kw.rstrip()) for kw in boolean_keywords)
+        line_stripped = line_before_cursor.strip()
+        
+        # Boolean context if:
+        # - Line ends with boolean operator: "x and ", "y or ", "not "
+        # - Line starts with condition keyword: "if x > ", "while count < ", "elif i == "
+        # Note: check without trailing space, as .strip() removes it
+        boolean_operators = ["and ", "or ", "not "]
+        boolean_statements = ["if", "while", "elif"]  # Without trailing space!
+        
+        is_boolean_context = (
+            any(line_clean.endswith(op.rstrip()) for op in boolean_operators) or
+            any(line_stripped.startswith(stmt) for stmt in boolean_statements)
+        )
         
         if is_boolean_context:
             # Boolean context hierarchy:
@@ -1248,18 +1273,27 @@ class Completer:
                 
                 # Check if we just typed space after keywords that need completions
                 # - "for ... in" -> suggest iterables
-                # - "if", "while", "elif" -> suggest boolean expressions
+                # - "if", "while", "elif" -> suggest boolean expressions (ONLY first space!)
                 # - "except" -> suggest Exception classes
                 # - "with" -> suggest context managers
                 # - "import" -> suggest modules
                 # - "from MODULE import" -> suggest module members
                 # - "return" -> suggest variables/expressions
+                
+                # For boolean keywords (if/while/elif), only open after FIRST space
+                # to avoid reopening during "while x < " or "if condition and "
+                boolean_keywords_first_space = False
+                for kw in ["if", "while", "elif"]:
+                    # Check: "if " (just keyword + space, no more text yet)
+                    if line_stripped == kw:
+                        boolean_keywords_first_space = True
+                        break
+                
                 should_open = (
                     # for...in context
                     line_stripped.endswith(" in") or
-                    # boolean contexts
-                    line_stripped in ("if", "while", "elif") or
-                    line_stripped.startswith(("if ", "while ", "elif ")) or
+                    # boolean contexts (ONLY first space after keyword!)
+                    boolean_keywords_first_space or
                     # exception context
                     line_stripped == "except" or
                     line_stripped.startswith("except ") or
