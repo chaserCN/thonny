@@ -3,12 +3,16 @@
 
 import sys
 from pathlib import Path
-from test_scenarios_runner import parse_scenario_file, run_scenario_test
+
+# Add parent directory to path to import thonny modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from tests.test_scenarios_runner import parse_scenario_file, run_scenario_test
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python run_single_test.py <test_file> <test_number>")
-        print("Example: python run_single_test.py test_scenarios/test_for_loops.py 1")
+        print("Usage: python tests/run_single_test.py <test_file> <test_number>")
+        print("Example: python tests/run_single_test.py tests/test_scenarios/test_for_loops.py 1")
         sys.exit(1)
     
     test_file = sys.argv[1]

@@ -3,12 +3,16 @@
 Run all tests from a single test file and save summary to test_summary.txt
 
 Usage:
-    python3 run_file_tests.py test_scenarios/test_boolean_context.py
+    python3 tests/run_file_tests.py tests/test_scenarios/test_boolean_context.py
 """
 
 import sys
 from pathlib import Path
-from test_scenarios_runner import parse_scenario_file, run_scenario_test
+
+# Add parent directory to path to import thonny modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from tests.test_scenarios_runner import parse_scenario_file, run_scenario_test
 
 
 def run_file_tests(filepath: str):
