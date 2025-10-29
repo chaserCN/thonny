@@ -701,9 +701,32 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     context_boost -= 800
                     boost_reason = "len args: user var (likely iterable)"
         
-        # 9. Inside expressions (after operators): prefer variables/functions over keywords
+        # 9. Inside popular function calls: demote built-in functions, boost variables
+        # Check for print(, input(, int(, str(, etc. (but NOT len/range - they're handled above!)
+        is_in_function_call = False
+        for func_name in ["print(", "input(", "int(", "str(", "float(", "list(", "dict(", "set(", "tuple(", "max(", "min(", "sum(", "abs(", "round("]:
+            if line_before_cursor.rstrip().endswith(func_name):
+                is_in_function_call = True
+                break
+        
+        # Skip if already in range() or len() - they have their own special handling above
+        if is_in_function_call and not is_in_range_context and not is_in_len_context:
+            if kind and kind.value in (3, 7):  # Function or Class - demote built-ins
+                if label not in user_functions:  # Built-in function/class
+                    # Extra strong demotion for print itself (print in print is weird)
+                    if label == "print":
+                        context_boost += 2000  # Push to bottom
+                        boost_reason = "function call args: demote print in print"
+                    else:
+                        context_boost += 400  # Demote - inside function call, we want variables/literals
+                        boost_reason = "function call args: demote built-in function/class"
+            elif kind and kind.value == 6:  # Variable - boost
+                if label in user_defined_vars:
+                    context_boost -= 800
+                    boost_reason = "function call args: boost user var"
+        # 10. Inside expressions (after operators): prefer variables/functions over keywords
         # BUT: skip if in range() or return context (they have their own specific boosts)
-        if (any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]) 
+        elif (any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]) 
             and not is_in_range_context 
             and not is_in_return_context):
             if kind and kind.value == 14:  # Keyword - lower priority in expressions
@@ -1500,9 +1523,16 @@ class Completer:
         
         # Check if we should show completions for this context
         # Don't show for "for " - user is typing variable name
+        # Don't show for "print(" - user is typing first argument, we don't want to clutter
+        # BUT show after comma: print("asd", <-- here we want completions!
         line_before_stripped = self._last_request_text.get("insert linestart", "insert").strip()
         if line_before_stripped == "for":
             logger.info(f"🚫 Ignoring completions: cursor after 'for ' (user typing variable name)")
+            self._close_box()
+            return
+        # Only ignore if EXACTLY "print(" - not after comma or other chars
+        if line_before_stripped.endswith("print(") and line_before_stripped == "print(":
+            logger.info(f"🚫 Ignoring completions: cursor after 'print(' (too cluttered)")
             self._close_box()
             return
 
