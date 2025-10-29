@@ -318,10 +318,16 @@ class EnhancedText(TweakableText):
 
     def _bind_movement_aids(self):
         self.bind("<Home>", self.perform_smart_home, True)
+        self.bind("<End>", self.perform_end, True)
         self.bind("<Left>", self.move_to_edge_if_selection(0), True)
         self.bind("<Right>", self.move_to_edge_if_selection(1), True)
         self.bind("<Next>", self.perform_page_down, True)
         self.bind("<Prior>", self.perform_page_up, True)
+        
+        # Mac-specific bindings for Command+Arrow keys
+        if _running_on_mac():
+            self.bind("<Command-Left>", self.perform_smart_home, True)
+            self.bind("<Command-Right>", self.perform_end, True)
 
     def _bind_selection_aids(self):
         self.bind("<Command-a>" if _running_on_mac() else "<Control-a>", self.select_all, True)
@@ -539,6 +545,35 @@ class EnhancedText(TweakableText):
             return None
 
         dest = self.compute_smart_home_destination_index()
+
+        if (event.state & 1) == 0:
+            # shift was not pressed
+            self.tag_remove("sel", "1.0", "end")
+        else:
+            if not self.index_sel_first():
+                # there was no previous selection
+                self.mark_set("my_anchor", "insert")
+            else:
+                if self.compare(self.index_sel_first(), "<", self.index("insert")):
+                    self.mark_set("my_anchor", "sel.first")  # extend back
+                else:
+                    self.mark_set("my_anchor", "sel.last")  # extend forward
+            first = self.index(dest)
+            last = self.index("my_anchor")
+            if self.compare(first, ">", last):
+                first, last = last, first
+            self.tag_remove("sel", "1.0", "end")
+            self.tag_add("sel", first, last)
+        self.mark_set("insert", dest)
+        self.see("insert")
+        return "break"
+
+    def perform_end(self, event):
+        if (event.state & 4) != 0 and event.keysym == "End":
+            # state&4==Control. If <Control-End>, use the Tk binding.
+            return None
+
+        dest = "insert lineend"
 
         if (event.state & 1) == 0:
             # shift was not pressed

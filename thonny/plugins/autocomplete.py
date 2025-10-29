@@ -1878,7 +1878,7 @@ def load_plugin() -> None:
 
     get_workbench().set_default("edit.tab_request_completions_in_editors", True)
     get_workbench().set_default("edit.tab_request_completions_in_shell", True)
-    get_workbench().set_default("edit.automatic_completions", False)
+    get_workbench().set_default("edit.automatic_completions", True)
     get_workbench().set_default("edit.automatic_completion_details", False)
 
     CodeViewText.perform_midline_tab = completer.patched_perform_midline_tab

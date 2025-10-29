@@ -54,9 +54,8 @@ def run() -> int:
             print("Delegated to an existing Thonny instance. Exiting now.")
             return 0
         except Exception:
-            import traceback
-
-            traceback.print_exc()
+            # Stale IPC file will be cleaned up, no need to print traceback
+            pass
 
     # Did not or could not delegate
 
