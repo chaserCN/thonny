@@ -1,3 +1,4 @@
+import re
 import tkinter as tk
 from logging import getLogger
 from tkinter import messagebox
@@ -25,17 +26,87 @@ asynchronous.
 """
 
 
-def _infer_variable_types_with_parso(source_code: str) -> dict:
-    """Use parso to infer simple types for variables (list, dict, set, tuple)."""
+def filter_garbage_completions(completions: list) -> list:
+    """
+    Filter out builtin interactive garbage and dunder names.
+    
+    These are variables that Python adds in REPL but shouldn't appear in autocomplete:
+    - copyright, credits, exit, help, license, quit (interactive helpers)
+    - Ellipsis, ellipsis, NotImplemented (rarely used builtins)
+    - __name__, __file__, etc. (dunder names)
+    """
+    garbage_builtins = {
+        # Interactive helpers
+        'copyright', 'credits', 'exit', 'help', 'license', 'quit',
+        # Rarely used builtins
+        'Ellipsis', 'ellipsis', 'NotImplemented',
+        # Exception aliases (OSError is the canonical name)
+        'EnvironmentError', 'IOError', 'WindowsError',
+    }
+    return [
+        comp
+        for comp in completions
+        if not comp.label.startswith("__")
+        and comp.label not in garbage_builtins
+        and comp.textEdit is None  # TODO: support textEdit
+        and not comp.additionalTextEdits  # TODO: support this
+    ]
+
+
+# Popular Python functions ordered by priority for SCHOOL usage
+POPULAR_FUNCTIONS_ORDER = [
+    # Tier 1: Most used in school (everyday functions)
+    'print', 'input', 'len', 'int', 'str', 'float', 'range',
+    # Tier 2: Data structures & common operations
+    'list', 'dict', 'set', 'tuple', 'max', 'min', 'sum', 
+    # Tier 3: Math & utilities
+    'abs', 'round', 'sorted', 'open', 'sqrt',
+    # Tier 4: Type checking & advanced
+    'isinstance', 'type', 'bool', 'any', 'all',
+    # Tier 5: Functional programming (less common in school)
+    'enumerate', 'zip', 'map', 'filter', 'format',
+    # Tier 6: Advanced (rarely used in school)
+    'getattr', 'hasattr', 'super', 'repr'
+]
+
+
+def get_popular_function_boost(label: str) -> tuple[int, str]:
+    """
+    Return boost value and reason for popular Python functions.
+    
+    Returns:
+        (boost, reason) where boost is negative (higher priority) or 0 (no boost)
+    """
+    if label in POPULAR_FUNCTIONS_ORDER:
+        position = POPULAR_FUNCTIONS_ORDER.index(label)
+        boost = -(100 - position)  # -100 for print, -99 for input, etc.
+        reason = f"popular function (#{position+1})"
+        return (boost, reason)
+    return (0, "")
+
+
+def _infer_variable_types_with_parso(source_code: str) -> tuple[dict, set, set]:
+    """
+    Use parso (1 parse call!) to:
+    1. Infer types for variables (list, dict, set, tuple)
+    2. Extract ALL user-defined variable names
+    3. Extract loop variables (for x in ...)
+    
+    Returns: (var_types_dict, user_defined_vars_set, loop_vars_set)
+    """
     try:
         import parso
         from parso.python import tree
         
+        logger.info(f"🔬 PARSO: Analyzing {len(source_code)} chars of code...")
+        
         var_types = {}  # {var_name: type_hint}
+        user_defined_vars = set()  # ALL variable names
         
         module = parso.parse(source_code)
         
         assignments_found = []  # For logging
+        loop_vars_found = []  # For logging
         
         def get_outermost_function_name(node):
             """Extract outermost function name from expression like list(map(...))"""
@@ -57,6 +128,7 @@ def _infer_variable_types_with_parso(source_code: str) -> dict:
             # Look for assignments: x = [...]
             if isinstance(node, tree.ExprStmt) and node.children[0].type == 'name':
                 var_name = node.children[0].value
+                user_defined_vars.add(var_name)  # Track ALL assignments (except in functions)
                 
                 # Check if it's simple assignment (x = ...)
                 if len(node.children) >= 3 and node.children[1].value == '=':
@@ -70,7 +142,7 @@ def _infer_variable_types_with_parso(source_code: str) -> dict:
                         
                         # List literal: x = [1, 2, 3]
                         if first_char == '[':
-                            var_types[var_name] = 'list'
+                            var_types[var_name] = 'list'  # OVERWRITE if already exists (take latest)
                             inferred_type = 'list'
                         
                         # Dict or Set literal: x = {1: 2} or x = {1, 2}
@@ -106,6 +178,22 @@ def _infer_variable_types_with_parso(source_code: str) -> dict:
                             var_types[var_name] = 'tuple'
                             inferred_type = 'tuple'
                     
+                    # String literal: x = "hello" or x = 'hello'
+                    if not inferred_type and value.type == 'string':
+                        var_types[var_name] = 'str'
+                        inferred_type = 'str'
+                    
+                    # Number literal: x = 42 or x = 3.14
+                    if not inferred_type and value.type == 'number':
+                        # Determine if int or float by checking for '.'
+                        num_str = value.value
+                        if '.' in num_str:
+                            var_types[var_name] = 'float'
+                            inferred_type = 'float'
+                        else:
+                            var_types[var_name] = 'int'
+                            inferred_type = 'int'
+                    
                     # Tuple from testlist (without parens): x = 1, 2
                     if not inferred_type and value.type == 'testlist':
                         var_types[var_name] = 'tuple'
@@ -119,9 +207,19 @@ def _infer_variable_types_with_parso(source_code: str) -> dict:
                         var_types[var_name] = func_name
                         inferred_type = func_name
                     
-                    # Track what we found
+                    # Track what we found (LATEST assignment wins)
                     if inferred_type:
+                        # Remove old assignment if exists
+                        assignments_found[:] = [a for a in assignments_found if not a.startswith(f"{var_name}=")]
                         assignments_found.append(f"{var_name}={inferred_type}")
+            
+            # Look for for-loop variables: for x in ...
+            elif node.type == 'for_stmt' and hasattr(node, 'children') and len(node.children) >= 2:
+                # for_stmt: 'for' exprlist 'in' testlist ':' suite
+                if node.children[1].type == 'name':
+                    loop_var = node.children[1].value
+                    user_defined_vars.add(loop_var)
+                    loop_vars_found.append(loop_var)
             
             # Recursively process children
             if hasattr(node, 'children'):
@@ -130,14 +228,24 @@ def _infer_variable_types_with_parso(source_code: str) -> dict:
         
         analyze_node(module)
         
-        if var_types:
-            logger.info(f"🔬 Parso: {', '.join(assignments_found)}")
+        # Log results
+        if assignments_found:
+            logger.info(f"   ✓ Type inference: {', '.join(assignments_found)}")
+        if loop_vars_found:
+            logger.info(f"   ✓ Loop variables: {', '.join(loop_vars_found)}")
         
-        return var_types
+        other_vars = user_defined_vars - set(var_types.keys()) - set(loop_vars_found)
+        if other_vars:
+            logger.info(f"   ✓ Other assignments: {', '.join(sorted(other_vars))}")
+        
+        logger.info(f"   📊 Total: {len(user_defined_vars)} user-defined vars, {len(var_types)} with inferred types")
+        
+        loop_vars_set = set(loop_vars_found)
+        return var_types, user_defined_vars, loop_vars_set
         
     except Exception as e:
         logger.warning(f"Parso type inference failed: {e}")
-        return {}
+        return {}, set(), set()
 
 
 def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_after_cursor: str, 
@@ -161,10 +269,27 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         A sort_key function that can be used with sorted()
     """
     
-    # Try to infer types with parso (only for small files)
+    # Use parso (1 call!) to get types AND user-defined variables
     var_types = {}
+    user_defined_vars = set()
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"🎯 CONTEXT-AWARE SORTING")
+    logger.info(f"   Prefix: {prefix!r}")
+    logger.info(f"   Line before: {line_before_cursor!r}")
+    logger.info(f"   Line after: {line_after_cursor!r}")
+    logger.info(f"   Source code length: {len(source_code) if source_code else 0} chars")
+    
     if source_code and len(source_code) < 5000:  # Only for small files (< 5KB)
-        var_types = _infer_variable_types_with_parso(source_code)
+        var_types, user_defined_vars, loop_vars = _infer_variable_types_with_parso(source_code)
+        if user_defined_vars:
+            logger.info(f"👤 User-defined vars: {sorted(user_defined_vars)}")
+        if var_types:
+            logger.info(f"🔬 Inferred types: {var_types}")
+        if loop_vars:
+            logger.info(f"🔁 Loop variables: {sorted(loop_vars)}")
+    
+    logger.info(f"{'='*60}\n")
     
     def sort_key(completion: lsp_types.CompletionItem):
         sort_text = completion.sortText or completion.label
@@ -172,22 +297,27 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         kind = completion.kind
         detail = completion.detail or ""
 
-        # Base prefix priority (existing Thonny logic)
+        # Base prefix priority (DOMINANT factor - in thousands to override context_boost)
+        # Context_boost range: -2000 to +300 (2300 units)
+        # Prefix must be stronger to ensure matching items appear first!
         if not prefix:
-            prefix_priority = 1 if label.startswith("_") else 0
+            prefix_priority = 1000 if label.startswith("_") else 0
         elif label.startswith(prefix):
-            is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
+            # Check if user-defined (for Functions/Classes)
+            # For variables, we check user_defined_vars in context boost
+            # For functions/classes, sortText still works OK for now (LSP marks user-defined differently)
+            is_user_defined_func = sort_text.startswith(('00.', '01.', '02.'))
             
             if kind and kind.value == 6:  # Variable - highest priority
-                prefix_priority = -3
-            elif kind and kind.value in (3, 7, 9) and is_user_defined:  # User-defined Function/Class/Module
-                prefix_priority = -2
+                prefix_priority = -10000
+            elif kind and kind.value in (3, 7, 9) and is_user_defined_func:  # User-defined Function/Class/Module
+                prefix_priority = -8000
             elif kind and kind.value in (3, 7, 9):  # Builtin Function/Class
-                prefix_priority = -1.5
+                prefix_priority = -6000
             else:
-                prefix_priority = -1  # Keywords and other builtins
+                prefix_priority = -5000  # Keywords and other builtins
         elif label.lower().startswith(prefix.lower()):
-            prefix_priority = -0.5
+            prefix_priority = -2500  # Case-insensitive still very important
         else:
             prefix_priority = 0
         
@@ -195,94 +325,275 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         context_boost = 0
         boost_reason = None  # For logging
         
+        # GLOBAL: Boost most popular Python functions/classes (always helpful)
+        if kind and kind.value in (3, 7):  # Function or Class
+            func_boost, func_reason = get_popular_function_boost(label)
+            if func_boost != 0:
+                context_boost += func_boost  # Add negative boost (higher priority)
+                boost_reason = func_reason
+        
         # 1. FOR LOOPS: boost iterables after "for x in "
         if " in " in line_before_cursor or line_before_cursor.strip().startswith("for "):
+            # Check if this is a user-defined function (for Functions kind=3)
+            is_user_function = (kind and kind.value == 3 and 
+                               source_code and f"def {label}(" in source_code)
+            
             if " in " in line_before_cursor:
                 after_in = line_before_cursor.split(" in ")[-1].strip()
                 # If cursor right after "in" or user started typing
                 if len(after_in) <= len(prefix) + 3:
-                    # STRONG boost for known iterable-returning functions/classes
-                    if label in ["range", "enumerate", "zip", "map", "filter", "reversed", 
-                               "sorted", "list", "tuple", "set", "dict", "keys", "values", "items"]:
-                        # These can be Class or Function in LSP - boost both!
-                        context_boost -= 5  # Very strong boost
-                        boost_reason = f"for..in: iterable {lsp_types.CompletionItemKind(kind).name if kind else ''}"
+                    pass  # Context applies to all completions
                     
-                    # Boost variables/objects (STRONGEST for user-defined!)
-                    elif kind and kind.value == 6:  # Variable
-                        # Check if it's user-defined (sortText starts with 00., 01., 02.)
-                        is_user_defined = sort_text.startswith(('00.', '01.', '02.'))
-                        detail_lower = detail.lower()
-                        
-                        # Check parso-inferred type
-                        parso_type = var_types.get(label, '')
-                        
-                        if is_user_defined:
-                            # User-defined variable - STRONGEST boost!
-                            # Extra boost if we know it's iterable from parso
-                            if parso_type in ('list', 'dict', 'set', 'tuple', 'range', 'enumerate', 'zip', 'map', 'filter'):
-                                context_boost -= 10  # SUPER STRONG for known iterable locals
-                                boost_reason = f"for..in: local {parso_type}"
-                            else:
-                                context_boost -= 8  # Strong for any local
-                                boost_reason = f"for..in: user-defined var" + (f" ({detail[:30]})" if detail else "")
-                        elif parso_type in ('list', 'dict', 'set', 'tuple', 'range'):
-                            # Parso knows it's iterable
-                            context_boost -= 7
-                            boost_reason = f"for..in: {parso_type} (parso)"
-                        elif any(t in detail_lower for t in ["list", "tuple", "set", "dict", "str", 
-                                                           "iterator", "iterable", "sequence",
-                                                           "range", "generator"]):
-                            context_boost -= 6  # Strong boost for typed iterable variables
-                            boost_reason = f"for..in: iterable var ({detail[:30]})"
-                        else:
-                            # Still boost regular variables (they might be iterables)
-                            context_boost -= 2
-                            boost_reason = f"for..in: variable"
-                    
-                    # Demote keywords in "for...in" context (we want functions/variables, not keywords)
-                    elif kind and kind.value == 14:  # Keyword
-                        context_boost += 3  # Push keywords down
-                        boost_reason = f"for..in: demote keyword"
-                    
-                    # Demote classes (we want instances/functions, not class constructors)
-                    elif kind and kind.value == 7:  # Class
-                        context_boost += 1
-                        boost_reason = f"for..in: demote class"
+            # SPECIAL: range() is very common, but user-defined vars are more important!
+            if label == "range":
+                context_boost -= 900  # Strong boost, but below user vars (-1050+)
+                boost_reason = f"for..in: range (common builtin)"
+            elif is_user_function:
+                # User-defined function - high priority but below user vars and range
+                context_boost -= 800
+                boost_reason = f"for..in: user function"
+            # Very common iteration helpers
+            elif label in ["enumerate", "sorted", "reversed"]:
+                context_boost -= 700  # Very strong boost (after range)
+                boost_reason = f"for..in: common iterator ({label})"
+            # STRONG boost for other iterable-returning functions/classes
+            elif label in ["zip", "map", "filter", 
+                           "list", "tuple", "set", "dict", "keys", "values", "items"]:
+                # These can be Class or Function in LSP - boost both!
+                context_boost -= 500  # Very strong boost
+                boost_reason = f"for..in: iterable {lsp_types.CompletionItemKind(kind).name if kind else ''}"
+            
+            # Boost variables/objects (STRONGEST for user-defined!)
+            elif kind and kind.value == 6:  # Variable
+                # Check if it's user-defined (exists in source code)
+                is_user_defined = label in user_defined_vars
+                detail_lower = detail.lower()
+                
+                # Check parso-inferred type
+                parso_type = var_types.get(label, '')
+                
+                if is_user_defined:
+                    # User-defined variable - check if it's iterable!
+                    if parso_type in ('list', 'dict', 'set', 'tuple', 'range', 'enumerate', 'zip', 'map', 'filter', 'str'):
+                        context_boost -= 1050  # HIGHER than user functions (-800) and range (-900)
+                        boost_reason = f"for..in: local {parso_type}"
+                    elif parso_type in ('int', 'float', 'bool'):
+                        # Known non-iterable types
+                        context_boost += 300  # Demote - not useful for iteration
+                        boost_reason = f"for..in: demote {parso_type} (not iterable)"
+                    elif label in loop_vars:
+                        # Loop variable from outer loop (likely iterable in nested loops!)
+                        context_boost -= 1200  # STRONGEST boost - outer loop vars are #1 in nested loops!
+                        boost_reason = f"for..in: outer loop var (likely iterable)"
+                    else:
+                        # Unknown type - might be iterable, give small boost
+                        context_boost -= 200  # Small boost for unknown user vars
+                        boost_reason = f"for..in: user-defined var (unknown type)"
+                elif parso_type in ('list', 'dict', 'set', 'tuple', 'range'):
+                    # Parso knows it's iterable
+                    context_boost -= 700
+                    boost_reason = f"for..in: {parso_type} (parso)"
+                elif any(t in detail_lower for t in ["list", "tuple", "set", "dict", "str", 
+                                                       "iterator", "iterable", "sequence",
+                                                       "range", "generator"]):
+                    context_boost -= 600  # Strong boost for typed iterable variables
+                    boost_reason = f"for..in: iterable var ({detail[:30]})"
+                else:
+                    # Still boost regular variables (they might be iterables)
+                    context_boost -= 200
+                    boost_reason = f"for..in: variable"
+            
+            # Demote keywords in "for...in" context (we want functions/variables, not keywords)
+            elif kind and kind.value == 14:  # Keyword
+                context_boost += 300  # Push keywords down
+                boost_reason = f"for..in: demote keyword"
+            
+            # Demote classes (we want instances/functions, not class constructors)
+            elif kind and kind.value == 7:  # Class
+                context_boost += 100
+                boost_reason = f"for..in: demote class"
         
-        # 2. IMPORT statements: boost modules
-        if line_before_cursor.strip().startswith("import ") or line_before_cursor.strip().startswith("from "):
-            if kind and kind.value == 9:  # Module
-                context_boost -= 1
-                boost_reason = "import: module"
+        # 2. IMPORT statements: boost modules, demote non-modules
+        line_stripped = line_before_cursor.strip()
+        if line_stripped.startswith("import") or line_stripped.startswith("from"):
+            # Check if it's actually an import statement (not "important" etc.)
+            is_import = (line_stripped == "import" or line_stripped.startswith("import ") or 
+                        line_stripped == "from" or line_stripped.startswith("from "))
+            
+            if is_import:
+                # Check if "from MODULE import" context
+                from_match = re.match(r'from\s+(\w+)\s+import', line_stripped)
+                
+                if from_match and kind and kind.value in (3, 6):  # Function/Variable from module
+                    module_name = from_match.group(1)
+                    
+                    # Boost popular functions for specific modules
+                    if module_name == 'random':
+                        RANDOM_POPULAR = ['randint', 'choice', 'shuffle', 'random', 'seed', 'randrange', 'sample']
+                        if label in RANDOM_POPULAR:
+                            pos = RANDOM_POPULAR.index(label)
+                            context_boost -= (1000 - pos * 10)
+                            boost_reason = f"from random: popular #{pos+1}"
+                    elif module_name == 'math':
+                        MATH_POPULAR = ['sqrt', 'ceil', 'floor', 'pi', 'sin', 'cos', 'tan', 'pow', 'log']
+                        if label in MATH_POPULAR:
+                            pos = MATH_POPULAR.index(label)
+                            context_boost -= (1000 - pos * 10)
+                            boost_reason = f"from math: popular #{pos+1}"
+                
+                elif kind and kind.value == 9:  # Module
+                    # Popular modules for school (in priority order!)
+                    POPULAR_MODULES_ORDER = [
+                        'random', 'math', 'os', 'sys', 're',  # Top 5 for school
+                        'time', 'datetime', 'collections', 'itertools', 
+                        'json', 'csv', 'turtle'  # Also useful
+                    ]
+                    
+                    if label in POPULAR_MODULES_ORDER:
+                        position = POPULAR_MODULES_ORDER.index(label)
+                        # Top modules get stronger boost: random=-1200, math=-1199, etc.
+                        module_boost = -(1200 - position * 10)
+                        context_boost += module_boost
+                        boost_reason = f"import: popular module #{position+1}"
+                    else:
+                        context_boost -= 500  # Strong boost for all modules
+                        boost_reason = "import: module"
+                elif kind and kind.value in (7, 3):  # Class or Function (but not in "from X import")
+                    if not from_match:  # Only demote if NOT in "from X import"
+                        context_boost += 200  # Demote classes and functions
+                        boost_reason = "import: demote class/function"
+                elif kind and kind.value == 14:  # Keyword
+                    context_boost += 300  # Strongly demote keywords
+                    boost_reason = "import: demote keyword"
         
-        # 3. After DOT: boost methods/properties over functions
+        # 3. BOOLEAN CONTEXTS (if, while, elif): boost variables/functions, demote keywords
+        # Check if we're in a boolean condition (strip whitespace/newlines first!)
+        line_clean = line_before_cursor.rstrip()
+        boolean_keywords = ["if ", "while ", "elif ", "and ", "or ", "not "]
+        is_boolean_context = any(line_clean.endswith(kw.rstrip()) for kw in boolean_keywords)
+        
+        if is_boolean_context:
+            # Boolean context hierarchy:
+            # 1. User variables (-2000) - ALWAYS highest, no collisions
+            # 2. User functions (-1000 + alphabet)
+            # 3. Built-in bool functions (-800 + popularity)
+            # 4. Built-in non-bool functions (-600 + popularity)
+            
+            BOOLEAN_FUNCTIONS = {'len', 'isinstance', 'bool', 'any', 'all', 'hasattr'}
+            
+            if kind and kind.value == 6:  # Variable - highest priority in conditions
+                is_user_defined = label in user_defined_vars
+                if is_user_defined:
+                    context_boost -= 2000  # STRONGEST boost - user vars are #1 priority!
+                    boost_reason = "boolean: user-defined var"
+                else:
+                    context_boost -= 300  # Moderate boost for other variables
+                    boost_reason = "boolean: variable"
+            elif kind and kind.value == 3:  # Function
+                # Determine if user-defined by checking if "def function_name" exists in source
+                is_user_defined = source_code and f"def {label}(" in source_code
+                is_boolean_func = label in BOOLEAN_FUNCTIONS
+                
+                if is_user_defined:
+                    # ALL user functions: -1000 + alphabet (a→0, z→+25)
+                    alpha_offset = ord(label[0].lower()) - ord('a') if label else 0
+                    context_boost -= (1000 - alpha_offset)
+                    boost_reason = f"boolean: user func (alpha)"
+                elif is_boolean_func:
+                    # Built-in bool function: -800 (fixed, popularity already added globally!)
+                    context_boost -= 800
+                    boost_reason = f"boolean: built-in bool func ({label})"
+                else:
+                    # Built-in non-bool function: -600 (popularity already added globally!)
+                    context_boost -= 600
+                    boost_reason = f"boolean: built-in func"
+            elif kind and kind.value == 14:  # Keyword - demote in boolean contexts
+                # Don't show keywords like "class", "def", "import" after "if "
+                context_boost += 400
+                boost_reason = "boolean: demote keyword"
+            elif kind and kind.value == 7:  # Class constructors - also demote
+                context_boost += 200
+                boost_reason = "boolean: demote class"
+        
+        # 4. EXCEPT context: boost Exception classes VERY HIGH, demote others
+        # Check if we're after 'except ' (with or without prefix)
+        # Exception boost must be HIGHER than prefix to prioritize exceptions over non-exceptions
+        if 'except ' in line_before_cursor[-20:] or line_clean.endswith('except'):
+            if kind and kind.value == 7:  # Class
+                # Boost exception classes (names ending with Error or Exception)
+                if label.endswith('Error') or label.endswith('Exception'):
+                    context_boost -= 12000  # VERY strong boost - higher than any non-exception prefix!
+                    boost_reason = "except: exception class"
+                else:
+                    context_boost -= 1000  # Moderate boost for other classes (might be custom exceptions)
+                    boost_reason = "except: class"
+            elif kind and kind.value == 3:  # Function - don't show after except
+                context_boost += 5000  # Strong demotion
+                boost_reason = "except: demote function"
+            elif kind and kind.value == 6:  # Variable
+                context_boost += 3000  # Demote variables
+                boost_reason = "except: demote variable"
+            elif kind and kind.value == 14:  # Keyword
+                context_boost += 6000  # Strong demotion
+                boost_reason = "except: demote keyword"
+        
+        # 5. After DOT: boost methods/properties over functions
         if line_before_cursor.rstrip().endswith("."):
+            # Special: in "for ... in obj." context, prioritize iterable-returning methods
+            if " in " in line_before_cursor:
+                # Dict iterable methods (most common in for-loops)
+                if label in ['items', 'keys', 'values']:
+                    context_boost -= 800  # Very strong boost for dict iteration methods
+                    boost_reason = f"for..in dot: {label} (dict iterator)"
+                # String iterable-returning methods
+                elif label in ['split', 'splitlines']:
+                    context_boost -= 500
+                    boost_reason = f"for..in dot: {label} (string iterator)"
+            
+            # Regular dot-access boost
             if kind and kind.value in (2, 10):  # Method or Property
-                context_boost -= 0.8
+                context_boost -= 80
                 boost_reason = "after dot: method/property"
             elif kind and kind.value == 3:  # Function - lower priority after dot
-                context_boost += 0.5
+                context_boost += 50
                 boost_reason = "after dot: demote function"
         
-        # 4. Start of line: boost keywords and statements
+        # 6. Start of line: boost keywords and statements
         if len(line_before_cursor.strip()) <= len(prefix):
             if kind and kind.value == 14:  # Keyword
                 if label in ["for", "if", "while", "def", "class", "return", "import"]:
-                    context_boost -= 0.5
+                    context_boost -= 50
                     boost_reason = "line start: statement keyword"
         
-        # 5. Inside expressions (after operators): prefer variables/functions over keywords  
+        # 7. Inside expressions (after operators): prefer variables/functions over keywords  
         if any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]):
             if kind and kind.value == 14:  # Keyword - lower priority in expressions
-                context_boost += 0.3
+                context_boost += 30
                 boost_reason = "in expression: demote keyword"
-            elif kind and kind.value in (3, 6):  # Function or Variable - higher priority
-                context_boost -= 0.3
-                boost_reason = "in expression: boost func/var"
+            elif kind and kind.value == 6:  # Variable
+                if label in user_defined_vars:
+                    context_boost -= 900
+                    boost_reason = "in expression: user-defined var"
+                else:
+                    context_boost -= 30
+                    boost_reason = "in expression: builtin var"
+            elif kind and kind.value == 3:  # Function
+                # Demote void functions (return None) in assignment context
+                if "= " in line_before_cursor[-10:] and label == "print":
+                    context_boost += 500  # Strong demotion - print returns None!
+                    boost_reason = "in assignment: demote print (returns None)"
+                else:
+                    context_boost -= 30
+                    boost_reason = "in expression: function"
         
         # Combined priority: base prefix matching + context boost
         final_priority = prefix_priority + context_boost
+        
+        # Log items with significant context boost
+        if context_boost != 0 and abs(context_boost) >= 50:
+            kind_name = lsp_types.CompletionItemKind(kind).name if kind else "Unknown"
+            logger.info(f"   {'🔼' if context_boost < 0 else '🔽'} {label:20s} | boost={context_boost:+5d} | {boost_reason or 'no reason'} | kind={kind_name}")
+        
         return (final_priority, sort_text.lower(), label.lower(), label)
     
     return sort_key
@@ -340,7 +651,8 @@ class CompletionsBox(EditorInfoBox):
         try:
             line_before_cursor = text.get("insert linestart", "insert")
             line_after_cursor = text.get("insert", "insert lineend")
-            source_code = text.get("1.0", "end")
+            # Get code BEFORE cursor for Parso (only variables above matter!)
+            source_code = text.get("1.0", "insert")
         except:
             line_before_cursor = ""
             line_after_cursor = ""
@@ -355,21 +667,20 @@ class CompletionsBox(EditorInfoBox):
             sorted_completions = completions
         else:
             # Apply our sorting algorithm
+            logger.info(f"🔄 Sorting {len(completions)} completions with context-aware algorithm...")
             sorted_completions = sorted(completions, key=sort_key)
             
             # Log top results for debugging
             if sorted_completions:
-                top_5 = ", ".join([comp.label for comp in sorted_completions[:5]])
-                logger.info(f"📋 Top 5 completions: {top_5}")
+                logger.info(f"\n📊 TOP 10 RESULTS AFTER SORTING:")
+                for i, comp in enumerate(sorted_completions[:10], 1):
+                    kind_name = lsp_types.CompletionItemKind(comp.kind).name if comp.kind else "Unknown"
+                    detail_str = f" | {comp.detail[:30]}..." if comp.detail and len(comp.detail) > 30 else f" | {comp.detail}" if comp.detail else ""
+                    logger.info(f"   {i:2d}. {comp.label:20s} | {kind_name:12s}{detail_str}")
+                logger.info(f"")
         
         if not prefix.startswith("__"):
-            sorted_completions = [
-                comp
-                for comp in sorted_completions
-                if not comp.label.startswith("__")
-                and comp.textEdit is None  # TODO: support textEdit
-                and not comp.additionalTextEdits  # TODO: support this
-            ]
+            sorted_completions = filter_garbage_completions(sorted_completions)
         self._completions = sorted_completions
 
         # broadcast logging info
@@ -936,7 +1247,8 @@ class Completer:
             try:
                 line_before_cursor = text.get("insert linestart", "insert")
                 line_after_cursor = text.get("insert", "insert lineend")
-                source_code = text.get("1.0", "end")
+                # Get code BEFORE cursor for Parso (only variables above matter!)
+                source_code = text.get("1.0", "insert")
             except:
                 line_before_cursor = ""
                 line_after_cursor = ""

@@ -1,113 +1,18 @@
 """
-Standalone tests for autocomplete logic - extracts and tests the functions directly.
+Standalone tests for autocomplete logic - imports and tests production functions.
 """
 
 import sys
 import os
+from pathlib import Path
 
-# Inline the functions to test (copied from autocomplete.py)
-def _infer_variable_types_with_parso(source_code: str) -> dict:
-    """Use parso to infer simple types for variables (list, dict, set, tuple)."""
-    try:
-        import parso
-        from parso.python import tree
-        
-        var_types = {}  # {var_name: type_hint}
-        
-        module = parso.parse(source_code)
-        
-        assignments_found = []  # For logging
-        
-        def get_outermost_function_name(node):
-            """Extract outermost function name from expression like list(map(...))"""
-            if node.type == 'atom_expr' and hasattr(node, 'children') and len(node.children) >= 2:
-                first_child = node.children[0]
-                if first_child.type == 'name':
-                    return first_child.value
-            elif node.type == 'power' and hasattr(node, 'children'):
-                if node.children[0].type == 'name':
-                    return node.children[0].value
-            elif node.type == 'name':
-                return node.value
-            return None
-        
-        def analyze_node(node):
-            if isinstance(node, tree.ExprStmt) and node.children[0].type == 'name':
-                var_name = node.children[0].value
-                
-                if len(node.children) >= 3 and node.children[1].value == '=':
-                    value = node.children[2]
-                    value_type = value.type
-                    inferred_type = None
-                    
-                    # Check for literals by looking at first character
-                    if hasattr(value, 'children') and value.children:
-                        first_char = value.children[0].value if hasattr(value.children[0], 'value') else None
-                        
-                        # List literal: x = [1, 2, 3]
-                        if first_char == '[':
-                            var_types[var_name] = 'list'
-                            inferred_type = 'list'
-                        
-                        # Dict or Set literal: x = {1: 2} or x = {1, 2}
-                        elif first_char == '{':
-                            # Check if it's dict (has ':') or set (no ':')
-                            # Empty {} is always dict
-                            if len(value.children) == 2:  # Just { and }
-                                var_types[var_name] = 'dict'
-                                inferred_type = 'dict'
-                            else:
-                                # Look for ':' to distinguish dict from set
-                                has_colon = False
-                                for child in value.children:
-                                    if hasattr(child, 'value') and child.value == ':':
-                                        has_colon = True
-                                        break
-                                    # Also check in nested children
-                                    if hasattr(child, 'children'):
-                                        for subchild in child.children:
-                                            if hasattr(subchild, 'value') and subchild.value == ':':
-                                                has_colon = True
-                                                break
-                                
-                                if has_colon:
-                                    var_types[var_name] = 'dict'
-                                    inferred_type = 'dict'
-                                else:
-                                    var_types[var_name] = 'set'
-                                    inferred_type = 'set'
-                        
-                        # Tuple literal: x = (1, 2)
-                        elif first_char == '(':
-                            var_types[var_name] = 'tuple'
-                            inferred_type = 'tuple'
-                    
-                    # Tuple from testlist (without parens): x = 1, 2
-                    if not inferred_type and value.type == 'testlist':
-                        var_types[var_name] = 'tuple'
-                        inferred_type = 'tuple'
-                    
-                # Function calls
-                if not inferred_type:
-                    func_name = get_outermost_function_name(value)
-                    if func_name and func_name in ('list', 'dict', 'set', 'tuple', 'range', 'enumerate', 
-                                                   'zip', 'map', 'filter', 'reversed', 'sorted'):
-                        var_types[var_name] = func_name
-                        inferred_type = func_name
-                    
-                    if inferred_type:
-                        assignments_found.append(f"{var_name}={inferred_type}")
-            
-            if hasattr(node, 'children'):
-                for child in node.children:
-                    analyze_node(child)
-        
-        analyze_node(module)
-        return var_types
-        
-    except Exception as e:
-        print(f"⚠️  Parso error: {e}")
-        return {}
+# Add thonny to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+# Import production code to test
+from thonny.plugins.autocomplete import _infer_variable_types_with_parso
+
+# OLD INLINE CODE REMOVED - now using production code from autocomplete.py!
 
 
 def test_parso_inference():
@@ -276,13 +181,14 @@ y_coords = list(map(lambda p: p[1], coords))
     failed = 0
     
     for i, (code, expected) in enumerate(test_cases, 1):
-        result = _infer_variable_types_with_parso(code)
+        # Production function now returns (var_types, user_defined_vars)
+        var_types, user_defined_vars = _infer_variable_types_with_parso(code)
         
         # Filter to only expected keys for comparison
         if expected:
-            result_filtered = {k: v for k, v in result.items() if k in expected}
+            result_filtered = {k: v for k, v in var_types.items() if k in expected}
         else:
-            result_filtered = result
+            result_filtered = var_types
         
         if result_filtered == expected:
             passed += 1
@@ -322,6 +228,56 @@ def main():
     sys.exit(0 if parso_failed == 0 else 1)
 
 
+def test_parso_latest_assignment_wins():
+    """Test that latest assignment wins (e.g., x=int then x=list)"""
+    print("\n" + "="*60)
+    print("Testing Parso: Latest Assignment Wins")
+    print("="*60)
+    
+    tests = [
+        # Latest assignment wins
+        ("x = 5\nx = [1, 2, 3]", {'x': 'list'}),
+        ("x = []\nx = dict()", {'x': 'dict'}),
+        ("x = {}\nx = (1, 2)", {'x': 'tuple'}),
+        
+        # With function scope (global x shadowed) - Parso takes LATEST
+        ("x = 5\ndef foo():\n    x = [1, 2, 3]", {'x': 'list'}),  # Latest x is list
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for i, (code, expected) in enumerate(tests, 1):
+        result = _infer_variable_types_with_parso(code)
+        # Handle both old (dict only) and new (tuple) return formats
+        var_types = result[0] if isinstance(result, tuple) else result
+        
+        # Only check variables that we expect to have types
+        success = True
+        for var, expected_type in expected.items():
+            if var_types.get(var) != expected_type:
+                success = False
+                print(f"❌ Test {i} FAILED:")
+                print(f"   Code: {code[:50]!r}...")
+                print(f"   Expected: {expected}")
+                print(f"   Got: {var_types}")
+                failed += 1
+                break
+        
+        if success:
+            passed += 1
+            print(f"✓ Test {i}")
+    
+    print(f"\n{'='*60}")
+    print(f"Results: {passed} passed, {failed} failed out of {passed + failed}")
+    if failed == 0:
+        print("✅ All tests PASSED!")
+    else:
+        print(f"❌ {failed} tests FAILED")
+    print(f"{'='*60}\n")
+
+
 if __name__ == "__main__":
+    test_parso_latest_assignment_wins()
     main()
 
