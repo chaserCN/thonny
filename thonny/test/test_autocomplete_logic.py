@@ -117,13 +117,14 @@ evens = list(filter(lambda x: x % 2 == 0, squared))
     failed = 0
     
     for i, (code, expected) in enumerate(test_cases, 1):
-        result = _infer_variable_types_with_parso(code)
+        # Function now returns tuple: (var_types, user_defined_vars, loop_vars, current_function, user_functions)
+        var_types, _, _, _, _ = _infer_variable_types_with_parso(code)
         
         # Filter to only expected keys for comparison
         if expected:
-            result_filtered = {k: v for k, v in result.items() if k in expected}
+            result_filtered = {k: v for k, v in var_types.items() if k in expected}
         else:
-            result_filtered = result
+            result_filtered = var_types
         
         if result_filtered == expected:
             passed += 1
@@ -164,11 +165,11 @@ def test_context_aware_sorting():
         )
     
     def make_local_var(label, detail=None):
-        # User-defined variables have sortText starting with 00., 01., 02.
+        # User-defined variables have sortText starting with 09.9999. (from LSP)
         return CompletionItem(
             label=label,
             kind=CompletionItemKind.Variable,
-            sortText=f"00.0000.{label}",
+            sortText=f"09.9999.{label}",
             detail=detail
         )
     

@@ -1,55 +1,68 @@
 #!/usr/bin/env python3
 """
 Проверяет что TEST_POINT указывает на правильную строку и колонку.
+Показывает какой код будет извлечен test_scenarios_runner.py.
 """
 
-import re
 import sys
 from pathlib import Path
 
+# Add parent to path to import test_scenarios_runner
+sys.path.insert(0, str(Path(__file__).parent))
+
+from test_scenarios_runner import parse_scenario_file
+
 
 def verify_test_points(filepath):
-    """Проверяет TEST_POINT в файле."""
+    """Проверяет TEST_POINT в файле и показывает извлеченный код."""
     
-    with open(filepath, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+    # Используем ту же функцию что и test_scenarios_runner
+    scenarios = parse_scenario_file(filepath)
+    
+    if not scenarios:
+        return [f"  ❌ Не найдено сценариев в файле"]
     
     errors = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
+    
+    # Проверяем каждый сценарий
+    for idx, scenario in enumerate(scenarios):
+        print(f"\n  {'='*60}")
+        print(f"  Scenario {idx + 1}: {scenario.get('scenario_name', 'Unknown')}")
+        print(f"  {'='*60}")
         
-        # Ищем TEST_POINT
-        match = re.search(r'# TEST_POINT: line (\d+), col (\d+)', line)
-        if match:
-            expected_line = int(match.group(1))
-            expected_col = int(match.group(2))
-            
-            # Проверяем что указанная строка существует
-            if expected_line > len(lines):
-                errors.append(f"  ❌ Line {i+1}: TEST_POINT указывает на несуществующую строку {expected_line}")
-                i += 1
-                continue
-            
-            # Получаем реальную строку кода (1-based to 0-based)
-            actual_line_content = lines[expected_line - 1]
-            # НЕ используем rstrip() - нужны trailing пробелы!
-            actual_line_stripped = actual_line_content.rstrip('\n\r')  # Только убираем переводы строк
+        # Показываем извлеченный код
+        source_code = scenario.get('source_code', '')
+        actual_line = scenario.get('actual_line', 0)
+        col_num = scenario.get('col_num', 0)
+        
+        if not source_code:
+            errors.append(f"  ❌ Не удалось извлечь код для сценария")
+            continue
+        
+        source_lines = source_code.split('\n')
+        print(f"  📄 Extracted code ({len(source_lines)} lines):")
+        for j, code_line in enumerate(source_lines):
+            marker = " <-- CURSOR" if j == actual_line else ""
+            print(f"     {j+1}: {code_line}{marker}")
+        
+        # Получаем строку с курсором
+        if actual_line < len(source_lines):
+            cursor_line = source_lines[actual_line]
             
             # Проверяем что колонка не выходит за пределы строки
-            if expected_col > len(actual_line_stripped):
+            if col_num > len(cursor_line):
                 errors.append(
-                    f"  ❌ Line {i+1}: TEST_POINT col={expected_col}, но строка {expected_line} "
-                    f"имеет длину {len(actual_line_stripped)}"
+                    f"  ❌ TEST_POINT col={col_num}, но строка имеет длину {len(cursor_line)}"
                 )
-                errors.append(f"     Строка: {repr(actual_line_stripped)}")
+                errors.append(f"     Строка: {repr(cursor_line)}")
             else:
                 # Показываем где курсор
-                cursor_context = actual_line_stripped[:expected_col] + '|' + actual_line_stripped[expected_col:]
-                print(f"  ✓ Line {i+1}: TEST_POINT line={expected_line}, col={expected_col}")
-                print(f"    Code: {repr(cursor_context)}")
-        
-        i += 1
+                cursor_context = cursor_line[:col_num] + '|' + cursor_line[col_num:]
+                print(f"\n  ✓ Cursor position: {repr(cursor_context)}")
+                print(f"  ✓ Line before cursor: {repr(scenario.get('line_before_cursor', ''))}")
+                print(f"  ✓ Line after cursor: {repr(scenario.get('line_after_cursor', ''))}")
+        else:
+            errors.append(f"  ❌ actual_line={actual_line} >= len(source_lines)={len(source_lines)}")
     
     return errors
 
