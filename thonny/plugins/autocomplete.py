@@ -8,7 +8,7 @@ from thonny import editor_helpers, get_runner, get_workbench, lsp_types
 from thonny.codeview import CodeViewText, SyntaxText, get_syntax_options_for_tag
 from thonny.editor_helpers import DocuBox, EditorInfoBox
 from thonny.languages import tr
-from thonny.lsp_types import CompletionItem, CompletionParams, LspResponse, TextDocumentIdentifier
+from thonny.lsp_types import CompletionItem, CompletionItemKind, CompletionParams, LspResponse, TextDocumentIdentifier
 from thonny.misc_utils import running_on_mac_os
 from thonny.shell import ShellText
 from thonny.ui_utils import (
@@ -53,7 +53,7 @@ def filter_garbage_completions(completions: list) -> list:
         if comp.label in garbage_builtins:
             continue  # Filter garbage builtins
         # Filter keyword arguments (Variable with '=' suffix)
-        if comp.kind and comp.kind.value == 6 and comp.label.endswith("="):
+        if comp.kind and comp.kind == CompletionItemKind.Variable and comp.label.endswith("="):
             logger.info(f"🗑️  Filtering keyword arg: {comp.label}")
             continue
         if comp.textEdit is not None:
@@ -258,6 +258,37 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                         func_end_line = node.end_pos[0]
                         if func_start_line <= cursor_line <= func_end_line:
                             current_function = func_name
+                            
+                            # Extract function parameters if cursor is inside
+                            # funcdef: children[2] = parameters
+                            if len(node.children) >= 3 and node.children[2].type == 'parameters':
+                                params_node = node.children[2]
+                                # Extract parameter names (skip self, cls, *args, **kwargs)
+                                def extract_params(params):
+                                    """Recursively extract parameter names"""
+                                    param_names = []
+                                    if hasattr(params, 'children'):
+                                        for child in params.children:
+                                            if child.type == 'param' and hasattr(child, 'children'):
+                                                # param has children: name [, '=', default_value]
+                                                name_node = child.children[0]
+                                                if name_node.type == 'name':
+                                                    param_name = name_node.value
+                                                    # Skip self, cls (common in methods)
+                                                    if param_name not in ('self', 'cls'):
+                                                        param_names.append(param_name)
+                                            elif child.type == 'name':
+                                                # Simple parameter without default
+                                                param_name = child.value
+                                                if param_name not in ('self', 'cls'):
+                                                    param_names.append(param_name)
+                                    return param_names
+                                
+                                param_names = extract_params(params_node)
+                                for param_name in param_names:
+                                    user_defined_vars.add(param_name)
+                                    logger.info(f"   ✓ Function parameter: {param_name}")
+
             
             # Recursively process children
             if hasattr(node, 'children'):
@@ -364,11 +395,11 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
             # For functions/classes, sortText still works OK for now (LSP marks user-defined differently)
             is_user_defined_func = sort_text.startswith(('00.', '01.', '02.'))
             
-            if kind and kind.value == 6:  # Variable - highest priority
+            if kind and kind == CompletionItemKind.Variable:  # Variable - highest priority
                 prefix_priority = -10000
-            elif kind and kind.value in (3, 7, 9) and is_user_defined_func:  # User-defined Function/Class/Module
+            elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class, CompletionItemKind.Module) and is_user_defined_func:  # User-defined Function/Class/Module
                 prefix_priority = -8000
-            elif kind and kind.value in (3, 7, 9):  # Builtin Function/Class
+            elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class, CompletionItemKind.Module):  # Builtin Function/Class
                 prefix_priority = -6000
             else:
                 prefix_priority = -5000  # Keywords and other builtins
@@ -382,7 +413,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         boost_reason = None  # For logging
         
         # GLOBAL: Boost most popular Python functions/classes (always helpful)
-        if kind and kind.value in (3, 7):  # Function or Class
+        if kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class):  # Function or Class
             func_boost, func_reason = get_popular_function_boost(label)
             if func_boost != 0:
                 context_boost += func_boost  # Add negative boost (higher priority)
@@ -403,7 +434,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         
         if (" in " in line_before_cursor or line_before_cursor.strip().startswith("for ")) and not is_inside_range:
             # Check if this is a user-defined function (for Functions kind=3)
-            is_user_function = (kind and kind.value == 3 and label in user_functions)
+            is_user_function = (kind and kind == CompletionItemKind.Function and label in user_functions)
             
             if " in " in line_before_cursor:
                 after_in = line_before_cursor.split(" in ")[-1].strip()
@@ -412,7 +443,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     pass  # Context applies to all completions
             
             # DEMOTE the loop variable itself (for i in i is nonsensical!)
-            if loop_var_name and label == loop_var_name and kind and kind.value == 6:
+            if loop_var_name and label == loop_var_name and kind and kind == CompletionItemKind.Variable:
                 context_boost += 2000  # Strong demotion - push to bottom
                 boost_reason = f"for..in: demote loop var itself (for {loop_var_name} in {loop_var_name})"
                     
@@ -436,7 +467,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 boost_reason = f"for..in: iterable {lsp_types.CompletionItemKind(kind).name if kind else ''}"
             
             # Boost variables/objects (STRONGEST for user-defined!)
-            elif kind and kind.value == 6:  # Variable
+            elif kind and kind == CompletionItemKind.Variable:  # Variable
                 # Check if it's user-defined (exists in source code)
                 is_user_defined = label in user_defined_vars
                 detail_lower = detail.lower()
@@ -476,12 +507,12 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     boost_reason = f"for..in: variable"
             
             # Demote keywords in "for...in" context (we want functions/variables, not keywords)
-            elif kind and kind.value == 14:  # Keyword
+            elif kind and kind == CompletionItemKind.Keyword:  # Keyword
                 context_boost += 300  # Push keywords down
                 boost_reason = f"for..in: demote keyword"
             
             # Demote classes (we want instances/functions, not class constructors)
-            elif kind and kind.value == 7:  # Class
+            elif kind and kind == CompletionItemKind.Class:  # Class
                 context_boost += 100
                 boost_reason = f"for..in: demote class"
         
@@ -496,7 +527,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 # Check if "from MODULE import" context
                 from_match = re.match(r'from\s+(\w+)\s+import', line_stripped)
                 
-                if from_match and kind and kind.value in (3, 6):  # Function/Variable from module
+                if from_match and kind and kind in (CompletionItemKind.Function, CompletionItemKind.Variable):  # Function/Variable from module
                     module_name = from_match.group(1)
                     
                     # Boost popular functions for specific modules
@@ -513,7 +544,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                             context_boost -= (1000 - pos * 10)
                             boost_reason = f"from math: popular #{pos+1}"
                 
-                elif kind and kind.value == 9:  # Module
+                elif kind and kind == CompletionItemKind.Module:  # Module
                     # Popular modules for school (in priority order!)
                     POPULAR_MODULES_ORDER = [
                         'random', 'math', 'os', 'sys', 're',  # Top 5 for school
@@ -530,11 +561,11 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     else:
                         context_boost -= 500  # Strong boost for all modules
                         boost_reason = "import: module"
-                elif kind and kind.value in (7, 3):  # Class or Function (but not in "from X import")
+                elif kind and kind in (CompletionItemKind.Class, CompletionItemKind.Function):  # Class or Function (but not in "from X import")
                     if not from_match:  # Only demote if NOT in "from X import"
                         context_boost += 200  # Demote classes and functions
                         boost_reason = "import: demote class/function"
-                elif kind and kind.value == 14:  # Keyword
+                elif kind and kind == CompletionItemKind.Keyword:  # Keyword
                     context_boost += 300  # Strongly demote keywords
                     boost_reason = "import: demote keyword"
         
@@ -553,7 +584,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
             
             BOOLEAN_FUNCTIONS = {'len', 'isinstance', 'bool', 'any', 'all', 'hasattr'}
             
-            if kind and kind.value == 6:  # Variable - highest priority in conditions
+            if kind and kind == CompletionItemKind.Variable:  # Variable - highest priority in conditions
                 is_user_defined = label in user_defined_vars
                 if is_user_defined:
                     context_boost -= 2000  # STRONGEST boost - user vars are #1 priority!
@@ -561,7 +592,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 else:
                     context_boost -= 300  # Moderate boost for other variables
                     boost_reason = "boolean: variable"
-            elif kind and kind.value == 3:  # Function
+            elif kind and kind == CompletionItemKind.Function:  # Function
                 # Determine if user-defined from Parso analysis
                 is_user_defined = label in user_functions
                 is_boolean_func = label in BOOLEAN_FUNCTIONS
@@ -579,11 +610,11 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     # Built-in non-bool function: -600 (popularity already added globally!)
                     context_boost -= 600
                     boost_reason = f"boolean: built-in func"
-            elif kind and kind.value == 14:  # Keyword - demote in boolean contexts
+            elif kind and kind == CompletionItemKind.Keyword:  # Keyword - demote in boolean contexts
                 # Don't show keywords like "class", "def", "import" after "if "
                 context_boost += 400
                 boost_reason = "boolean: demote keyword"
-            elif kind and kind.value == 7:  # Class constructors - also demote
+            elif kind and kind == CompletionItemKind.Class:  # Class constructors - also demote
                 context_boost += 200
                 boost_reason = "boolean: demote class"
         
@@ -591,7 +622,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         # Check if we're after 'except ' (with or without prefix)
         # Exception boost must be HIGHER than prefix to prioritize exceptions over non-exceptions
         if 'except ' in line_before_cursor[-20:] or line_clean.endswith('except'):
-            if kind and kind.value == 7:  # Class
+            if kind and kind == CompletionItemKind.Class:  # Class
                 # Boost exception classes (names ending with Error or Exception)
                 if label.endswith('Error') or label.endswith('Exception'):
                     context_boost -= 12000  # VERY strong boost - higher than any non-exception prefix!
@@ -599,13 +630,13 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 else:
                     context_boost -= 1000  # Moderate boost for other classes (might be custom exceptions)
                     boost_reason = "except: class"
-            elif kind and kind.value == 3:  # Function - don't show after except
+            elif kind and kind == CompletionItemKind.Function:  # Function - don't show after except
                 context_boost += 5000  # Strong demotion
                 boost_reason = "except: demote function"
-            elif kind and kind.value == 6:  # Variable
+            elif kind and kind == CompletionItemKind.Variable:  # Variable
                 context_boost += 3000  # Demote variables
                 boost_reason = "except: demote variable"
-            elif kind and kind.value == 14:  # Keyword
+            elif kind and kind == CompletionItemKind.Keyword:  # Keyword
                 context_boost += 6000  # Strong demotion
                 boost_reason = "except: demote keyword"
         
@@ -623,16 +654,16 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     boost_reason = f"for..in dot: {label} (string iterator)"
             
             # Regular dot-access boost
-            if kind and kind.value in (2, 10):  # Method or Property
+            if kind and kind in (CompletionItemKind.Method, CompletionItemKind.Property):  # Method or Property
                 context_boost -= 80
                 boost_reason = "after dot: method/property"
-            elif kind and kind.value == 3:  # Function - lower priority after dot
+            elif kind and kind == CompletionItemKind.Function:  # Function - lower priority after dot
                 context_boost += 50
                 boost_reason = "after dot: demote function"
         
         # 6. Start of line: boost keywords and statements
         if len(line_before_cursor.strip()) <= len(prefix):
-            if kind and kind.value == 14:  # Keyword
+            if kind and kind == CompletionItemKind.Keyword:  # Keyword
                 if label in ["for", "if", "while", "def", "class", "return", "import"]:
                     context_boost -= 50
                     boost_reason = "line start: statement keyword"
@@ -641,17 +672,20 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         line_stripped_for_return = line_before_cursor.strip()
         is_in_return_context = (line_stripped_for_return == "return" or line_stripped_for_return.startswith("return "))
         if is_in_return_context:
-            if kind and kind.value == 6:  # Variable
+            if kind and kind == CompletionItemKind.Variable:  # Variable
                 if label in user_defined_vars:
                     context_boost -= 2000  # Highest priority - user vars to return
                     boost_reason = "return context: user-defined var"
                 else:
                     context_boost -= 100  # Built-in vars less likely
                     boost_reason = "return context: builtin var"
-            elif kind and kind.value == 3:  # Function
+            elif kind and kind == CompletionItemKind.Function:  # Function
                 # Check if user-defined function from Parso analysis
                 is_user_defined = label in user_functions
                 is_current_function = (label == current_function)  # Don't boost recursion
+                
+                # Functions that return None (shouldn't be used in return)
+                none_returning_funcs = {"print", "input", "help", "exit", "quit"}
                 
                 if is_user_defined and not is_current_function:
                     context_boost -= 1000  # High priority - calling own function
@@ -659,13 +693,16 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 elif is_current_function:
                     # Recursion - don't boost (neutral)
                     boost_reason = "return context: same function (recursion)"
+                elif label in none_returning_funcs:
+                    context_boost += 800  # Strong demotion - these return None
+                    boost_reason = f"return context: demote {label} (returns None)"
                 else:
                     context_boost -= 500  # Built-in functions (len, sum, max, etc.)
                     boost_reason = "return context: built-in func"
-            elif kind and kind.value == 14:  # Keywords
+            elif kind and kind == CompletionItemKind.Keyword:  # Keywords
                 context_boost += 400  # Demote keywords
                 boost_reason = "return context: demote keyword"
-            elif kind and kind.value == 7:  # Classes
+            elif kind and kind == CompletionItemKind.Class:  # Classes
                 # Classes can be used in return (e.g., return str(x), return list())
                 context_boost -= 300  # Moderate boost
                 boost_reason = "return context: class"
@@ -677,8 +714,8 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         if is_in_range_context:
             # Check if we're inside range(...) arguments
             # Examples: "range(", "range(len(", "range(0, ", "range(i, len("
-            # Priority: len > user vars > user functions > built-ins
-            if kind and kind.value == 3:  # Function
+            # Priority: len > int vars > math functions > everything else
+            if kind and kind == CompletionItemKind.Function:  # Function
                 if label == "len" and not is_in_len_context:
                     # Boost len in range, but NOT inside len itself (len(len(...)) is rare)
                     context_boost -= 2000  # Highest - len(data) is THE most common pattern
@@ -692,27 +729,53 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 elif label in user_functions:
                     context_boost -= 800  # User functions might return counts
                     boost_reason = "range args: user function"
-            elif kind and kind.value == 6:  # Variable
+                elif label in ("max", "min", "abs", "sum", "round"):
+                    # Math functions often used: range(max(a, b)), range(abs(x))
+                    context_boost -= 600
+                    boost_reason = f"range args: math function ({label})"
+                elif label in ("print", "input", "open"):
+                    # I/O functions return None or useless in range
+                    context_boost += 1000
+                    boost_reason = f"range args: demote I/O ({label})"
+            elif kind and kind == CompletionItemKind.Variable:  # Variable
                 if label in user_defined_vars:
-                    # User variables likely hold counts/sizes (n, count, size, etc.)
-                    context_boost -= 1500
-                    boost_reason = "range args: user var (count)"
-            elif kind and kind.value == 7:  # Class (range is a Class in LSP!)
+                    # Check variable type - lists/dicts can't be used directly in range()
+                    var_type = var_types.get(label)
+                    if var_type in ("list", "dict", "set", "tuple"):
+                        # Demote collection types - range(list) is invalid
+                        context_boost += 1000
+                        boost_reason = f"range args: demote {var_type} (invalid)"
+                    else:
+                        # int/str/etc variables likely hold counts (n, count, size, x, y)
+                        context_boost -= 1500
+                        boost_reason = f"range args: {var_type or 'int'} var"
+            elif kind and kind == CompletionItemKind.Class:  # Class (range is a Class in LSP!)
                 if label == "range":
                     context_boost += 500  # Demote range inside range
                     boost_reason = "range args: demote nested range (class)"
+                elif label == "int":
+                    # int() is useful: range(int(x))
+                    context_boost -= 400
+                    boost_reason = "range args: int class"
         
         # Also handle len() context outside of range
         elif is_in_len_context:
-            if kind and kind.value == 3:  # Function
+            if kind and kind == CompletionItemKind.Function:  # Function
                 if label == "len":
                     context_boost += 500  # Demote len inside len
                     boost_reason = "len args: demote nested len"
-            elif kind and kind.value == 6:  # Variable
+            elif kind and kind in (CompletionItemKind.Variable, CompletionItemKind.Constant):  # Variable or Constant
                 if label in user_defined_vars:
-                    # User variables are great arguments for len()
-                    context_boost -= 800
-                    boost_reason = "len args: user var (likely iterable)"
+                    # Check variable type - int/float/bool can't use len()
+                    var_type = var_types.get(label)
+                    if var_type in ("int", "float", "bool", "NoneType"):
+                        # Demote non-sequences - len(5) is invalid
+                        context_boost += 1000
+                        boost_reason = f"len args: demote {var_type} (invalid)"
+                    else:
+                        # Sequences (list, str, dict, etc.) or unknown - boost
+                        context_boost -= 800
+                        boost_reason = f"len args: {var_type or 'iterable'} var"
         
         # 9. F-STRING interpolation: inside {}, boost variables, demote I/O functions
         is_in_fstring = False
@@ -720,7 +783,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         if re.search(r'f["\'].*\{(?:[^}]*)?$', line_before_cursor):
             is_in_fstring = True
             
-            if kind and kind.value == 6:  # Variable - HIGHEST priority in f-strings
+            if kind and kind == CompletionItemKind.Variable:  # Variable - HIGHEST priority in f-strings
                 if label in user_defined_vars:
                     context_boost -= 2000  # Very strong boost - this is THE use case
                     boost_reason = "f-string: user-defined var (main use case)"
@@ -739,7 +802,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 boost_reason = f"f-string: demote I/O function ({label})"
             
             # Other builtins - mild demotion (might be useful but less common)
-            elif kind and kind.value in (3, 7):  # Function or Class
+            elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class):  # Function or Class
                 context_boost += 300
                 boost_reason = "f-string: demote other builtins"
         
@@ -754,39 +817,54 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         
         # Skip if already in range() or len() - they have their own special handling above
         if is_in_function_call and not is_in_range_context and not is_in_len_context:
-            if kind and kind.value in (3, 7):  # Function or Class - demote built-ins
+            if kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class):  # Function or Class - demote built-ins
                 if label not in user_functions:  # Built-in function/class
-                    # Extra strong demotion for print itself (print in print is weird)
+                    # Extra strong demotion for I/O functions (print in print, input in print is weird)
                     if label == "print":
                         context_boost += 2000  # Push to bottom
                         boost_reason = "function call args: demote print in print"
+                    elif label == "input" and "print(" in line_before_cursor:
+                        context_boost += 800  # Strong demotion - input() in print() is unusual
+                        boost_reason = "function call args: demote input in print"
                     else:
                         context_boost += 400  # Demote - inside function call, we want variables/literals
                         boost_reason = "function call args: demote built-in function/class"
-            elif kind and kind.value == 6:  # Variable - boost
+            elif kind and kind == CompletionItemKind.Variable:  # Variable - boost
                 if label in user_defined_vars:
                     context_boost -= 800
                     boost_reason = "function call args: boost user var"
+            elif kind and kind == CompletionItemKind.Keyword:  # Keyword - very low priority in function args
+                context_boost += 1500  # Strong demotion - keywords rarely needed as arguments
+                boost_reason = "function call args: demote keyword"
         # 11. Inside expressions (after operators): prefer variables/functions over keywords
         # BUT: skip if in range() or return context (they have their own specific boosts)
-        elif (any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]) 
+        elif (any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "> ", "< ", "== ", "!= ", ">= ", "<= ", "(", "[", ","]) 
             and not is_in_range_context 
             and not is_in_return_context):
-            if kind and kind.value == 14:  # Keyword - lower priority in expressions
+            if kind and kind == CompletionItemKind.Keyword:  # Keyword - lower priority in expressions
                 context_boost += 30
                 boost_reason = "in expression: demote keyword"
-            elif kind and kind.value == 6:  # Variable
+            elif kind and kind in (CompletionItemKind.Variable, CompletionItemKind.Constant):  # Variable or Constant
                 if label in user_defined_vars:
                     context_boost -= 900
-                    boost_reason = "in expression: user-defined var"
+                    boost_reason = "in expression: user-defined var/constant"
                 else:
                     context_boost -= 30
                     boost_reason = "in expression: builtin var"
-            elif kind and kind.value == 3:  # Function
-                # Demote void functions (return None) in assignment context
-                if "= " in line_before_cursor[-10:] and label == "print":
-                    context_boost += 500  # Strong demotion - print returns None!
-                    boost_reason = "in assignment: demote print (returns None)"
+            elif kind and kind == CompletionItemKind.Function:  # Function
+                # Demote functions that return None (print) in comparisons/assignments
+                # BUT: input is useful after = (gets user value), only demote in comparisons
+                has_comparison = any(op in line_before_cursor[-10:] for op in ["> ", "< ", "== ", "!= ", ">= ", "<= "])
+                has_assignment = "= " in line_before_cursor[-10:]
+                # Check if inside function call (has opening parenthesis after =)
+                in_function_call = has_assignment and "(" in line_before_cursor.split("= ")[-1]
+                
+                if label == "print" and (has_comparison or has_assignment):
+                    context_boost += 800  # Strong demotion - returns None!
+                    boost_reason = f"in expression: demote {label} (returns None)"
+                elif label == "input" and (has_comparison or in_function_call):
+                    context_boost += 800  # Demote in comparisons and inside function calls
+                    boost_reason = f"in expression: demote {label} (not useful here)"
                 else:
                     context_boost -= 30
                     boost_reason = "in expression: function"
@@ -797,8 +875,8 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         # Check if this is a user-defined constant (UPPER_CASE variable)
         # Constants should appear AFTER local variables
         is_constant = 0
-        if kind and kind.value == 6 and label in user_defined_vars:
-            # Variable is user-defined - check if it's a constant (UPPER_CASE)
+        if kind and kind in (CompletionItemKind.Variable, CompletionItemKind.Constant) and label in user_defined_vars:
+            # Variable/Constant is user-defined - check if it's a constant (UPPER_CASE)
             if label.isupper() and len(label) > 1:  # MIN_GUESS_RANGE, MAX_VALUE, etc.
                 is_constant = 1  # Constants after locals
             # else: is_constant = 0  # Local variables first
@@ -891,7 +969,7 @@ class CompletionsBox(EditorInfoBox):
                 user_vars_in_completions = []
                 user_vars_sort_texts = {}
                 for comp in completions:
-                    if comp.kind and comp.kind.value == 6 and comp.label in user_defined_vars:
+                    if comp.kind and comp.kind == CompletionItemKind.Variable and comp.label in user_defined_vars:
                         user_vars_in_completions.append(comp.label)
                         user_vars_sort_texts[comp.label] = comp.sortText or comp.label
                 
@@ -1163,8 +1241,11 @@ class CompletionsBox(EditorInfoBox):
         if completion.kind is None:
             return
         
-        kind_value = completion.kind.value
-        is_callable = kind_value in (2, 3, 7)  # Method, Function, Class
+        is_callable = completion.kind in (
+            CompletionItemKind.Method,
+            CompletionItemKind.Function,
+            CompletionItemKind.Class
+        )
         
         if not is_callable:
             return

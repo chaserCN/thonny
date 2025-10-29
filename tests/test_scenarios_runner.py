@@ -34,17 +34,20 @@ from simple_lsp_client import get_completions_from_pyright
 
 def parse_scenario_file(filepath):
     """
-    Parse a scenario file and extract test cases.
+    Parse scenario file and extract test cases.
+    
+    NEW FORMAT: Uses 📍 emoji as cursor marker directly in code.
+    No need for # TEST_POINT comments anymore!
     
     Returns list of dicts with:
     - scenario_name: str
-    - line_num: int (0-based line where cursor should be)
-    - col_num: int
-    - source_code: str (full code up to test point)
+    - line_num: int (0-based line where cursor should be IN ORIGINAL FILE)
+    - col_num: int (column where 📍 was found)
+    - source_code: str (full code with 📍 removed)
     - expected_top: list of str (expected items in top N)
     - expected_not_in_top: list of str (items that should NOT be in top N)
     """
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     
     scenarios = []
@@ -53,22 +56,13 @@ def parse_scenario_file(filepath):
     for i, line in enumerate(lines):
         # Match SCENARIO comment
         if line.strip().startswith("# SCENARIO"):
-            if current_scenario:
+            if current_scenario and 'line_num' in current_scenario:  # Only add if has cursor
                 scenarios.append(current_scenario)
             current_scenario = {
                 'scenario_name': line.strip(),
                 'filepath': filepath,
+                'start_line': i,  # Remember where scenario starts
             }
-        
-        # Match TEST_POINT comment
-        elif "# TEST_POINT:" in line and current_scenario:
-            # Extract line and col numbers
-            match = re.search(r'line\s+(\d+),\s+col\s+(\d+)', line)
-            if match:
-                test_line = int(match.group(1)) - 1  # Convert to 0-based
-                test_col = int(match.group(2))
-                current_scenario['line_num'] = test_line
-                current_scenario['col_num'] = test_col
         
         # Match EXPECTED_FIRST
         elif "# EXPECTED_FIRST:" in line and current_scenario:
@@ -91,37 +85,31 @@ def parse_scenario_file(filepath):
             items = line.split(":", 1)[1].strip().split(",")
             # Clean up items - remove explanations in parentheses
             current_scenario['expected_not_in_top'] = [re.sub(r'\s*\(.*?\)', '', item.strip()) for item in items]
+        
+        # Look for 📍 cursor marker in CODE (not in comments)
+        elif current_scenario and '📍' in line:
+            # Check if 📍 is NOT in a comment (split by # and check first part)
+            code_part = line.split('#')[0] if '#' in line else line
+            if '📍' in code_part:
+                # Found cursor! Save line number and column
+                current_scenario['line_num'] = i
+                current_scenario['col_num'] = code_part.index('📍')
+                current_scenario['start_line'] = current_scenario.get('start_line', 0)
     
     # Add last scenario
     if current_scenario and 'line_num' in current_scenario:
         scenarios.append(current_scenario)
     
     # Now extract source code for each scenario
-    for i, scenario in enumerate(scenarios):
-        # The TEST_POINT comment already gives us the line number (already 0-based from parsing)
+    for scenario in scenarios:
+        start_line = scenario['start_line']
         test_line = scenario['line_num']
+        col_num = scenario['col_num']
         
-        # Find start of THIS scenario (previous scenario's end or file start)
-        if i > 0:
-            # Start from AFTER previous scenario's test line
-            prev_test_line = scenarios[i-1]['line_num']
-            # Find next non-empty line after prev scenario (skip empty lines, find next # SCENARIO)
-            start_line = prev_test_line + 1
-            while start_line < test_line and (lines[start_line].strip() == '' or lines[start_line].strip().startswith('#')):
-                start_line += 1
-            # Actually, better to find the # SCENARIO line
-            start_line = prev_test_line + 1
-            while start_line < test_line:
-                if lines[start_line].strip().startswith('# SCENARIO'):
-                    break
-                start_line += 1
-        else:
-            start_line = 0
-        
-        # Get lines from scenario start to test line (inclusive)
-        # BUT skip comment lines (# SCENARIO, # TEST_POINT, # EXPECTED_*)
+        # Collect source lines (skip comments, keep code)
         source_lines = []
-        actual_line_in_source = 0  # Track actual line number in cleaned source
+        actual_line_in_source = 0
+        
         for line_idx in range(start_line, test_line + 1):
             line = lines[line_idx]
             # Skip comment lines
@@ -130,22 +118,29 @@ def parse_scenario_file(filepath):
             # Skip empty lines BEFORE first code line
             if len(source_lines) == 0 and line.strip() == '':
                 continue
-            # Add this line
+            
+            # This is code - add it
             source_lines.append(line)
-            # If this is the test line, remember its position in cleaned source
+            
+            # If this is the test line, remember its position
             if line_idx == test_line:
                 actual_line_in_source = len(source_lines) - 1
         
-        # LSP handles incomplete syntax fine, don't modify the code!
+        # Extract cursor line
+        cursor_line = source_lines[actual_line_in_source] if actual_line_in_source < len(source_lines) else ""
         
-        scenario['source_code'] = ''.join(source_lines)
-        # IMPORTANT: actual_line is 0-based index in cleaned source_lines
+        # Extract line_before_cursor and line_after_cursor (BEFORE removing 📍)
+        scenario['line_before_cursor'] = cursor_line[:col_num]
+        # +1 to skip 📍 itself in line_after
+        scenario['line_after_cursor'] = cursor_line[col_num+1:] if col_num+1 <= len(cursor_line) else ""
+        
+        # Now REMOVE 📍 from source code (LSP shouldn't see it!)
+        source_code = ''.join(source_lines)
+        source_code = source_code.replace('📍', '')
+        
+        scenario['source_code'] = source_code
         scenario['actual_line'] = actual_line_in_source
-        
-        # Extract line_before_cursor (up to col_num)
-        test_line_content = lines[test_line] if test_line < len(lines) else ""
-        scenario['line_before_cursor'] = test_line_content[:scenario['col_num']]
-        scenario['line_after_cursor'] = test_line_content[scenario['col_num']:]
+        # col_num stays same - it now points to where cursor should be after 📍 is removed
     
     return scenarios
 

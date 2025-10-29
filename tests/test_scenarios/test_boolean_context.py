@@ -7,7 +7,6 @@ Test scenarios for BOOLEAN CONTEXT (if, while conditions).
 """
 
 # SCENARIO 1: If statement with user functions
-# TEST_POINT: line 25, col 3
 # EXPECTED_TOP_10: count, flag, x, y, calculate, is_valid, len, isinstance, any, all
 # EXPECTED_NOT_IN_TOP_10: list, dict, tuple
 # ⚠️ НЕ ЗМІНЮВАТИ ОЧІКУВАНИЙ РЕЗУЛЬТАТ
@@ -22,20 +21,18 @@ x = 5
 y = 10
 count = 0
 flag = True
-if 
+if 📍
 
 # SCENARIO 2: While loop
-# TEST_POINT: line 35, col 6
 # EXPECTED_TOP_3: i, max_value, n
 # EXPECTED_NOT_IN_TOP_3: range, enumerate, zip
 
 i = 0
 n = 100
 max_value = 50
-while 
+while 📍
 
 # SCENARIO 3: Elif statement
-# TEST_POINT: line 47, col 5
 # EXPECTED_TOP_3: grade, result, score
 # EXPECTED_NOT_IN_TOP_5: class, def, import
 
@@ -44,10 +41,9 @@ grade = "B"
 result = True
 if score > 90:
     print("A")
-elif 
+elif 📍
 
 # SCENARIO 4: And/Or conditions
-# TEST_POINT: line 58, col 17
 # EXPECTED_TOP_5: enabled, x, y, z, len
 # EXPECTED_NOT_IN_TOP_5: for, while, def
 
@@ -55,5 +51,5 @@ x = 5
 y = 10
 z = 15
 enabled = True
-if x > 0 and 
+if x > 0 and 📍
 
