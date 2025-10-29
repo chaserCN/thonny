@@ -660,8 +660,32 @@ class DiagnosticHighlighter:
             end_line = range_obj.end.line + 1
             end_char = range_obj.end.character
             
+            # Limit highlighting for very large ranges (e.g., unclosed brackets)
+            # Pyright sometimes highlights from error position to start of file
+            lines_span = end_line - start_line
+            
+            # Calculate character span (if same line, use actual difference; otherwise it's multi-line)
+            if start_line == end_line:
+                chars_span = end_char - start_char
+            else:
+                # Multi-line range - definitely large
+                chars_span = 999999
+            
+            # If range spans multiple lines or is very long (>100 chars), limit to end of current line
+            if lines_span > 0 or chars_span > 100:
+                logger.info(f"🔧 Large diagnostic range (lines={lines_span}, start={start_char}, end={end_char}, span={chars_span}): limiting to current line")
+                end_line = start_line
+                # Limit to end of line, not just 1 char
+                try:
+                    line_end_col = len(text.get(f"{start_line}.0", f"{start_line}.end"))
+                    end_char = line_end_col
+                except:
+                    end_char = start_char + 1
+            
             start_index = f"{start_line}.{start_char}"
             end_index = f"{end_line}.{end_char}"
+            
+            logger.info(f"   ↳ Adding diagnostic tag: start={start_index}, end={end_index}, message={diagnostic.message[:50]}")
             
             # Choose base tag for styling based on severity
             severity = diagnostic.severity or DiagnosticSeverity.Error

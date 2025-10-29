@@ -1,10 +1,13 @@
 import io
 import time
 import token as token_module
+from logging import getLogger
 
 from thonny import get_workbench
 from thonny.codeview import CodeViewText
 from thonny.shell import ShellText
+
+logger = getLogger(__name__)
 
 _OPENERS = {")": "(", "]": "[", "}": "{"}
 
@@ -107,8 +110,10 @@ class ParenMatcher:
             elif not stack:
                 # stack is empty, ie. found a closer without opener
                 close_index = "%d.%d" % (t.start[0], t.end[1])
-                self.text.tag_add("unclosed_expression", start_index, close_index)
-                break
+                # Highlight only the closer itself, not from start of file
+                closer_start_index = "%d.%d" % t.start
+                self.text.tag_add("unclosed_expression", closer_start_index, close_index)
+                # Continue to find ALL extra closers (don't break)
             elif stack[-1].string != _OPENERS[t.string]:
                 # incorrect closure
                 opener = stack[-1]
@@ -136,11 +141,12 @@ class ParenMatcher:
 
         if stack:
             # something was left without closure
-            opener = stack[-1]
-            open_index = "%d.%d" % opener.start
-            # Highlight only to end of current line, not to end of file
-            line_end_index = "%d.end" % opener.start[0]
-            self.text.tag_add("unclosed_expression", open_index, line_end_index)
+            # Highlight EACH unclosed opener (just 1 character)
+            for opener in stack:
+                open_index = "%d.%d" % opener.start
+                # Highlight only the opener character itself (1 char)
+                open_end_index = "%d.%d" % (opener.start[0], opener.start[1] + 1)
+                self.text.tag_add("unclosed_expression", open_index, open_end_index)
 
     def _get_paren_tokens(self, start_index, end_index):
         import tokenize
@@ -150,6 +156,7 @@ class ParenMatcher:
 
         start_row, start_col = map(int, start_index.split("."))
         source = self.text.get(start_index, end_index)
+        
         # prepend source with empty lines and spaces to make
         # token rows and columns match with widget indices
         source = ("\n" * (start_row - 1)) + (" " * start_col) + source
@@ -158,13 +165,12 @@ class ParenMatcher:
         try:
             tokens = tokenize.tokenize(io.BytesIO(source.encode("utf-8")).readline)
             for token in tokens:
-                # if token.string != "" and token.string in "()[]{}":
                 if token.exact_type in TOKTYPES:
                     result.append(token)
         except Exception:
             # happens eg when parens are unbalanced or there is indentation error or ...
             pass
-
+        
         if start_index == "1.0" and end_index == "end":
             self._tokens_cache[(start_index, end_index)] = result
 

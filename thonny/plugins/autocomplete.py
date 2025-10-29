@@ -1175,8 +1175,8 @@ class Completer:
 
     def __init__(self):
         self._last_request_text: Optional[SyntaxText] = None
-        self._request_counter: int = 0  # Unique ID for each request
-        self._pending_requests: dict[int, str] = {}  # Map our request_counter to line_before_string
+        self._latest_request_id: int = 0  # LSP request_id of the latest request
+        self._request_snapshots: dict[int, str] = {}  # Map request_id -> line_before snapshot
         logger.debug("Creating Completer")
         self._completions_box: Optional[CompletionsBox] = None
 
@@ -1405,6 +1405,11 @@ class Completer:
         try:
             line_before = text.get("insert linestart", "insert")
             logger.info(f"📤 request_completions_for_text: line_before={repr(line_before)}")
+            
+            # Don't show completions on empty line (annoying!)
+            if not line_before.strip():
+                logger.info(f"   ↳ ❌ Empty line - not requesting completions")
+                return
         except:
             pass
         
@@ -1437,7 +1442,8 @@ class Completer:
 
         logger.info(f"   ↳ Sending LSP request at position line={position.line}, char={position.character}")
         self._last_request_text = text
-        # Store line_before AS STRING (snapshot at request time)
+        
+        # Capture line_before snapshot BEFORE sending request
         request_line_before = text.get("insert linestart", "insert")
         
         # Send request to LSP and get its request_id
@@ -1446,12 +1452,10 @@ class Completer:
             self._handle_completions_response,
         )
         
-        # Store mapping: LSP request_id -> line_before (snapshot)
-        # Clear old pending requests (they're now stale)
-        self._pending_requests.clear()
-        self._pending_requests[lsp_request_id] = request_line_before
-        # Remember the latest request for comparison
-        self._request_counter = lsp_request_id
+        # Store snapshot for this request
+        self._request_snapshots[lsp_request_id] = request_line_before
+        # Remember the latest request ID
+        self._latest_request_id = lsp_request_id
         logger.info(f"   ↳ LSP request #{lsp_request_id}, line_before: {repr(request_line_before)}")
 
     def _handle_completions_response(
@@ -1474,19 +1478,25 @@ class Completer:
             return
         
         # Check if response is stale (not the latest request)
-        if lsp_request_id != self._request_counter:
-            logger.info(f"⏭️  Ignoring stale LSP response #{lsp_request_id} (latest is #{self._request_counter})")
+        if lsp_request_id != self._latest_request_id:
+            logger.info(f"⏭️  Ignoring stale LSP response #{lsp_request_id} (latest is #{self._latest_request_id})")
+            # Clean up old snapshot
+            self._request_snapshots.pop(lsp_request_id, None)
             return
         
-        # Double-check: current line_before should match what we requested
-        request_line_before = self._pending_requests.get(lsp_request_id, "")
+        # Check if line_before changed since request (e.g., user pressed Backspace or Enter)
+        request_line_before = self._request_snapshots.get(lsp_request_id, "")
         current_line_before = self._last_request_text.get("insert linestart", "insert")
         
         if current_line_before != request_line_before:
             logger.info(f"⏭️  Ignoring LSP response #{lsp_request_id}: line changed from {repr(request_line_before)} to {repr(current_line_before)}")
+            # Clean up snapshot
+            self._request_snapshots.pop(lsp_request_id, None)
             return
         
-        logger.info(f"✅ LSP response #{lsp_request_id} is current (line_before={repr(current_line_before)})")
+        # Clean up snapshot (no longer needed)
+        self._request_snapshots.pop(lsp_request_id, None)
+        logger.info(f"✅ LSP response #{lsp_request_id} is current")
         
         # Check if we should show completions for this context
         # Don't show for "for " - user is typing variable name
@@ -1519,10 +1529,10 @@ class Completer:
             return
         else:
             # Log completion count
-            logger.info(f"📥 LSP: {len(completions)} completions")
+            logger.info(f"📥 LSP response #{lsp_request_id}: {len(completions)} completions")
             
             # Show completions
-            logger.info(f"🎯 _handle_completions_response: showing {len(completions)} completions (normal path)")
+            logger.info(f"🎯 _handle_completions_response #{lsp_request_id}: showing {len(completions)} completions (normal path)")
             if not self._completions_box:
                 self._completions_box = CompletionsBox(self)
             self._completions_box.present_completions(self._last_request_text, completions)
