@@ -34,6 +34,7 @@ def filter_garbage_completions(completions: list) -> list:
     - copyright, credits, exit, help, license, quit (interactive helpers)
     - Ellipsis, ellipsis, NotImplemented (rarely used builtins)
     - __name__, __file__, etc. (dunder names)
+    - Keyword arguments like end=, sep=, file=, flush= (only useful inside function calls)
     """
     garbage_builtins = {
         # Interactive helpers
@@ -43,14 +44,26 @@ def filter_garbage_completions(completions: list) -> list:
         # Exception aliases (OSError is the canonical name)
         'EnvironmentError', 'IOError', 'WindowsError',
     }
-    return [
-        comp
-        for comp in completions
-        if not comp.label.startswith("__")
-        and comp.label not in garbage_builtins
-        and comp.textEdit is None  # TODO: support textEdit
-        and not comp.additionalTextEdits  # TODO: support this
-    ]
+    
+    filtered = []
+    for comp in completions:
+        # Check each filter condition
+        if comp.label.startswith("__"):
+            continue  # Filter dunders
+        if comp.label in garbage_builtins:
+            continue  # Filter garbage builtins
+        # Filter keyword arguments (Variable with '=' suffix)
+        if comp.kind and comp.kind.value == 6 and comp.label.endswith("="):
+            logger.info(f"🗑️  Filtering keyword arg: {comp.label}")
+            continue
+        if comp.textEdit is not None:
+            continue  # TODO: support textEdit
+        if comp.additionalTextEdits:
+            continue  # TODO: support this
+        
+        filtered.append(comp)
+    
+    return filtered
 
 
 # Popular Python functions ordered by priority for SCHOOL usage
@@ -701,13 +714,43 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     context_boost -= 800
                     boost_reason = "len args: user var (likely iterable)"
         
-        # 9. Inside popular function calls: demote built-in functions, boost variables
+        # 9. F-STRING interpolation: inside {}, boost variables, demote I/O functions
+        is_in_fstring = False
+        # Detect f"...{  or f'...{
+        if re.search(r'f["\'].*\{(?:[^}]*)?$', line_before_cursor):
+            is_in_fstring = True
+            
+            if kind and kind.value == 6:  # Variable - HIGHEST priority in f-strings
+                if label in user_defined_vars:
+                    context_boost -= 2000  # Very strong boost - this is THE use case
+                    boost_reason = "f-string: user-defined var (main use case)"
+                else:
+                    context_boost -= 500  # Still boost other builtins vars (e, NotImplemented, Ellipsis)
+                    boost_reason = "f-string: builtin var"
+            
+            # Formatting functions - useful in f-strings
+            elif label in ["str", "int", "float", "round", "abs", "len"]:
+                context_boost -= 200
+                boost_reason = f"f-string: formatting ({label})"
+            
+            # I/O functions - USELESS in f-strings!
+            elif label in ["print", "input", "open", "help", "eval", "exec"]:
+                context_boost += 1500  # Strong demotion - makes no sense here
+                boost_reason = f"f-string: demote I/O function ({label})"
+            
+            # Other builtins - mild demotion (might be useful but less common)
+            elif kind and kind.value in (3, 7):  # Function or Class
+                context_boost += 300
+                boost_reason = "f-string: demote other builtins"
+        
+        # 10. Inside popular function calls: demote built-in functions, boost variables
         # Check for print(, input(, int(, str(, etc. (but NOT len/range - they're handled above!)
         is_in_function_call = False
-        for func_name in ["print(", "input(", "int(", "str(", "float(", "list(", "dict(", "set(", "tuple(", "max(", "min(", "sum(", "abs(", "round("]:
-            if line_before_cursor.rstrip().endswith(func_name):
-                is_in_function_call = True
-                break
+        if not is_in_fstring:  # Skip if already in f-string
+            for func_name in ["print(", "input(", "int(", "str(", "float(", "list(", "dict(", "set(", "tuple(", "max(", "min(", "sum(", "abs(", "round("]:
+                if line_before_cursor.rstrip().endswith(func_name):
+                    is_in_function_call = True
+                    break
         
         # Skip if already in range() or len() - they have their own special handling above
         if is_in_function_call and not is_in_range_context and not is_in_len_context:
@@ -724,7 +767,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 if label in user_defined_vars:
                     context_boost -= 800
                     boost_reason = "function call args: boost user var"
-        # 10. Inside expressions (after operators): prefer variables/functions over keywords
+        # 11. Inside expressions (after operators): prefer variables/functions over keywords
         # BUT: skip if in range() or return context (they have their own specific boosts)
         elif (any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]) 
             and not is_in_range_context 
@@ -751,12 +794,21 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         # Combined priority: base prefix matching + context boost
         final_priority = prefix_priority + context_boost
         
+        # Check if this is a user-defined constant (UPPER_CASE variable)
+        # Constants should appear AFTER local variables
+        is_constant = 0
+        if kind and kind.value == 6 and label in user_defined_vars:
+            # Variable is user-defined - check if it's a constant (UPPER_CASE)
+            if label.isupper() and len(label) > 1:  # MIN_GUESS_RANGE, MAX_VALUE, etc.
+                is_constant = 1  # Constants after locals
+            # else: is_constant = 0  # Local variables first
+        
         # Log items with significant context boost
         if context_boost != 0 and abs(context_boost) >= 50:
             kind_name = lsp_types.CompletionItemKind(kind).name if kind else "Unknown"
             logger.info(f"   {'🔼' if context_boost < 0 else '🔽'} {label:20s} | boost={context_boost:+5d} | {boost_reason or 'no reason'} | kind={kind_name}")
         
-        return (final_priority, sort_text.lower(), label.lower(), label)
+        return (final_priority, is_constant, sort_text.lower(), label.lower(), label)
     
     return sort_key
 
@@ -825,6 +877,56 @@ class CompletionsBox(EditorInfoBox):
 
         # Use shared context-aware sorting logic
         sort_key = create_context_aware_sort_key(prefix, line_before_cursor, line_after_cursor, source_code)
+        
+        # Add missing user-defined variables (constants) that LSP doesn't return
+        if source_code and len(source_code) < 5000:
+            from thonny.plugins.autocomplete import _infer_variable_types_with_parso
+            cursor_line = None
+            if source_code:
+                lines_before = source_code[:source_code.rfind(line_before_cursor) + len(line_before_cursor)].split('\n')
+                cursor_line = len(lines_before)
+            var_types, user_defined_vars, _, _, _ = _infer_variable_types_with_parso(source_code, cursor_line)
+            
+            if user_defined_vars:
+                user_vars_in_completions = []
+                user_vars_sort_texts = {}
+                for comp in completions:
+                    if comp.kind and comp.kind.value == 6 and comp.label in user_defined_vars:
+                        user_vars_in_completions.append(comp.label)
+                        user_vars_sort_texts[comp.label] = comp.sortText or comp.label
+                
+                if user_vars_in_completions:
+                    logger.info(f"✅ User vars in LSP response: {sorted(user_vars_in_completions)}")
+                    logger.info(f"   sortText samples: {dict(list(user_vars_sort_texts.items())[:3])}")
+                missing_vars = user_defined_vars - set(user_vars_in_completions)
+                if missing_vars:
+                    logger.info(f"❌ User vars NOT in LSP response: {sorted(missing_vars)}")
+                    logger.info(f"➕ Adding {len(missing_vars)} missing user vars as synthetic completions")
+                    
+                    # Create synthetic CompletionItems for missing vars
+                    for var_name in sorted(missing_vars):
+                        # Create detail from inferred type
+                        detail = var_types.get(var_name)
+                        if detail:
+                            detail = f": {detail}"
+                        else:
+                            detail = None
+                        
+                        synthetic_item = CompletionItem(
+                            label=var_name,
+                            kind=lsp_types.CompletionItemKind(6),  # Variable
+                            sortText=f"09.9999.{var_name}",  # Same as LSP local vars, will be sorted by is_constant
+                            detail=detail,
+                            insertText=None,
+                            textEdit=None,
+                            additionalTextEdits=None,
+                            insertTextFormat=None,
+                            insertTextMode=None,
+                            documentation=None,
+                        )
+                        completions.append(synthetic_item)
+                    
+                    logger.info(f"✅ Added synthetic completions: {sorted(missing_vars)}")
 
         if skip_sorting:
             # AI already sorted - don't re-sort!
@@ -1039,6 +1141,9 @@ class CompletionsBox(EditorInfoBox):
             ):
                 self._target_text_widget.direct_delete("insert")
 
+        # Auto-add parentheses for functions, methods, and classes
+        self._auto_add_parentheses(completion, insert_text)
+
         get_workbench().event_generate(
             "AutocompletionInserted",
             text_widget=self._target_text_widget,
@@ -1051,6 +1156,57 @@ class CompletionsBox(EditorInfoBox):
         
         # Ensure focus returns to the text widget after mouse selection
         self._target_text_widget.focus_set()
+
+    def _auto_add_parentheses(self, completion: CompletionItem, insert_text: str) -> None:
+        """Automatically add parentheses for functions, methods, and classes."""
+        # Check if this is a callable (function, method, or class)
+        if completion.kind is None:
+            return
+        
+        kind_value = completion.kind.value
+        is_callable = kind_value in (2, 3, 7)  # Method, Function, Class
+        
+        if not is_callable:
+            return
+        
+        # Check if there's already a '(' after cursor - don't duplicate
+        char_after = self._target_text_widget.get("insert")
+        if char_after == "(":
+            return
+        
+        # Special handling for input() - add prompt template
+        if insert_text == "input":
+            code_language = get_workbench().get_option("edit.code_language")
+            
+            # Localized prompt templates
+            prompts = {
+                "Ukrainian": "Введіть : ",
+                "English": "Enter : ",
+                "Russian": "Введите : "
+            }
+            prompt = prompts.get(code_language, "Enter : ")
+            
+            self._target_text_widget.insert("insert", f'("{prompt}")')
+            # Move cursor before ": " - perfect spot to type what to enter
+            self._target_text_widget.mark_set("insert", f"insert-{len(': ')  + 2}c")
+            return
+        
+        # Functions that commonly take a string as first parameter
+        # For these, add ("") with cursor between quotes
+        string_first_functions = {
+            "print", "open", "eval", "exec", 
+            "compile", "__import__", "help"
+        }
+        
+        if insert_text in string_first_functions:
+            self._target_text_widget.insert("insert", '("")')
+            # Move cursor between quotes: ("| ")
+            self._target_text_widget.mark_set("insert", "insert-2c")
+        else:
+            # For all other callables, add () with cursor between parens
+            self._target_text_widget.insert("insert", "()")
+            # Move cursor between parens: (|)
+            self._target_text_widget.mark_set("insert", "insert-1c")
 
     def _find_completion_insertion_index(self):
         line, col = map(int, self._target_text_widget.index("insert").split("."))
@@ -1390,6 +1546,19 @@ class Completer:
                     # Continue to request completions
                 else:
                     logger.info(f"   ↳ Not opening box: ',' (not inside function call)")
+                    return
+            
+            # Special case: '{' in f-strings should trigger completions
+            elif event.char == "{":
+                line_before = widget.get("insert linestart", "insert")
+                
+                # Check if we're inside an f-string
+                # Examples: f"text {", f'value: {", print(f"{
+                if re.search(r'f["\'].*\{$', line_before):
+                    logger.info(f"   ↳ Opening box: '{{' in f-string")
+                    # Continue to request completions
+                else:
+                    logger.info(f"   ↳ Not opening box: '{{' (not in f-string)")
                     return
             
             else:
@@ -1880,6 +2049,7 @@ def load_plugin() -> None:
     get_workbench().set_default("edit.tab_request_completions_in_shell", True)
     get_workbench().set_default("edit.automatic_completions", True)
     get_workbench().set_default("edit.automatic_completion_details", False)
+    get_workbench().set_default("edit.code_language", "Ukrainian")
 
     CodeViewText.perform_midline_tab = completer.patched_perform_midline_tab
     ShellText.perform_midline_tab = completer.patched_perform_midline_tab

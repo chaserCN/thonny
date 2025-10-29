@@ -1728,6 +1728,10 @@ msgstr "Вимагайте доповнення за допомогою клав
 msgid "Request completions with Tab-key in Shell"
 msgstr "Запит на завершення за допомогою клавіші Tab у Shell"
 
+#: thonny/plugins/editor_config_page.py:92
+msgid "Language for autocompletions"
+msgstr "Мова для автодоповнень"
+
 #: thonny/plugins/editor_config_page.py:41
 msgid "Enable Pyright (type checking and code intelligence)"
 msgstr "Увімкнути Pyright (перевірка типів та інтелект коду)"

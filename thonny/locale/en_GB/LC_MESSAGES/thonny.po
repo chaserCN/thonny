@@ -1735,6 +1735,10 @@ msgstr "Request completions with Tab-key in editors"
 msgid "Request completions with Tab-key in Shell"
 msgstr "Request completions with Tab-key in Shell"
 
+#: thonny/plugins/editor_config_page.py:92
+msgid "Language for autocompletions"
+msgstr "Language for autocompletions"
+
 #: thonny/editors.py:213 thonny/plugins/goto_definition.py:58
 msgid "Problem"
 msgstr "Problem"

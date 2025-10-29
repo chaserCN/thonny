@@ -1738,6 +1738,10 @@ msgstr "Запрашивать варианты завершения с помо
 msgid "Request completions with Tab-key in Shell"
 msgstr "Запрашивать варианты завершения с помощью клавиши Tab в оболочке"
 
+#: thonny/plugins/editor_config_page.py:92
+msgid "Language for autocompletions"
+msgstr "Язык для автодополнений"
+
 #: thonny/plugins/editor_config_page.py:41
 msgid "Enable Pyright (type checking and code intelligence)"
 msgstr "Включить Pyright (проверка типов и интеллект кода)"

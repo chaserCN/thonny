@@ -85,6 +85,14 @@ class EditorConfigurationPage(ConfigurationPage):
         #     "edit.inline_completions_enabled",
         #     tr("Enable inline code suggestions (AI-powered, press Tab to accept)"),
         # )
+        
+        add_option_combobox(
+            self,
+            "edit.code_language",
+            tr("Language for autocompletions"),
+            choices=["Ukrainian", "English", "Russian"],
+            width=12,
+        )
 
         add_vertical_separator(self)
 
