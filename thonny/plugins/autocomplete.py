@@ -85,14 +85,20 @@ def get_popular_function_boost(label: str) -> tuple[int, str]:
     return (0, "")
 
 
-def _infer_variable_types_with_parso(source_code: str) -> tuple[dict, set, set]:
+def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) -> tuple[dict, set, set, str, set]:
     """
     Use parso (1 parse call!) to:
     1. Infer types for variables (list, dict, set, tuple)
     2. Extract ALL user-defined variable names
     3. Extract loop variables (for x in ...)
+    4. Find current function (where cursor is)
+    5. Extract user-defined function names
     
-    Returns: (var_types_dict, user_defined_vars_set, loop_vars_set)
+    Args:
+        source_code: Python code to analyze
+        cursor_line: 1-based line number where cursor is (optional)
+    
+    Returns: (var_types_dict, user_defined_vars_set, loop_vars_set, current_function_name, user_functions_set)
     """
     try:
         import parso
@@ -102,11 +108,14 @@ def _infer_variable_types_with_parso(source_code: str) -> tuple[dict, set, set]:
         
         var_types = {}  # {var_name: type_hint}
         user_defined_vars = set()  # ALL variable names
+        user_functions = set()  # User-defined function names
+        current_function = ""  # Function where cursor is
         
         module = parso.parse(source_code)
         
         assignments_found = []  # For logging
         loop_vars_found = []  # For logging
+        functions_found = []  # For logging
         
         def get_outermost_function_name(node):
             """Extract outermost function name from expression like list(map(...))"""
@@ -221,6 +230,22 @@ def _infer_variable_types_with_parso(source_code: str) -> tuple[dict, set, set]:
                     user_defined_vars.add(loop_var)
                     loop_vars_found.append(loop_var)
             
+            # Look for function definitions: def func_name(...):
+            elif node.type == 'funcdef' and hasattr(node, 'children') and len(node.children) >= 2:
+                # funcdef: 'def' name parameters ':' suite
+                if node.children[1].type == 'name':
+                    func_name = node.children[1].value
+                    user_functions.add(func_name)
+                    functions_found.append(func_name)
+                    
+                    # Check if cursor is inside this function
+                    nonlocal current_function
+                    if cursor_line and hasattr(node, 'start_pos') and hasattr(node, 'end_pos'):
+                        func_start_line = node.start_pos[0]
+                        func_end_line = node.end_pos[0]
+                        if func_start_line <= cursor_line <= func_end_line:
+                            current_function = func_name
+            
             # Recursively process children
             if hasattr(node, 'children'):
                 for child in node.children:
@@ -233,19 +258,23 @@ def _infer_variable_types_with_parso(source_code: str) -> tuple[dict, set, set]:
             logger.info(f"   ✓ Type inference: {', '.join(assignments_found)}")
         if loop_vars_found:
             logger.info(f"   ✓ Loop variables: {', '.join(loop_vars_found)}")
+        if functions_found:
+            logger.info(f"   ✓ User functions: {', '.join(functions_found)}")
+        if current_function:
+            logger.info(f"   📍 Cursor in function: {current_function}")
         
         other_vars = user_defined_vars - set(var_types.keys()) - set(loop_vars_found)
         if other_vars:
             logger.info(f"   ✓ Other assignments: {', '.join(sorted(other_vars))}")
         
-        logger.info(f"   📊 Total: {len(user_defined_vars)} user-defined vars, {len(var_types)} with inferred types")
+        logger.info(f"   📊 Total: {len(user_defined_vars)} user-defined vars, {len(var_types)} with inferred types, {len(user_functions)} functions")
         
         loop_vars_set = set(loop_vars_found)
-        return var_types, user_defined_vars, loop_vars_set
+        return var_types, user_defined_vars, loop_vars_set, current_function, user_functions
         
     except Exception as e:
         logger.warning(f"Parso type inference failed: {e}")
-        return {}, set(), set()
+        return {}, set(), set(), "", set()
 
 
 def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_after_cursor: str, 
@@ -268,6 +297,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
     Returns:
         A sort_key function that can be used with sorted()
     """
+    logger.info(f"🔍 create_context_aware_sort_key: prefix={repr(prefix)}, line_before={repr(line_before_cursor)}")
     
     # Use parso (1 call!) to get types AND user-defined variables
     var_types = {}
@@ -280,14 +310,27 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
     logger.info(f"   Line after: {line_after_cursor!r}")
     logger.info(f"   Source code length: {len(source_code) if source_code else 0} chars")
     
+    # Calculate cursor line for function context detection
+    cursor_line = None
+    if source_code:
+        lines_before = source_code[:source_code.rfind(line_before_cursor) + len(line_before_cursor)].split('\n')
+        cursor_line = len(lines_before)
+    
     if source_code and len(source_code) < 5000:  # Only for small files (< 5KB)
-        var_types, user_defined_vars, loop_vars = _infer_variable_types_with_parso(source_code)
+        var_types, user_defined_vars, loop_vars, current_function, user_functions = _infer_variable_types_with_parso(source_code, cursor_line)
         if user_defined_vars:
             logger.info(f"👤 User-defined vars: {sorted(user_defined_vars)}")
         if var_types:
             logger.info(f"🔬 Inferred types: {var_types}")
         if loop_vars:
             logger.info(f"🔁 Loop variables: {sorted(loop_vars)}")
+        if user_functions:
+            logger.info(f"🎯 User functions: {sorted(user_functions)}")
+        if current_function:
+            logger.info(f"📍 Current function: {current_function}")
+    else:
+        # Fallback for large files or when Parso unavailable
+        var_types, user_defined_vars, loop_vars, current_function, user_functions = {}, set(), set(), "", set()
     
     logger.info(f"{'='*60}\n")
     
@@ -333,10 +376,12 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 boost_reason = func_reason
         
         # 1. FOR LOOPS: boost iterables after "for x in "
-        if " in " in line_before_cursor or line_before_cursor.strip().startswith("for "):
+        # BUT: skip if inside range() - that has its own context!
+        is_inside_range = "range(" in line_before_cursor
+        
+        if (" in " in line_before_cursor or line_before_cursor.strip().startswith("for ")) and not is_inside_range:
             # Check if this is a user-defined function (for Functions kind=3)
-            is_user_function = (kind and kind.value == 3 and 
-                               source_code and f"def {label}(" in source_code)
+            is_user_function = (kind and kind.value == 3 and label in user_functions)
             
             if " in " in line_before_cursor:
                 after_in = line_before_cursor.split(" in ")[-1].strip()
@@ -490,8 +535,8 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     context_boost -= 300  # Moderate boost for other variables
                     boost_reason = "boolean: variable"
             elif kind and kind.value == 3:  # Function
-                # Determine if user-defined by checking if "def function_name" exists in source
-                is_user_defined = source_code and f"def {label}(" in source_code
+                # Determine if user-defined from Parso analysis
+                is_user_defined = label in user_functions
                 is_boolean_func = label in BOOLEAN_FUNCTIONS
                 
                 if is_user_defined:
@@ -565,8 +610,88 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     context_boost -= 50
                     boost_reason = "line start: statement keyword"
         
-        # 7. Inside expressions (after operators): prefer variables/functions over keywords  
-        if any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]):
+        # 7. RETURN statements: boost user-defined variables and functions
+        line_stripped_for_return = line_before_cursor.strip()
+        is_in_return_context = (line_stripped_for_return == "return" or line_stripped_for_return.startswith("return "))
+        if is_in_return_context:
+            if kind and kind.value == 6:  # Variable
+                if label in user_defined_vars:
+                    context_boost -= 2000  # Highest priority - user vars to return
+                    boost_reason = "return context: user-defined var"
+                else:
+                    context_boost -= 100  # Built-in vars less likely
+                    boost_reason = "return context: builtin var"
+            elif kind and kind.value == 3:  # Function
+                # Check if user-defined function from Parso analysis
+                is_user_defined = label in user_functions
+                is_current_function = (label == current_function)  # Don't boost recursion
+                
+                if is_user_defined and not is_current_function:
+                    context_boost -= 1000  # High priority - calling own function
+                    boost_reason = "return context: user-defined func"
+                elif is_current_function:
+                    # Recursion - don't boost (neutral)
+                    boost_reason = "return context: same function (recursion)"
+                else:
+                    context_boost -= 500  # Built-in functions (len, sum, max, etc.)
+                    boost_reason = "return context: built-in func"
+            elif kind and kind.value == 14:  # Keywords
+                context_boost += 400  # Demote keywords
+                boost_reason = "return context: demote keyword"
+            elif kind and kind.value == 7:  # Classes
+                # Classes can be used in return (e.g., return str(x), return list())
+                context_boost -= 300  # Moderate boost
+                boost_reason = "return context: class"
+        
+        # 8. RANGE arguments: boost len() for range(len(data)) pattern
+        is_in_range_context = "range(" in line_before_cursor
+        is_in_len_context = "len(" in line_before_cursor
+        
+        if is_in_range_context:
+            # Check if we're inside range(...) arguments
+            # Examples: "range(", "range(len(", "range(0, ", "range(i, len("
+            # Priority: len > user vars > user functions > built-ins
+            if kind and kind.value == 3:  # Function
+                if label == "len" and not is_in_len_context:
+                    # Boost len in range, but NOT inside len itself (len(len(...)) is rare)
+                    context_boost -= 2000  # Highest - len(data) is THE most common pattern
+                    boost_reason = "range args: len for indexing"
+                elif label == "len" and is_in_len_context:
+                    context_boost += 500  # Demote len inside len (nested len is rare)
+                    boost_reason = "len args: demote nested len"
+                elif label == "range":
+                    context_boost += 500  # Demote range inside range (nested range is rare)
+                    boost_reason = "range args: demote nested range"
+                elif label in user_functions:
+                    context_boost -= 800  # User functions might return counts
+                    boost_reason = "range args: user function"
+            elif kind and kind.value == 6:  # Variable
+                if label in user_defined_vars:
+                    # User variables likely hold counts/sizes (n, count, size, etc.)
+                    context_boost -= 1500
+                    boost_reason = "range args: user var (count)"
+            elif kind and kind.value == 7:  # Class (range is a Class in LSP!)
+                if label == "range":
+                    context_boost += 500  # Demote range inside range
+                    boost_reason = "range args: demote nested range (class)"
+        
+        # Also handle len() context outside of range
+        elif is_in_len_context:
+            if kind and kind.value == 3:  # Function
+                if label == "len":
+                    context_boost += 500  # Demote len inside len
+                    boost_reason = "len args: demote nested len"
+            elif kind and kind.value == 6:  # Variable
+                if label in user_defined_vars:
+                    # User variables are great arguments for len()
+                    context_boost -= 800
+                    boost_reason = "len args: user var (likely iterable)"
+        
+        # 9. Inside expressions (after operators): prefer variables/functions over keywords
+        # BUT: skip if in range() or return context (they have their own specific boosts)
+        if (any(op in line_before_cursor[-10:] for op in ["= ", "+ ", "- ", "* ", "/ ", "(", "[", ","]) 
+            and not is_in_range_context 
+            and not is_in_return_context):
             if kind and kind.value == 14:  # Keyword - lower priority in expressions
                 context_boost += 30
                 boost_reason = "in expression: demote keyword"
@@ -653,6 +778,8 @@ class CompletionsBox(EditorInfoBox):
             line_after_cursor = text.get("insert", "insert lineend")
             # Get code BEFORE cursor for Parso (only variables above matter!)
             source_code = text.get("1.0", "insert")
+            logger.info(f"📥 present_completions: prefix={repr(prefix)}, line_before={repr(line_before_cursor)}")
+            logger.info(f"   ↳ source_code length: {len(source_code)} chars")
         except:
             line_before_cursor = ""
             line_after_cursor = ""
@@ -1074,6 +1201,7 @@ class Completer:
             self._completions_box.hide()
 
     def _on_keypress(self, event: tk.Event) -> None:
+        logger.info(f"⌨️  _on_keypress: char={repr(event.char)}, keysym={event.keysym}")
         self.cancel_active_request()
         runner = get_runner()
         if not runner or runner.is_running():
@@ -1097,6 +1225,7 @@ class Completer:
             return
 
         if not self._box_is_visible() and not self._should_open_box_automatically(event):
+            logger.info(f"   ↳ Not opening box: visible={self._box_is_visible()}")
             return
 
         if event.keysym == "Escape":
@@ -1112,9 +1241,95 @@ class Completer:
             and not _is_python_name_char(event.char)
             and not self._is_start_of_an_attribute(event)
         ):
-            # non-word chars are allowed only while the box is already open
-            return
+            # Special case: space after certain keywords should trigger completions
+            if event.char == " ":
+                line_before = widget.get("insert linestart", "insert")
+                line_stripped = line_before.strip()  # Remove leading AND trailing whitespace
+                
+                # Check if we just typed space after keywords that need completions
+                # - "for ... in" -> suggest iterables
+                # - "if", "while", "elif" -> suggest boolean expressions
+                # - "except" -> suggest Exception classes
+                # - "with" -> suggest context managers
+                # - "import" -> suggest modules
+                # - "from MODULE import" -> suggest module members
+                # - "return" -> suggest variables/expressions
+                should_open = (
+                    # for...in context
+                    line_stripped.endswith(" in") or
+                    # boolean contexts
+                    line_stripped in ("if", "while", "elif") or
+                    line_stripped.startswith(("if ", "while ", "elif ")) or
+                    # exception context
+                    line_stripped == "except" or
+                    line_stripped.startswith("except ") or
+                    # context manager
+                    line_stripped == "with" or
+                    line_stripped.startswith("with ") or
+                    # import contexts
+                    line_stripped == "import" or
+                    line_stripped.startswith("import ") or
+                    line_stripped.endswith(" import") or  # from X import
+                    # return context
+                    line_stripped == "return" or
+                    line_stripped.startswith("return ")
+                )
+                
+                if should_open:
+                    logger.info(f"   ↳ Opening box: space after keyword that needs completions")
+                    # Continue to request completions
+                else:
+                    logger.info(f"   ↳ Not opening box: space (not after special keyword)")
+                    return
+            
+            # Special case: '(' after certain functions should trigger completions
+            elif event.char == "(":
+                line_before = widget.get("insert linestart", "insert")
+                line_stripped = line_before.strip()
+                
+                # Check if we just typed '(' after common functions that need arguments
+                # Examples: "range(", "len(", "print(", "int(", "str("
+                important_functions = ["range", "len", "print", "int", "str", "float", 
+                                     "max", "min", "sum", "abs", "round", "sorted",
+                                     "list", "dict", "set", "tuple", "open"]
+                
+                should_open = any(line_stripped.endswith(f"{func}(") for func in important_functions)
+                
+                if should_open:
+                    logger.info(f"   ↳ Opening box: '(' after important function")
+                    # Continue to request completions
+                else:
+                    logger.info(f"   ↳ Not opening box: '(' (not after important function)")
+                    return
+            
+            # Special case: ',' inside function calls should trigger completions
+            elif event.char == ",":
+                line_before = widget.get("insert linestart", "insert")
+                
+                # Check if we're inside a function call (has unclosed '(')
+                # Examples: "range(10,", "print(x,", "max(a, b,"
+                open_parens = line_before.count("(")
+                close_parens = line_before.count(")")
+                
+                if open_parens > close_parens:
+                    logger.info(f"   ↳ Opening box: ',' inside function call")
+                    # Continue to request completions
+                else:
+                    logger.info(f"   ↳ Not opening box: ',' (not inside function call)")
+                    return
+            
+            else:
+                # non-word chars are allowed only while the box is already open
+                logger.info(f"   ↳ Not opening box: non-word char and box not visible")
+                return
 
+        # Log current line BEFORE after_idle
+        try:
+            line_before = widget.get("insert linestart", "insert")
+            logger.info(f"   ↳ Will request completions. Current line before cursor: {repr(line_before)}")
+        except:
+            pass
+        
         widget.after_idle(lambda: self.request_completions_for_text(widget))
 
     def _is_start_of_an_attribute(self, event: tk.Event) -> bool:
@@ -1135,6 +1350,13 @@ class Completer:
             ls_proxy.unbind_request_handler(self._handle_completions_response)
 
     def request_completions_for_text(self, text: SyntaxText) -> None:
+        # Log what we're requesting
+        try:
+            line_before = text.get("insert linestart", "insert")
+            logger.info(f"📤 request_completions_for_text: line_before={repr(line_before)}")
+        except:
+            pass
+        
         ls_proxy = get_workbench().get_main_language_server_proxy()
         if ls_proxy is None:
             return
@@ -1162,6 +1384,7 @@ class Completer:
             # TODO:
             return
 
+        logger.info(f"   ↳ Sending LSP request at position line={position.line}, char={position.character}")
         self._last_request_text = text
         ls_proxy.request_completion(
             CompletionParams(textDocument=TextDocumentIdentifier(uri=uri), position=position),

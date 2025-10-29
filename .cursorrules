@@ -52,8 +52,10 @@
 - Don't remove useful comments
 - Keep existing structure unless explicitly asked to refactor
 
-### 5. Communication
-- Explain what you're doing and why
+### 5. Communication - ALWAYS EXPLAIN YOUR ACTIONS
+- **NEVER work silently** - always explain what you're doing and why
+- Comment on every action before executing it
+- Show your plan before implementing
 - Ask for clarification if requirements are unclear
 - Confirm understanding before making significant changes
 - Use Russian/Ukrainian when user uses it
@@ -62,6 +64,26 @@
   2. Summarize what you understood and ASK if it's correct
   3. ONLY THEN start making code changes
   4. NEVER jump straight to fixing without confirming understanding
+- **When running multiple tests or operations:**
+  1. ALWAYS show summary of what you're about to do
+  2. Show progress and results for each step
+  3. Format output so user can understand what's happening
+  4. NEVER just run commands and show raw output without context
+
+### 7. Testing & Debugging Workflow
+- **When tests fail, ALWAYS:**
+  1. Show the relevant test code and expected vs actual output
+  2. Explain WHY it failed (not just that it failed)
+  3. Propose a fix and explain the reasoning
+  4. NEVER just blindly update test expectations without understanding
+- **When fixing bugs:**
+  1. Add logging/debug output first to understand the issue
+  2. Verify the fix with the user before proceeding
+  3. Clean up debug code after confirming the fix works
+- **General testing principles:**
+  - Use existing test runners and utilities
+  - Validate test setup before running tests
+  - When something fails repeatedly, check for systematic issues (e.g., wrong paths, bad test data)
 
 ## Project-Specific Notes
 
@@ -76,4 +98,16 @@
 - Parso AST requires careful handling of `end_pos`
 - Block extension logic needs to account for empty lines
 - Depth counting must handle `file_input` nodes specially
+
+### 6. Use Utilities - Don't Reinvent The Wheel
+- **NEVER do manual calculations that can be automated** - this is error-prone
+- **ALWAYS use existing utilities when available:**
+  - Check project for existing helper scripts and tools
+  - Use project-specific parsers and validators
+  - Leverage existing test infrastructure
+- **When you struggle with the same task multiple times:**
+  1. STOP and check if there's a utility for this
+  2. If not, CREATE a utility script first
+  3. THEN use it consistently
+- **Key principle:** If you're doing something tedious or repetitive, there should be a tool for it
 
