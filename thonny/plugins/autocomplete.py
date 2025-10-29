@@ -1056,6 +1056,32 @@ class CompletionsBox(EditorInfoBox):
                     detail_str = f" | {comp.detail[:30]}..." if comp.detail and len(comp.detail) > 30 else f" | {comp.detail}" if comp.detail else ""
                     logger.info(f"   {i:2d}. {comp.label:20s} | {kind_name:12s}{detail_str}")
                 logger.info(f"")
+            
+            # Add print-f convenience completion RIGHT AFTER print in sorted list
+            # This helps users who often forget to add 'f' prefix
+            has_print_f = any(c.label == "print-f" for c in sorted_completions)
+            if not has_print_f:
+                # Find print in sorted list
+                print_index = next((i for i, c in enumerate(sorted_completions) 
+                                   if c.label == "print" and c.kind == lsp_types.CompletionItemKind.Function), None)
+                if print_index is not None:
+                    print_item = sorted_completions[print_index]
+                    # Create synthetic print-f completion
+                    print_f_item = CompletionItem(
+                        label="print-f",
+                        kind=lsp_types.CompletionItemKind.Function,
+                        sortText=print_item.sortText + ".1" if print_item.sortText else "15.0001.print-f",
+                        detail="(f-string version)",
+                        insertText=None,  # Will be handled by _insert_completion
+                        textEdit=None,
+                        additionalTextEdits=None,
+                        insertTextFormat=None,
+                        insertTextMode=None,
+                        documentation="Insert print() with f-string (convenience shortcut)",
+                    )
+                    # Insert right after print
+                    sorted_completions.insert(print_index + 1, print_f_item)
+                    logger.info(f"➕ Inserted print-f at position {print_index + 1} (right after print)")
         
         if not prefix.startswith("__"):
             before_filter = len(sorted_completions)
@@ -1222,6 +1248,12 @@ class CompletionsBox(EditorInfoBox):
 
     def _insert_completion(self, completion: CompletionItem, replace_suffix: bool) -> None:
         insert_text = self._get_insert_text(completion)
+        
+        # Special handling for print-f: insert "print" text, but keep completion object
+        # so _auto_add_parentheses can recognize it and add (f"")
+        if completion.label == "print-f":
+            insert_text = "print"
+        
         prefix_start_index = self._find_completion_insertion_index()
         typed_prefix = self._target_text_widget.get(prefix_start_index, "insert")
 
@@ -1286,6 +1318,13 @@ class CompletionsBox(EditorInfoBox):
         # Check if there's already a '(' after cursor - don't duplicate
         char_after = self._target_text_widget.get("insert")
         if char_after == "(":
+            return
+        
+        # Special handling for print-f - insert print(f"") instead of print("")
+        if completion.label == "print-f":
+            self._target_text_widget.insert("insert", '(f"")')
+            # Move cursor between quotes: (f"| ")
+            self._target_text_widget.mark_set("insert", "insert-2c")
             return
         
         # Special handling for input() - add prompt template
