@@ -548,7 +548,7 @@ class LanguageServerProxy(ABC):
             [LspResponse[Union[List[lsp_types.CompletionItem], lsp_types.CompletionList, None]]],
             None,
         ],
-    ) -> None:
+    ) -> int:
         """Request to request completion at a given text document position. The request's
         parameter is of type {@link TextDocumentPosition} the response
         is of type {@link CompletionItem CompletionItem[]} or {@link CompletionList}
@@ -557,7 +557,9 @@ class LanguageServerProxy(ABC):
         The request can delay the computation of the {@link CompletionItem.detail `detail`}
         and {@link CompletionItem.documentation `documentation`} properties to the `completionItem/resolve`
         request. However, properties that are needed for the initial sorting and filtering, like `sortText`,
-        `filterText`, `insertText`, and `textEdit`, must not be changed during resolve."""
+        `filterText`, `insertText`, and `textEdit`, must not be changed during resolve.
+        
+        Returns the LSP request ID."""
         return self._send_request("textDocument/completion", params, handler)
 
     def request_resolve_completion_item(
@@ -1077,7 +1079,7 @@ class LanguageServerProxy(ABC):
 
     def _send_request(
         self, method: str, params: Any, handler: Callable[[LspResponse[Any]], None]
-    ) -> None:
+    ) -> int:
         if method != "initialize":
             self._check_initialized()
 
@@ -1092,6 +1094,7 @@ class LanguageServerProxy(ABC):
                 "params": _convert_to_json_value(params),
             }
         )
+        return request_id
 
     def _send_notification(self, method: str, params: Any) -> None:
         self._check_initialized()

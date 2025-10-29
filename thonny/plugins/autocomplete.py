@@ -528,19 +528,8 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         # 3. BOOLEAN CONTEXTS (if, while, elif): boost variables/functions, demote keywords
         # Check if we're in a boolean condition (strip whitespace/newlines first!)
         line_clean = line_before_cursor.rstrip()
-        line_stripped = line_before_cursor.strip()
-        
-        # Boolean context if:
-        # - Line ends with boolean operator: "x and ", "y or ", "not "
-        # - Line starts with condition keyword: "if x > ", "while count < ", "elif i == "
-        # Note: check without trailing space, as .strip() removes it
-        boolean_operators = ["and ", "or ", "not "]
-        boolean_statements = ["if", "while", "elif"]  # Without trailing space!
-        
-        is_boolean_context = (
-            any(line_clean.endswith(op.rstrip()) for op in boolean_operators) or
-            any(line_stripped.startswith(stmt) for stmt in boolean_statements)
-        )
+        boolean_keywords = ["if ", "while ", "elif ", "and ", "or ", "not "]
+        is_boolean_context = any(line_clean.endswith(kw.rstrip()) for kw in boolean_keywords)
         
         if is_boolean_context:
             # Boolean context hierarchy:
@@ -790,6 +779,7 @@ class CompletionsBox(EditorInfoBox):
     ) -> None:
         # Next events need to know this
         assert completions
+        
         self._target_text_widget = text
         self._check_bind_for_keypress(text)
 
@@ -832,7 +822,11 @@ class CompletionsBox(EditorInfoBox):
                 logger.info(f"")
         
         if not prefix.startswith("__"):
+            before_filter = len(sorted_completions)
             sorted_completions = filter_garbage_completions(sorted_completions)
+            after_filter = len(sorted_completions)
+            if before_filter != after_filter:
+                logger.info(f"🗑️  Filtered garbage: {before_filter} → {after_filter} completions")
         self._completions = sorted_completions
 
         # broadcast logging info
@@ -1181,11 +1175,18 @@ class Completer:
 
     def __init__(self):
         self._last_request_text: Optional[SyntaxText] = None
+        self._request_counter: int = 0  # Unique ID for each request
+        self._pending_requests: dict[int, str] = {}  # Map our request_counter to line_before_string
         logger.debug("Creating Completer")
         self._completions_box: Optional[CompletionsBox] = None
 
         get_workbench().bind_class("EditorCodeViewText", "<Key>", self._on_keypress, True)
         get_workbench().bind_class("ShellText", "<Key>", self._on_keypress, True)
+        
+        # Hide completion box when editor loses focus (e.g., user switches to another window)
+        get_workbench().bind_class("EditorCodeViewText", "<FocusOut>", self._on_focus_out, True)
+        get_workbench().bind_class("ShellText", "<FocusOut>", self._on_focus_out, True)
+        
         get_workbench().bind(
             "editor_autocomplete_response", self._handle_completions_response, True
         )
@@ -1224,12 +1225,18 @@ class Completer:
     def _close_box(self):
         if self._completions_box:
             self._completions_box.hide()
+    
+    def _on_focus_out(self, event: tk.Event) -> None:
+        """Hide completion box when editor loses focus (e.g., user switches to another window)"""
+        logger.info(f"🔴 _on_focus_out: hiding completion box")
+        self._close_box()
 
     def _on_keypress(self, event: tk.Event) -> None:
         logger.info(f"⌨️  _on_keypress: char={repr(event.char)}, keysym={event.keysym}")
         self.cancel_active_request()
         runner = get_runner()
         if not runner or runner.is_running():
+            logger.info(f"   ↳ Skipped: runner not available or running")
             return
 
         if (
@@ -1237,39 +1244,53 @@ class Completer:
             or command_is_pressed(event)
             or alt_is_pressed_without_char(event)
         ):
+            logger.info(f"   ↳ Skipped: modifier key pressed")
             return
 
         widget = event.widget
         if not widget or not isinstance(widget, SyntaxText):
+            logger.info(f"   ↳ Skipped: not SyntaxText widget")
             return
 
         if not widget.is_python_text():
+            logger.info(f"   ↳ Skipped: not Python text")
             return
 
         if widget.is_read_only():
+            logger.info(f"   ↳ Skipped: read-only widget")
             return
 
-        if not self._box_is_visible() and not self._should_open_box_automatically(event):
-            logger.info(f"   ↳ Not opening box: visible={self._box_is_visible()}")
+        should_auto_open = self._should_open_box_automatically(event)
+        logger.info(f"   ↳ _should_open_box_automatically={should_auto_open}, box_visible={self._box_is_visible()}")
+        
+        if not self._box_is_visible() and not should_auto_open:
+            logger.info(f"   ↳ Not opening box: auto_open=False, visible=False")
             return
 
         if event.keysym == "Escape":
             # Closing is handled by the box itself
+            logger.info(f"   ↳ Escape pressed")
             return
 
         if not event.char:
             # movement keypresses are handled by the box
+            logger.info(f"   ↳ No char (movement key)")
             return
+
+        is_python_char = _is_python_name_char(event.char)
+        is_dot = self._is_start_of_an_attribute(event)
+        logger.info(f"   ↳ char={repr(event.char)}, is_python_char={is_python_char}, is_dot={is_dot}, box_visible={self._box_is_visible()}")
 
         if (
             not self._box_is_visible()
-            and not _is_python_name_char(event.char)
-            and not self._is_start_of_an_attribute(event)
+            and not is_python_char
+            and not is_dot
         ):
             # Special case: space after certain keywords should trigger completions
             if event.char == " ":
                 line_before = widget.get("insert linestart", "insert")
                 line_stripped = line_before.strip()  # Remove leading AND trailing whitespace
+                logger.info(f"   ↳ SPACE pressed, line_before={repr(line_before)}, line_stripped={repr(line_stripped)}")
                 
                 # Check if we just typed space after keywords that need completions
                 # - "for ... in" -> suggest iterables
@@ -1289,31 +1310,27 @@ class Completer:
                         boolean_keywords_first_space = True
                         break
                 
-                should_open = (
-                    # for...in context
-                    line_stripped.endswith(" in") or
-                    # boolean contexts (ONLY first space after keyword!)
-                    boolean_keywords_first_space or
-                    # exception context
-                    line_stripped == "except" or
-                    line_stripped.startswith("except ") or
-                    # context manager
-                    line_stripped == "with" or
-                    line_stripped.startswith("with ") or
-                    # import contexts
-                    line_stripped == "import" or
-                    line_stripped.startswith("import ") or
-                    line_stripped.endswith(" import") or  # from X import
-                    # return context
-                    line_stripped == "return" or
-                    line_stripped.startswith("return ")
-                )
+                # Check each condition separately for detailed logging
+                ends_with_in = line_stripped.endswith(" in")
+                is_boolean_first_space = boolean_keywords_first_space
+                is_except = line_stripped == "except" or line_stripped.startswith("except ")
+                is_with = line_stripped == "with" or line_stripped.startswith("with ")
+                is_import = (line_stripped == "import" or line_stripped.startswith("import ") or 
+                            line_stripped.endswith(" import"))
+                is_return = line_stripped == "return" or line_stripped.startswith("return ")
                 
+                should_open = (ends_with_in or is_boolean_first_space or is_except or 
+                              is_with or is_import or is_return)
+                
+                logger.info(f"   ↳ Space checks: for_in={ends_with_in}, bool={is_boolean_first_space}, "
+                           f"except={is_except}, with={is_with}, import={is_import}, return={is_return}")
+                logger.info(f"   ↳ should_open={should_open}")
+            
                 if should_open:
-                    logger.info(f"   ↳ Opening box: space after keyword that needs completions")
+                    logger.info(f"   ↳ ✅ Opening box: space after keyword that needs completions")
                     # Continue to request completions
                 else:
-                    logger.info(f"   ↳ Not opening box: space (not after special keyword)")
+                    logger.info(f"   ↳ ❌ Not opening box: space (not after special keyword)")
                     return
             
             # Special case: '(' after certain functions should trigger completions
@@ -1420,10 +1437,22 @@ class Completer:
 
         logger.info(f"   ↳ Sending LSP request at position line={position.line}, char={position.character}")
         self._last_request_text = text
-        ls_proxy.request_completion(
+        # Store line_before AS STRING (snapshot at request time)
+        request_line_before = text.get("insert linestart", "insert")
+        
+        # Send request to LSP and get its request_id
+        lsp_request_id = ls_proxy.request_completion(
             CompletionParams(textDocument=TextDocumentIdentifier(uri=uri), position=position),
             self._handle_completions_response,
         )
+        
+        # Store mapping: LSP request_id -> line_before (snapshot)
+        # Clear old pending requests (they're now stale)
+        self._pending_requests.clear()
+        self._pending_requests[lsp_request_id] = request_line_before
+        # Remember the latest request for comparison
+        self._request_counter = lsp_request_id
+        logger.info(f"   ↳ LSP request #{lsp_request_id}, line_before: {repr(request_line_before)}")
 
     def _handle_completions_response(
         self,
@@ -1431,6 +1460,9 @@ class Completer:
             Union[List[lsp_types.CompletionItem], lsp_types.CompletionList, None]
         ],
     ) -> None:
+        lsp_request_id = response._request_id
+        logger.info(f"📥 Received LSP response #{lsp_request_id}")
+        
         error = response.get_error()
         if error is not None:
             self._close_box()
@@ -1439,6 +1471,29 @@ class Completer:
 
         if not self._last_request_text:
             logger.warning("Completions response without _last_request_text")
+            return
+        
+        # Check if response is stale (not the latest request)
+        if lsp_request_id != self._request_counter:
+            logger.info(f"⏭️  Ignoring stale LSP response #{lsp_request_id} (latest is #{self._request_counter})")
+            return
+        
+        # Double-check: current line_before should match what we requested
+        request_line_before = self._pending_requests.get(lsp_request_id, "")
+        current_line_before = self._last_request_text.get("insert linestart", "insert")
+        
+        if current_line_before != request_line_before:
+            logger.info(f"⏭️  Ignoring LSP response #{lsp_request_id}: line changed from {repr(request_line_before)} to {repr(current_line_before)}")
+            return
+        
+        logger.info(f"✅ LSP response #{lsp_request_id} is current (line_before={repr(current_line_before)})")
+        
+        # Check if we should show completions for this context
+        # Don't show for "for " - user is typing variable name
+        line_before_stripped = self._last_request_text.get("insert linestart", "insert").strip()
+        if line_before_stripped == "for":
+            logger.info(f"🚫 Ignoring completions: cursor after 'for ' (user typing variable name)")
+            self._close_box()
             return
 
         result = response.get_result_or_raise()
@@ -1467,6 +1522,7 @@ class Completer:
             logger.info(f"📥 LSP: {len(completions)} completions")
             
             # Show completions
+            logger.info(f"🎯 _handle_completions_response: showing {len(completions)} completions (normal path)")
             if not self._completions_box:
                 self._completions_box = CompletionsBox(self)
             self._completions_box.present_completions(self._last_request_text, completions)
