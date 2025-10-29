@@ -40,6 +40,10 @@ class DiagnosticTooltip:
         self._menu_timer = None  # Timer to reset menu flag
         self._current_language = None  # Track current language to detect changes
         
+        # Track mouse motion to prevent tooltip when error appears under static mouse
+        self._last_mouse_motion_time = 0  # Time of last mouse motion event
+        self._mouse_moved_recently = False  # True if mouse moved in last 500ms
+        
         # State machine manages tooltip lifecycle
         self.state_machine = TooltipStateMachine(hover_delay_ms=hover_delay_ms)
         # Give state machine access to cache and pending requests
@@ -51,10 +55,19 @@ class DiagnosticTooltip:
         self.text_widget.bind("<<TextChange>>", self._on_text_modified, add=True)
         self._last_text_length = len(self.text_widget.get("1.0", "end"))
         
+        # Track mouse motion globally on text widget
+        self.text_widget.bind("<Motion>", self._on_mouse_motion, add=True)
+        
         # Hide tooltip when context menu appears
         self.text_widget.bind("<<ContextMenuShowing>>", self._on_context_menu_showing, add=True)
         # Reset menu flag when clicking back in editor
         self.text_widget.bind("<Button-1>", self._on_left_click, add=True)
+    
+    def _on_mouse_motion(self, event) -> None:
+        """Track mouse motion to distinguish real hover from error appearing under cursor"""
+        import time
+        self._last_mouse_motion_time = time.time()
+        self._mouse_moved_recently = True
     
     def _on_text_modified(self, event=None) -> None:
         """Clear translation cache when code is modified"""
@@ -102,6 +115,16 @@ class DiagnosticTooltip:
         
     def show(self, event, diagnostic: Diagnostic) -> None:
         """Show tooltip with diagnostic message (entry point from mouse hover)"""
+        import time
+        
+        # Check if mouse moved recently (within 500ms)
+        # This prevents tooltip when error appears under static mouse cursor
+        time_since_motion = time.time() - self._last_mouse_motion_time
+        if time_since_motion > 0.5:  # 500ms threshold
+            # Mouse hasn't moved - likely error appeared under cursor, not real hover
+            logger.debug(f"Ignoring tooltip show: no recent mouse motion ({time_since_motion:.2f}s ago)")
+            return
+        
         # Build full message with source and line number
         message = diagnostic.message
         line_number = diagnostic.range.start.line + 1 if diagnostic.range else 0
