@@ -92,10 +92,9 @@ is_valid = True
 if x > 3 and 📍
 
 # SCENARIO 9: List comprehension filter (if clause)
-# EXPECTED_TOP_5: numbers, text, sorted, len, isinstance
+# EXPECTED_TOP_5: x, numbers, text, sorted, len
 # EXPECTED_NOT_IN_TOP_5: print, input, for
-# NOTE: boolean context in comprehension, I/O functions demoted
-# TODO: Extract comprehension loop vars (x) in Parso
+# NOTE: x is loop var from comprehension, boolean context
 
 numbers = [1, 2, 3, 4, 5]
 text = "hello"

@@ -243,6 +243,23 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                     user_defined_vars.add(loop_var)
                     loop_vars_found.append(loop_var)
             
+            # Look for comprehension loop vars: [... for x in ...]
+            # comprehension can be in: testlist_comp, comp_for, or error_node (incomplete syntax)
+            elif node.type in ('testlist_comp', 'comp_for', 'error_node'):
+                # Try to extract "for x in" pattern from children
+                if hasattr(node, 'children'):
+                    for i, child in enumerate(node.children):
+                        # Look for: "for" <name> "in"
+                        if hasattr(child, 'value') and child.value == 'for':
+                            # Next child should be the loop var
+                            if i + 1 < len(node.children):
+                                next_child = node.children[i + 1]
+                                if next_child.type == 'name':
+                                    loop_var = next_child.value
+                                    user_defined_vars.add(loop_var)
+                                    loop_vars_found.append(loop_var)
+                                    logger.info(f"   ✓ Comprehension loop var: {loop_var}")
+            
             # Look for function definitions: def func_name(...):
             elif node.type == 'funcdef' and hasattr(node, 'children') and len(node.children) >= 2:
                 # funcdef: 'def' name parameters ':' suite
@@ -426,27 +443,29 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         # Extract loop variable name from "for <var> in " to demote it
         # (prevents "for i in i" which is nonsensical)
         loop_var_name = None
-        if " in " in line_before_cursor and not is_inside_range:
+        if " in " in line_before_cursor:
             # Try to extract: "for item in " -> "item"
             match = re.search(r'\bfor\s+(\w+)\s+in\s', line_before_cursor)
             if match:
                 loop_var_name = match.group(1)
         
+        # Check if we're in boolean context (after if/while in comprehension)
+        # This takes priority over "for...in" demotion
+        line_clean = line_before_cursor.rstrip()
+        boolean_keywords = ["if ", "while ", "elif ", "and ", "or ", "not "]
+        is_boolean_context = any(line_clean.endswith(kw.rstrip()) for kw in boolean_keywords)
+        
+        # DEMOTE the loop variable itself (for i in i/range(i)/etc is nonsensical!)
+        # This applies to ALL contexts: for..in, range(), etc.
+        # BUT: skip if in boolean context (comprehension filter: [x for x in nums if |])
+        if loop_var_name and label == loop_var_name and kind and kind == CompletionItemKind.Variable and not is_boolean_context:
+            context_boost += 2000  # Strong demotion - push to bottom
+            boost_reason = f"for..in: demote loop var itself (for {loop_var_name} in ...)"
+        
         if (" in " in line_before_cursor or line_before_cursor.strip().startswith("for ")) and not is_inside_range:
             # Check if this is a user-defined function (for Functions kind=3)
             is_user_function = (kind and kind == CompletionItemKind.Function and label in user_functions)
             
-            if " in " in line_before_cursor:
-                after_in = line_before_cursor.split(" in ")[-1].strip()
-                # If cursor right after "in" or user started typing
-                if len(after_in) <= len(prefix) + 3:
-                    pass  # Context applies to all completions
-            
-            # DEMOTE the loop variable itself (for i in i is nonsensical!)
-            if loop_var_name and label == loop_var_name and kind and kind == CompletionItemKind.Variable:
-                context_boost += 2000  # Strong demotion - push to bottom
-                boost_reason = f"for..in: demote loop var itself (for {loop_var_name} in {loop_var_name})"
-                    
             # SPECIAL: range() is very common, but user-defined vars are more important!
             if label == "range":
                 context_boost -= 900  # Strong boost, but below user vars (-1050+)
@@ -570,11 +589,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     boost_reason = "import: demote keyword"
         
         # 3. BOOLEAN CONTEXTS (if, while, elif): boost variables/functions, demote keywords
-        # Check if we're in a boolean condition (strip whitespace/newlines first!)
-        line_clean = line_before_cursor.rstrip()
-        boolean_keywords = ["if ", "while ", "elif ", "and ", "or ", "not "]
-        is_boolean_context = any(line_clean.endswith(kw.rstrip()) for kw in boolean_keywords)
-        
+        # is_boolean_context already defined above (line 452-456)
         if is_boolean_context:
             # Boolean context hierarchy:
             # 1. User variables (-2000) - ALWAYS highest, no collisions
@@ -585,8 +600,13 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
             BOOLEAN_FUNCTIONS = {'len', 'isinstance', 'bool', 'any', 'all', 'hasattr'}
             
             if kind and kind == CompletionItemKind.Variable:  # Variable - highest priority in conditions
+                is_loop_var = label in loop_vars
                 is_user_defined = label in user_defined_vars
-                if is_user_defined:
+                
+                if is_loop_var:
+                    context_boost -= 2500  # EXTRA boost - loop vars in comprehensions!
+                    boost_reason = "boolean: loop var (comprehension)"
+                elif is_user_defined:
                     context_boost -= 2000  # STRONGEST boost - user vars are #1 priority!
                     boost_reason = "boolean: user-defined var"
                 else:
@@ -739,16 +759,29 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                     boost_reason = f"range args: demote I/O ({label})"
             elif kind and kind == CompletionItemKind.Variable:  # Variable
                 if label in user_defined_vars:
-                    # Check variable type - lists/dicts can't be used directly in range()
-                    var_type = var_types.get(label)
-                    if var_type in ("list", "dict", "set", "tuple"):
-                        # Demote collection types - range(list) is invalid
-                        context_boost += 1000
-                        boost_reason = f"range args: demote {var_type} (invalid)"
+                    # Check if this is a loop variable that's not yet declared
+                    # (for i in range(|) - i doesn't exist yet!)
+                    is_loop_var_not_yet_declared = (
+                        label in loop_vars 
+                        and " for " in line_before_cursor 
+                        and ":" not in line_after_cursor[:5]  # No : immediately after cursor
+                    )
+                    
+                    if is_loop_var_not_yet_declared:
+                        # Loop var not yet declared - demote strongly
+                        context_boost += 1500
+                        boost_reason = f"range args: loop var not yet declared ({label})"
                     else:
-                        # int/str/etc variables likely hold counts (n, count, size, x, y)
-                        context_boost -= 1500
-                        boost_reason = f"range args: {var_type or 'int'} var"
+                        # Check variable type - lists/dicts can't be used directly in range()
+                        var_type = var_types.get(label)
+                        if var_type in ("list", "dict", "set", "tuple"):
+                            # Demote collection types - range(list) is invalid
+                            context_boost += 1000
+                            boost_reason = f"range args: demote {var_type} (invalid)"
+                        else:
+                            # int/str/etc variables likely hold counts (n, count, size, x, y)
+                            context_boost -= 1500
+                            boost_reason = f"range args: {var_type or 'int'} var"
             elif kind and kind == CompletionItemKind.Class:  # Class (range is a Class in LSP!)
                 if label == "range":
                     context_boost += 500  # Demote range inside range
