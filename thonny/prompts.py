@@ -186,12 +186,12 @@ else:
 If you need to fix code, use special ```fix format:
 
 **Format for ONE line:**
-```fix{{lines:5}}
+```fix{{replace:5:original}}
 print("Hello")
 ```
 
 **Format for MULTIPLE lines:**
-```fix{{lines:6-8}}
+```fix{{replace:6-8:original}}
     if el=="a":
         ryad1=ryad1+"aa"
     else:
@@ -241,7 +241,7 @@ EXAMPLE 1 - Replace single line (fix typo):
 In line 5, missing closing parenthesis after "Hello".
 
 **How to fix:**
-```fix{{replace:5}}
+```fix{{replace:5:original}}
 print("Hello")
 ```
 
@@ -259,7 +259,7 @@ Program context:
 In line 5, no indentation - `print(i)` should be inside `for` loop.
 
 **How to fix:**
-```fix{{replace:5}}
+```fix{{replace:5:original}}
     print(i)
 ```
 Note: added 4 spaces because line 5 should be INSIDE the loop (line 4).
@@ -276,7 +276,7 @@ Program context:
 Missing `import random` at the beginning.
 
 **How to fix:**
-```fix{{insert-before:1}}
+```fix{{insert-before:1:original}}
 import random
 ```
 
@@ -286,7 +286,7 @@ EXAMPLE 4 - Insert after line:
 Missing input validation after line 3.
 
 **How to fix:**
-```fix{{insert-after:3}}
+```fix{{insert-after:3:original}}
     if n < 0:
         n = 0
 ```
@@ -297,7 +297,7 @@ EXAMPLE 6 - Delete lines:
 Lines 8-9 contain debug print statements that should be removed.
 
 **How to fix:**
-```fix{{delete:8-9}}
+```fix{{delete:8-9:original}}
 # These debug lines are removed
 ```
 

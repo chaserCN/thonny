@@ -1290,28 +1290,54 @@ class ChatView(tktextext.TextFrame):
                 start_line = None  # Will be determined later based on file length
                 end_line = None
             elif operation == "insert-before":
-                # Insert before line N - params is just N
+                # Insert before line N - tolerate accidental delimiters (",", ":", "-")
                 if not params:
                     logger.error(f"Fix operation 'insert-before' requires line number, skipping")
                     continue
-                start_line = int(params)
-                end_line = start_line
+                try:
+                    import re as _re
+                    first_num = _re.split(r"[^0-9]+", params.strip())[0]
+                    start_line = int(first_num)
+                    end_line = start_line
+                except Exception:
+                    logger.error(f"Fix operation 'insert-before' has invalid params '{params}', skipping")
+                    continue
             elif operation == "insert-after":
-                # Insert after line N - params is just N
+                # Insert after line N - tolerate accidental delimiters (",", ":", "-")
                 if not params:
                     logger.error(f"Fix operation 'insert-after' requires line number, skipping")
                     continue
-                start_line = int(params)
-                end_line = start_line
+                try:
+                    import re as _re
+                    first_num = _re.split(r"[^0-9]+", params.strip())[0]
+                    start_line = int(first_num)
+                    end_line = start_line
+                except Exception:
+                    logger.error(f"Fix operation 'insert-after' has invalid params '{params}', skipping")
+                    continue
             elif operation in ["replace", "delete"]:
-                # Replace or delete lines N-M
+                # Replace or delete lines N..M
+                # Accept only '-', ',' or whitespace as delimiters (NOT ':', reserved for ':original')
                 if not params:
                     logger.error(f"Fix operation '{operation}' requires line range, skipping")
                     continue
-                if '-' in params:
-                    start_line, end_line = map(int, params.split('-'))
-                else:
-                    start_line = end_line = int(params)
+                try:
+                    import re as _re
+                    # Normalize commas/whitespace/dashes to dash, then split
+                    norm = params.strip()
+                    # If someone mistakenly used ':', do NOT treat it as delimiter
+                    # (it is reserved for ':original' which we already stripped above)
+                    parts = [p for p in _re.split(r"[\s,\-]+", norm) if p]
+                    if len(parts) == 0:
+                        raise ValueError("no numbers")
+                    elif len(parts) == 1:
+                        start_line = end_line = int(parts[0])
+                    else:
+                        start_line = int(parts[0])
+                        end_line = int(parts[1])
+                except Exception:
+                    logger.error(f"Fix operation '{operation}' has invalid range '{params}', skipping")
+                    continue
                 
                 # Validate range
                 if end_line < start_line:
