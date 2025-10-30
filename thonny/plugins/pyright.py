@@ -26,7 +26,12 @@ class PyrightProxy(LanguageServerProxy):
             "basedpyright": {
                 "analysis": {
                     "diagnosticMode": "openFilesOnly",
-                    "diagnosticSeverityOverrides": {},
+                    "diagnosticSeverityOverrides": {
+                        # Disable "partially unknown" type warnings for school assignments
+                        "reportUnknownVariableType": "none",
+                        "reportUnknownArgumentType": "none",
+                        "reportUnknownMemberType": "none",
+                    },
                     "logLevel": "Information",  # "Error", "Warning", "Information", "Trace"
                     "autoSearchPaths": False,  # Don't automatically search for paths to index
                     "autoImportCompletions": False,  # Don't scan all packages for auto-import
