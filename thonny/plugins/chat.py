@@ -386,7 +386,6 @@ class ChatView(tktextext.TextFrame):
         self, fragment_with_request_id: ChatResponseFragmentWithRequestId
     ) -> None:
         if fragment_with_request_id.request_id != self._active_chat_request_id:
-            logger.info("Skipping chat fragment, because request has been cancelled")
             return
 
         fragment = fragment_with_request_id.fragment
@@ -460,7 +459,6 @@ class ChatView(tktextext.TextFrame):
                 if msg.role == ChatRole.USER and msg.image is not None:
                     # Replace message with version without image
                     self._chat_messages[i] = replace(msg, image=None)
-                    logger.info(f"Removed image from message in history to save tokens")
                     break
             
             # Return focus to input field
@@ -607,7 +605,6 @@ class ChatView(tktextext.TextFrame):
         if not debugger:
             # Debug session ended - remove debug messages from AI history (keep in UI history for display)
             if self._current_debug_session_id is not None:
-                logger.info(f"Debug session {self._current_debug_session_id} ended, cleaning up AI history")
                 # Remove debug messages from AI history only
                 self._ai_messages = [
                     msg for msg in self._ai_messages
@@ -1415,12 +1412,10 @@ class ChatView(tktextext.TextFrame):
         """Show next fix suggestion from queue if available and no popup is currently shown."""
         # Don't show if already showing a popup
         if self._showing_fix_popup:
-            logger.info(f"⚠️ Already showing popup, skipping")
             return
         
         # Check if there are fixes in queue
         if not self._fix_queue:
-            logger.info(f"✅ Queue is empty, nothing to show")
             return
         
         # Take first fix from queue
@@ -1448,7 +1443,6 @@ class ChatView(tktextext.TextFrame):
         
         # Show next fix after a short delay (if any)
         if self._fix_queue:
-            logger.info(f"⏭️ Scheduling next fix from queue (size={len(self._fix_queue)}) in 300ms")
             self.after(300, self._show_next_fix_from_queue)
     
     def _adjust_fix_queue_line_numbers(self, change_point: int, delta: int) -> None:
@@ -1686,7 +1680,6 @@ class ChatView(tktextext.TextFrame):
             elif tag == "lastRun":
                 # TODO: Consider also other commands besides %Run?
                 last_run_info = get_shell().text.extract_last_execution_info("%Run")
-                logger.info("last_run: %r", last_run_info)
                 if last_run_info is None:
                     warnings.append("Could not find last run")
                 else:
@@ -1712,7 +1705,6 @@ class ChatView(tktextext.TextFrame):
 
             if attachment.tag is not None:
                 if self._last_tagged_attachments.get(attachment.tag) == attachment:
-                    logger.info("Attachment %r already in context")
                     continue
                 else:
                     self._last_tagged_attachments[attachment.tag] = attachment
@@ -1755,8 +1747,6 @@ class ChatView(tktextext.TextFrame):
         if len(self._ai_messages) <= SUMMARY_MAX_MSGS and total_chars <= SUMMARY_MAX_CHARS:
             return  # No summarization needed
         
-        logger.info(f"Summarizing AI history: {len(self._ai_messages)} messages, {total_chars} chars")
-        
         # Request summary from AI (synchronous, blocking - but happens rarely)
         try:
             # Get summary from AI for all messages except last 5
@@ -1772,12 +1762,10 @@ class ChatView(tktextext.TextFrame):
             # Replace old messages with summary + keep last 5 messages
             self._ai_messages = [summary_message] + self._ai_messages[-5:]
             
-            logger.info(f"After AI summarization: {len(self._ai_messages)} messages")
         except Exception as e:
             logger.warning(f"AI summarization failed, using simple truncation: {e}")
             # Fallback: just keep last 10 messages
             self._ai_messages = self._ai_messages[-10:]
-            logger.info(f"After fallback summarization: {len(self._ai_messages)} messages")
 
     def _complete_chat_in_thread(self, assistant: Assistant, request_id: str, current_message: ChatMessage):
         try:
@@ -2074,7 +2062,6 @@ def take_screenshot_without_chat():
             
             screenshot = ImageGrab.grab(bbox=(x, y, x + width, y + height))
             screenshot.save(filepath)
-            logger.info(f"Screenshot saved with PIL: {filepath}")
         
         # Show brief notification in console
         print(f"✓ Скриншот сохранён: {filepath}")
@@ -2116,11 +2103,9 @@ def take_screenshot_without_chat():
         if was_visible and notebook and chat_view:
             try:
                 # Re-add the chat tab to notebook
-                logger.info(f"Restoring chat panel")
                 notebook.add(chat_view, text=tr("Chat"))
                 notebook.select(chat_view)
                 get_workbench().update_idletasks()
-                logger.info(f"Chat panel restored")
             except Exception as e:
                 logger.error(f"Failed to restore chat panel: {e}")
 

@@ -103,12 +103,9 @@ class ConfigurationDialog(CommonDialog):
 
     def _ok(self, event=None):
         changed_options = self.get_changed_options()
-        logger.info("Config OK button press with changed options %r", changed_options)
         if changed_options:
             for _, title, page in self._page_records:
                 try:
-                    logger.info("Applying changed options for %r", title)
-
                     # Before 5.0, method apply did not have changed_options parameter
                     from inspect import signature
 
@@ -119,7 +116,6 @@ class ConfigurationDialog(CommonDialog):
 
                     # note that it matters whether the result *is* False, or is convertible to False
                     if result is False:
-                        logger.info("%s refused apply", title)
                         return
                 except Exception:
                     get_workbench().report_exception("Error when applying options in " + title)
@@ -128,7 +124,6 @@ class ConfigurationDialog(CommonDialog):
 
     def _cancel(self, event=None):
         changed_options = self.get_changed_options()
-        logger.info("Reverting changed options %r", changed_options)
         for name in changed_options:
             get_workbench().set_option(name, self._initial_option_values[name])
 

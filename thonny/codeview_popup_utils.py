@@ -287,10 +287,6 @@ def _calculate_diff_ranges(old_text: str, new_text: str) -> list:
     import difflib
     from thonny.assistance import logger
     
-    logger.info(f"Diff calculation:")
-    logger.info(f"  Old: {repr(old_text)}")
-    logger.info(f"  New: {repr(new_text)}")
-    
     ranges = []
     
     # Special handling for indent changes (whitespace at the beginning)
@@ -299,23 +295,19 @@ def _calculate_diff_ranges(old_text: str, new_text: str) -> list:
     
     if old_indent != new_indent:
         # Indent changed - always highlight with red (wrong indent)
-        logger.info(f"  Indent change: {old_indent} → {new_indent}")
         
         if old_indent > new_indent:
             # Removing indent - highlight extra spaces (from new_indent to old_indent)
             ranges.append((new_indent, old_indent, 'diff_delete'))
-            logger.info(f"  → DELETE range: [{new_indent}:{old_indent}] (red)")
         else:
             # Adding indent - highlight 2 chars: last space + first char after indent
             # Shows "insert spaces between these two"
             if old_indent > 0 and old_indent < len(old_text):
                 ranges.append((old_indent - 1, old_indent + 1, 'diff_delete'))
-                logger.info(f"  → INSERT indicator: [{old_indent - 1}:{old_indent + 1}] (red - space + char)")
             else:
                 # Fallback - highlight 2 chars at indent position
                 end_pos = min(old_indent + 2, len(old_text))
                 ranges.append((old_indent, end_pos, 'diff_delete'))
-                logger.info(f"  → INSERT indicator: [{old_indent}:{end_pos}] (red - 2 chars)")
         
         return ranges  # For indent-only changes, don't run generic diff
     
@@ -326,7 +318,6 @@ def _calculate_diff_ranges(old_text: str, new_text: str) -> list:
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         old_part = old_text[i1:i2]
         new_part = new_text[j1:j2]
-        logger.info(f"  Op: {tag}, old[{i1}:{i2}]={repr(old_part)}, new[{j1}:{j2}]={repr(new_part)}")
         
         if tag == 'equal':
             # Unchanged - just advance position
@@ -356,7 +347,6 @@ def _calculate_diff_ranges(old_text: str, new_text: str) -> list:
             ranges.append((current_pos, current_pos + (i2 - i1), 'diff_delete'))
             current_pos += i2 - i1
     
-    logger.info(f"  Calculated {len(ranges)} ranges: {ranges}")
     return ranges
 
 
@@ -382,10 +372,6 @@ def _apply_diff_highlighting(text_widget, start_index, end_index, old_text, new_
         pos1 = f"{start_index} + {start_pos}c"
         pos2 = f"{start_index} + {end_pos}c"
         text_widget.tag_add(tag_name, pos1, pos2)
-        logger.info(f"  Applied {tag_name}: {pos1} → {pos2}")
-    
-    if not ranges:
-        logger.info("  No changes to highlight")
 
 
 def create_fix_popup(parent, fix: dict, text_widget, editor):
@@ -769,7 +755,6 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                     # Trigger a click event to fully activate the widget
                     text_widget.event_generate("<Button-1>", x=0, y=0)
                     text_widget.event_generate("<ButtonRelease-1>", x=0, y=0)
-                    logger.info("Focus restored to editor after fix")
                 except Exception as e:
                     logger.error(f"Failed to restore focus: {e}")
             
@@ -814,7 +799,6 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
             from thonny import get_workbench
             chat_view = get_workbench().get_view("ChatView")
             if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
-                logger.info(f"❌ [close_popup] Calling chat_view.on_fix_popup_closed(applied=False)")
                 chat_view.on_fix_popup_closed(applied_successfully=False)
         except:
             pass
@@ -826,7 +810,6 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                 # Trigger a click event to fully activate
                 text_widget.event_generate("<Button-1>", x=0, y=0)
                 text_widget.event_generate("<ButtonRelease-1>", x=0, y=0)
-                logger.info("Focus restored to editor after cancel")
             except Exception as e:
                 logger.error(f"Failed to restore focus in cancel: {e}")
         
@@ -884,7 +867,6 @@ def create_fix_popup(parent, fix: dict, text_widget, editor):
                     from thonny import get_workbench
                     chat_view = get_workbench().get_view("ChatView")
                     if chat_view and hasattr(chat_view, 'on_fix_popup_closed'):
-                        logger.info(f"❌ [on_editor_destroy] Calling chat_view.on_fix_popup_closed(applied=False)")
                         chat_view.on_fix_popup_closed(applied_successfully=False)
                 except:
                     pass

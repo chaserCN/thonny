@@ -104,11 +104,7 @@ class GeminiAssistant(BaseAIAssistant):
         dlg.wait_window()  # Wait for dialog to close
         
         if dlg.api_key:
-            logger.info(f"Saving Gemini API key (length: {len(dlg.api_key)})")
             get_workbench().set_secret(API_KEY_SECRET_KEY, dlg.api_key)
-            logger.info(f"Gemini API key saved to: {get_workbench()._get_secrets_path()}")
-        else:
-            logger.info("Gemini API key dialog cancelled or empty")
     
     def _prepare_messages(self, messages: List[ChatMessage]) -> List[dict]:
         """Convert ChatMessage list to Gemini API format with image support"""

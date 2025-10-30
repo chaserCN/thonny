@@ -169,20 +169,6 @@ def highlight_python_syntax_simple(text_widget: tk.Text, start_index: str, end_i
 
 def highlight_python_syntax(text_widget: tk.Text, start_index: str, end_index: str, tag_suffix: str = "") -> None:
     """Apply Python syntax highlighting (uses Pygments if available, otherwise simple regex)"""
-    global _HIGHLIGHTING_LOGGED
-    
-    # Log highlighting method once
-    if not _HIGHLIGHTING_LOGGED:
-        if HAS_PYGMENTS:
-            try:
-                import pygments
-                logger.info(f"Using Pygments {pygments.__version__} for Python syntax highlighting")
-            except:
-                logger.info("Using Pygments for Python syntax highlighting")
-        else:
-            logger.info("Pygments not available, using simple regex syntax highlighting")
-        _HIGHLIGHTING_LOGGED = True
-    
     if HAS_PYGMENTS:
         highlight_python_syntax_with_pygments(text_widget, start_index, end_index, tag_suffix)
     else:

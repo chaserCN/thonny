@@ -172,7 +172,6 @@ class CodeSnippetsConfigPage(ConfigurationPage):
             import time
             get_workbench().set_option("snippets._dummy_trigger", str(time.time()))
             
-            logger.info(f"Added snippet: {name}")
     
     def _edit_snippet(self):
         """Edit selected snippet"""
@@ -198,8 +197,6 @@ class CodeSnippetsConfigPage(ConfigurationPage):
             # Mark as changed to trigger apply()
             import time
             get_workbench().set_option("snippets._dummy_trigger", str(time.time()))
-            
-            logger.info(f"Edited snippet: {name}")
     
     def _remove_snippet(self):
         """Remove selected snippet"""
@@ -253,10 +250,6 @@ class CodeSnippetsConfigPage(ConfigurationPage):
     
     def apply(self, changed_options: List[str]) -> bool:
         """Save snippets to config"""
-        logger.info(f"CodeSnippetsConfigPage.apply() called with changed_options={changed_options}")
-        logger.info(f"Tree has {len(self.tree.get_children())} items")
-        logger.info(f"snippets_data has {len(self.snippets_data)} items")
-        
         snippets_list = []
         
         # Collect all snippets from tree
@@ -267,16 +260,13 @@ class CodeSnippetsConfigPage(ConfigurationPage):
                 code_encoded = code.replace("\n", "\\n").replace("\t", "\\t")
                 snippet_str = f"{name}:{code_encoded}"
                 snippets_list.append(snippet_str)
-                logger.info(f"Saving snippet: {name}")
             else:
                 logger.warning(f"Item {item_id} not found in snippets_data")
         
-        logger.info(f"Total snippets to save: {len(snippets_list)}")
         get_workbench().set_option("snippets.items", snippets_list)
         
         # Verify save
         saved = get_workbench().get_option("snippets.items", [])
-        logger.info(f"Verified saved snippets: {len(saved)} items")
         
         # Trigger dummy option change to ensure apply() is called next time
         import time

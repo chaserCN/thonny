@@ -19,7 +19,6 @@ class InlineCompleter:
     """Manages inline code completions with ghost text"""
     
     def __init__(self):
-        logger.info("Initializing InlineCompleter")
         self._current_suggestion: Optional[str] = None
         self._suggestion_start_index: Optional[str] = None
         self._active_text_widget: Optional[CodeViewText] = None
@@ -27,15 +26,12 @@ class InlineCompleter:
         self._last_request_time: float = 0
         self._min_request_interval: float = 0.5  # 500ms between requests
         
-        # Bind to editor events (bind without add=True so we process BEFORE default handlers)
-        logger.info("Binding to EditorCodeViewText events...")
         # Use empty string binding tag to run before class bindings
         get_workbench().bind_class("EditorCodeViewText", "<KeyPress>", self._on_keypress_before, False)
         get_workbench().bind_class("EditorCodeViewText", "<Key>", self._on_keypress, True)
         get_workbench().bind_class("EditorCodeViewText", "<Escape>", self._on_escape, True)
         get_workbench().bind_class("EditorCodeViewText", "<Button-1>", self._on_mouse_click, True)
         get_workbench().bind_class("EditorCodeViewText", "<FocusOut>", self._on_focus_out, True)
-        logger.info("Event bindings completed")
         
         # Patch perform_midline_tab to handle Tab key
         self._patch_tab_handler()
@@ -50,7 +46,6 @@ class InlineCompleter:
     
     def _patch_tab_handler(self):
         """Patch Tab methods to handle inline completions"""
-        logger.info("Patching Tab handlers...")
         
         # Save original methods
         original_perform_midline_tab = CodeViewText.perform_midline_tab
@@ -61,11 +56,9 @@ class InlineCompleter:
         completer_self = self  # Capture self in closure
         
         def check_and_accept_suggestion(text_widget, method_name):
-            logger.info(f"Tab in {method_name}! suggestion={bool(completer_self._current_suggestion)}, match={completer_self._active_text_widget == text_widget}")
             
             # Check if this widget has an active suggestion
             if completer_self._current_suggestion and completer_self._active_text_widget == text_widget:
-                logger.info("✅ Accepting inline suggestion...")
                 completer_self._accept_suggestion(text_widget)
                 return "break"
             return None
@@ -93,7 +86,6 @@ class InlineCompleter:
         CodeViewText.perform_midline_tab = patched_perform_midline_tab
         CodeViewText.perform_smart_tab = patched_perform_smart_tab
         CodeViewText.perform_dumb_tab = patched_perform_dumb_tab
-        logger.info("All Tab handlers patched successfully")
     
     def _on_keypress_before(self, event: tk.Event) -> Optional[str]:
         """Handle keypress BEFORE text insertion - clear ghost text"""
@@ -208,7 +200,6 @@ class InlineCompleter:
     
     def _request_suggestion(self, widget: CodeViewText):
         """Request inline completion from Gemini"""
-        logger.info("_request_suggestion called")
         
         # Rate limiting
         now = time.time()
@@ -234,8 +225,6 @@ class InlineCompleter:
             context_start = f"{start_line}.0"
             context = widget.get(context_start, cursor_pos)
             
-            logger.info(f"Requesting completion for: '{line_prefix}' (context: {len(context)} chars)")
-            
             # Request completion in background thread
             threading.Thread(
                 target=self._fetch_suggestion,
@@ -249,7 +238,6 @@ class InlineCompleter:
     def _fetch_suggestion(self, widget: CodeViewText, cursor_pos: str, 
                          context: str, line_prefix: str):
         """Fetch suggestion from Gemini API (runs in background thread)"""
-        logger.info("_fetch_suggestion: Starting API request")
         try:
             # Get API key
             api_key = get_workbench().get_secret("gemini_api_key")
@@ -269,7 +257,6 @@ class InlineCompleter:
                 genai.configure(api_key=api_key)
                 # Use fast model for inline completion (Flash-Lite has 4000 RPM!)
                 model_name = get_workbench().get_option("ai.inline_completion_model", "gemini-2.0-flash")
-                logger.info(f"Using model: {model_name}")
                 model = genai.GenerativeModel(model_name)
                 
                 logger.debug("Sending request to Gemini...")
