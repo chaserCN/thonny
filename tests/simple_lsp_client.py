@@ -73,15 +73,19 @@ def get_completions_from_pyright(source_code, line, character):
     Returns:
         List of completion items (dicts)
     """
-    # Create temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=tempfile.gettempdir()) as f:
+    # Create a dedicated temp directory for this test (clean workspace)
+    import tempfile
+    temp_dir = tempfile.mkdtemp(prefix='pyright_test_')
+    temp_path = os.path.join(temp_dir, 'test.py')
+    
+    with open(temp_path, 'w') as f:
         f.write(source_code)
-        temp_path = f.name
     
     proc = None
+    cleanup_dir = temp_dir  # Save for finally block
     try:
         uri = Path(temp_path).as_uri()
-        root_uri = Path(tempfile.gettempdir()).as_uri()
+        root_uri = Path(temp_dir).as_uri()
         
         # Start pyright-langserver  
         proc = subprocess.Popen(
@@ -189,11 +193,24 @@ def get_completions_from_pyright(source_code, line, character):
             try:
                 send_lsp_message(proc, 'shutdown', {}, msg_id=999)
                 send_lsp_message(proc, 'exit', {})
-                proc.wait(timeout=1)
+                proc.wait(timeout=2)
             except:
-                proc.terminate()
+                pass
+            
+            # Force kill if still alive
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=1)
+                except:
+                    try:
+                        proc.kill()
+                    except:
+                        pass
+        # Cleanup temp directory
         try:
-            os.unlink(temp_path)
+            import shutil
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
         except:
             pass
 

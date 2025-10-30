@@ -42,6 +42,8 @@ def run_file_tests(filepath: str):
     for i, scenario in enumerate(scenarios, 1):
         print(f"Running TEST {i}/{len(scenarios)}...", end=" ")
         
+        # No delay needed - each test gets its own clean workspace
+        
         test_passed = run_scenario_test(scenario)
         
         # Extract results
@@ -49,9 +51,9 @@ def run_file_tests(filepath: str):
         expected_top = scenario.get('expected_top', [])
         expected_first = scenario.get('expected_first', [])
         
-        # Find cursor position in cleaned code
+        # Get cursor position from parsed scenario
         source_code = scenario.get('source_code', '')
-        cursor_line_in_code = len(source_code.rstrip().split('\n'))  # Last line of cleaned code
+        cursor_line_in_code = scenario.get('actual_line', 0) + 1  # +1 for human-readable (1-indexed)
         
         result = {
             'test_num': i,

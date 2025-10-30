@@ -25,6 +25,52 @@ Completions get computed on the backend, therefore getting the completions is
 asynchronous.
 """
 
+# Known callable functions from popular stdlib modules (for school/beginners)
+# Used to determine when to add () for completions with kind=Variable
+STDLIB_CALLABLES = {
+    'random': {
+        'randint', 'choice', 'shuffle', 'randrange', 'random', 'uniform',
+        'sample', 'choices', 'seed', 'getrandbits', 'randbytes'
+    },
+    'math': {
+        'sqrt', 'pow', 'abs', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan',
+        'floor', 'ceil', 'round', 'degrees', 'radians', 'log', 'log10', 'exp',
+        'factorial', 'gcd', 'isclose', 'trunc', 'modf', 'fmod', 'copysign'
+    },
+    'turtle': {
+        'forward', 'fd', 'backward', 'bk', 'back', 'left', 'lt', 'right', 'rt',
+        'goto', 'setx', 'sety', 'setheading', 'seth', 'home', 'circle', 'dot',
+        'stamp', 'clearstamp', 'clearstamps', 'undo', 'speed',
+        'penup', 'pu', 'up', 'pendown', 'pd', 'down', 'pensize', 'width',
+        'color', 'pencolor', 'fillcolor', 'begin_fill', 'end_fill', 'filling',
+        'reset', 'clear', 'write', 'position', 'pos', 'towards', 'xcor', 'ycor',
+        'heading', 'distance', 'degrees', 'radians', 'hideturtle', 'ht',
+        'showturtle', 'st', 'isvisible', 'shape', 'resizemode', 'shapesize',
+        'shearfactor', 'onclick', 'onrelease', 'ondrag', 'listen', 'done', 'mainloop'
+    },
+    'time': {
+        'sleep', 'time', 'ctime', 'gmtime', 'localtime', 'strftime', 'strptime',
+        'mktime', 'asctime', 'perf_counter', 'process_time', 'monotonic'
+    },
+    'datetime': {
+        'now', 'today', 'fromtimestamp', 'combine', 'strptime', 'utcnow'
+    },
+    'string': {
+        'capwords'
+    },
+    'os': {
+        'getcwd', 'chdir', 'listdir', 'mkdir', 'makedirs', 'remove', 'rmdir',
+        'rename', 'replace', 'walk', 'path'
+    }
+}
+
+# Constants that should NOT get () even if they appear after a module
+STDLIB_CONSTANTS = {
+    'math': {'pi', 'e', 'tau', 'inf', 'nan'},
+    'string': {'ascii_letters', 'ascii_lowercase', 'ascii_uppercase', 'digits',
+               'hexdigits', 'octdigits', 'punctuation', 'printable', 'whitespace'}
+}
+
 
 def filter_garbage_completions(completions: list) -> list:
     """
@@ -98,7 +144,7 @@ def get_popular_function_boost(label: str) -> tuple[int, str]:
     return (0, "")
 
 
-def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) -> tuple[dict, set, set, str, set]:
+def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) -> tuple[dict, set, set, str, set, set, set]:
     """
     Use parso (1 parse call!) to:
     1. Infer types for variables (list, dict, set, tuple)
@@ -106,12 +152,14 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
     3. Extract loop variables (for x in ...)
     4. Find current function (where cursor is)
     5. Extract user-defined function names
+    6. Extract imported modules and functions
     
     Args:
         source_code: Python code to analyze
         cursor_line: 1-based line number where cursor is (optional)
     
-    Returns: (var_types_dict, user_defined_vars_set, loop_vars_set, current_function_name, user_functions_set)
+    Returns: (var_types_dict, user_defined_vars_set, loop_vars_set, current_function_name, 
+              user_functions_set, imported_modules_set, imported_functions_set)
     """
     try:
         import parso
@@ -123,6 +171,8 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
         user_defined_vars = set()  # ALL variable names
         user_functions = set()  # User-defined function names
         current_function = ""  # Function where cursor is
+        imported_modules = set()  # import random → "random"
+        imported_functions = set()  # from random import randint → "randint"
         
         module = parso.parse(source_code)
         
@@ -152,11 +202,13 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                 var_name = node.children[0].value
                 user_defined_vars.add(var_name)  # Track ALL assignments (except in functions)
                 
+                inferred_type = None  # Declare here to avoid UnboundLocalError
+                value = None  # Declare here to avoid UnboundLocalError
+                
                 # Check if it's simple assignment (x = ...)
                 if len(node.children) >= 3 and node.children[1].value == '=':
                     value = node.children[2]
                     value_type = value.type
-                    inferred_type = None
                     
                     # Check for literals by looking at first character
                     if hasattr(value, 'children') and value.children:
@@ -201,12 +253,12 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                             inferred_type = 'tuple'
                     
                     # String literal: x = "hello" or x = 'hello'
-                    if not inferred_type and value.type == 'string':
+                    if not inferred_type and value is not None and value.type == 'string':
                         var_types[var_name] = 'str'
                         inferred_type = 'str'
                     
                     # Number literal: x = 42 or x = 3.14
-                    if not inferred_type and value.type == 'number':
+                    if not inferred_type and value is not None and value.type == 'number':
                         # Determine if int or float by checking for '.'
                         num_str = value.value
                         if '.' in num_str:
@@ -217,23 +269,70 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                             inferred_type = 'int'
                     
                     # Tuple from testlist (without parens): x = 1, 2
-                    if not inferred_type and value.type == 'testlist':
+                    if not inferred_type and value is not None and value.type == 'testlist':
                         var_types[var_name] = 'tuple'
                         inferred_type = 'tuple'
                     
                 # Function calls: x = list(...), x = dict(...), even nested like list(map(...))
-                if not inferred_type:
+                if not inferred_type and value is not None:
                     func_name = get_outermost_function_name(value)
                     if func_name and func_name in ('list', 'dict', 'set', 'tuple', 'range', 'enumerate', 
                                                    'zip', 'map', 'filter', 'reversed', 'sorted'):
                         var_types[var_name] = func_name
                         inferred_type = func_name
-                    
-                    # Track what we found (LATEST assignment wins)
-                    if inferred_type:
-                        # Remove old assignment if exists
-                        assignments_found[:] = [a for a in assignments_found if not a.startswith(f"{var_name}=")]
-                        assignments_found.append(f"{var_name}={inferred_type}")
+                
+                # Track what we found (LATEST assignment wins)
+                if inferred_type:
+                    # Remove old assignment if exists
+                    assignments_found[:] = [a for a in assignments_found if not a.startswith(f"{var_name}=")]
+                    assignments_found.append(f"{var_name}={inferred_type}")
+            
+            # Look for imports: import random, import math as m
+            elif node.type == 'import_name' and hasattr(node, 'children'):
+                # import_name: 'import' dotted_as_names
+                for child in node.children:
+                    if child.type == 'dotted_as_names':
+                        # Multiple imports: import random, math
+                        for subchild in child.children:
+                            if subchild.type == 'dotted_as_name' or subchild.type == 'name':
+                                if subchild.type == 'dotted_as_name':
+                                    # import math as m → use alias "m"
+                                    if hasattr(subchild, 'children') and len(subchild.children) >= 3:
+                                        alias = subchild.children[2].value
+                                        imported_modules.add(alias)
+                                else:
+                                    # Simple name
+                                    imported_modules.add(subchild.value)
+                    elif child.type == 'dotted_name' or child.type == 'name':
+                        # Single import: import random
+                        imported_modules.add(child.value if child.type == 'name' else child.children[0].value)
+            
+            # Look for from imports: from random import randint, choice
+            elif node.type == 'import_from' and hasattr(node, 'children'):
+                # import_from: 'from' dotted_name 'import' (names | *)
+                module_name = None
+                for i, child in enumerate(node.children):
+                    if child.type in ('dotted_name', 'name'):
+                        module_name = child.value if child.type == 'name' else child.children[0].value
+                    elif hasattr(child, 'value') and child.value == 'import':
+                        # Next child has imported names
+                        if i + 1 < len(node.children):
+                            names_node = node.children[i + 1]
+                            if names_node.type == 'import_as_names':
+                                # Multiple names: from random import randint, choice
+                                for name_child in names_node.children:
+                                    if name_child.type == 'import_as_name':
+                                        # from random import randint as ri
+                                        if hasattr(name_child, 'children') and len(name_child.children) >= 3:
+                                            alias = name_child.children[2].value
+                                            imported_functions.add(alias)
+                                        elif hasattr(name_child, 'children'):
+                                            imported_functions.add(name_child.children[0].value)
+                                    elif name_child.type == 'name':
+                                        imported_functions.add(name_child.value)
+                            elif names_node.type == 'name':
+                                # Single import: from random import randint
+                                imported_functions.add(names_node.value)
             
             # Look for for-loop variables: for x in ...
             elif node.type == 'for_stmt' and hasattr(node, 'children') and len(node.children) >= 2:
@@ -329,13 +428,18 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
             logger.info(f"   ✓ Other assignments: {', '.join(sorted(other_vars))}")
         
         logger.info(f"   📊 Total: {len(user_defined_vars)} user-defined vars, {len(var_types)} with inferred types, {len(user_functions)} functions")
+        logger.info(f"   📦 Imports: {len(imported_modules)} modules, {len(imported_functions)} functions")
+        if imported_modules:
+            logger.info(f"      Modules: {', '.join(sorted(imported_modules))}")
+        if imported_functions:
+            logger.info(f"      Functions: {', '.join(sorted(imported_functions))}")
         
         loop_vars_set = set(loop_vars_found)
-        return var_types, user_defined_vars, loop_vars_set, current_function, user_functions
+        return var_types, user_defined_vars, loop_vars_set, current_function, user_functions, imported_modules, imported_functions
         
     except Exception as e:
         logger.warning(f"Parso type inference failed: {e}")
-        return {}, set(), set(), "", set()
+        return {}, set(), set(), "", set(), set(), set()
 
 
 def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_after_cursor: str, 
@@ -378,7 +482,7 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         cursor_line = len(lines_before)
     
     if source_code and len(source_code) < 5000:  # Only for small files (< 5KB)
-        var_types, user_defined_vars, loop_vars, current_function, user_functions = _infer_variable_types_with_parso(source_code, cursor_line)
+        var_types, user_defined_vars, loop_vars, current_function, user_functions, imported_modules, imported_functions = _infer_variable_types_with_parso(source_code, cursor_line)
         if user_defined_vars:
             logger.info(f"👤 User-defined vars: {sorted(user_defined_vars)}")
         if var_types:
@@ -937,6 +1041,8 @@ class CompletionsBox(EditorInfoBox):
     def __init__(self, completer: "Completer"):
         super().__init__()
         self._completer = completer
+        self._imported_modules = set()  # Modules imported in current file
+        self._imported_functions = set()  # Functions imported via 'from X import Y'
         self._listbox = tk.Listbox(
             self,
             font="EditorFont",
@@ -996,7 +1102,11 @@ class CompletionsBox(EditorInfoBox):
             if source_code:
                 lines_before = source_code[:source_code.rfind(line_before_cursor) + len(line_before_cursor)].split('\n')
                 cursor_line = len(lines_before)
-            var_types, user_defined_vars, _, _, _ = _infer_variable_types_with_parso(source_code, cursor_line)
+            var_types, user_defined_vars, _, _, _, imported_modules, imported_functions = _infer_variable_types_with_parso(source_code, cursor_line)
+            
+            # Save imports for use in _auto_add_parentheses
+            self._imported_modules = imported_modules
+            self._imported_functions = imported_functions
             
             if user_defined_vars:
                 user_vars_in_completions = []
@@ -1302,22 +1412,53 @@ class CompletionsBox(EditorInfoBox):
 
     def _auto_add_parentheses(self, completion: CompletionItem, insert_text: str) -> None:
         """Automatically add parentheses for functions, methods, and classes."""
-        # Check if this is a callable (function, method, or class)
         if completion.kind is None:
-            return
-        
-        is_callable = completion.kind in (
-            CompletionItemKind.Method,
-            CompletionItemKind.Function,
-            CompletionItemKind.Class
-        )
-        
-        if not is_callable:
             return
         
         # Check if there's already a '(' after cursor - don't duplicate
         char_after = self._target_text_widget.get("insert")
         if char_after == "(":
+            return
+        
+        # Determine if this is callable
+        is_callable = False
+        
+        # Method 1: LSP explicitly says it's Function/Method/Class
+        if completion.kind in (CompletionItemKind.Method, CompletionItemKind.Function, CompletionItemKind.Class):
+            is_callable = True
+        
+        # Method 2: For Variable type - check context + whitelist + imports
+        elif completion.kind == CompletionItemKind.Variable:
+            # Get line before cursor to check context
+            line_before = self._target_text_widget.get("insert linestart", "insert")
+            
+            # Check if there's module.function pattern
+            match = re.search(r'(\w+)\.\w*$', line_before)
+            if match:
+                module_name = match.group(1)
+                
+                # Is it a constant? (math.pi, math.e, etc.)
+                if module_name in STDLIB_CONSTANTS:
+                    if insert_text in STDLIB_CONSTANTS[module_name]:
+                        return
+                
+                # Check whitelist + imports
+                if module_name in STDLIB_CALLABLES:
+                    if insert_text in STDLIB_CALLABLES[module_name]:
+                        if module_name in self._imported_modules:
+                            is_callable = True
+                            logger.debug(f"Auto-adding () for {module_name}.{insert_text}")
+            else:
+                # No dot - check if it's directly imported function (from random import randint)
+                if insert_text in self._imported_functions:
+                    # Check if it's in any stdlib whitelist
+                    for module_funcs in STDLIB_CALLABLES.values():
+                        if insert_text in module_funcs:
+                            is_callable = True
+                            logger.debug(f"Auto-adding () for imported {insert_text}")
+                            break
+        
+        if not is_callable:
             return
         
         # Special handling for print-f - insert print(f"") instead of print("")
