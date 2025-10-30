@@ -1,11 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
 from typing import Iterator, List, Optional
+from logging import getLogger
 
 from thonny import get_workbench
 from thonny.assistance import ChatContext, ChatMessage, ChatResponseChunk
 from thonny.plugins.base_assistant import BaseAIAssistant
 from thonny.ui_utils import create_url_label
+
+logger = getLogger(__name__)
 
 
 API_KEY_SECRET_KEY = "Claude.api_key"
@@ -92,9 +95,6 @@ class ClaudeAssistant(BaseAIAssistant):
         return self._client
 
     def _request_new_api_key(self) -> None:
-        from logging import getLogger
-        logger = getLogger(__name__)
-        
         dlg = ClaudeApiKeyDialog(get_workbench())
         dlg.wait_window()  # Wait for dialog to close
         
@@ -153,6 +153,7 @@ class ClaudeAssistant(BaseAIAssistant):
             # Note: messages should NOT include system messages
             # Available models: claude-sonnet-4-5, claude-haiku-4-5
             model_name = get_workbench().get_option("ai.claude_model", "claude-sonnet-4-5")
+            logger.info(f"🤖 Claude: sending request with model '{model_name}'")
             response = client.messages.create(
                 model=model_name,
                 max_tokens=8192,
@@ -182,9 +183,6 @@ class ClaudeAssistant(BaseAIAssistant):
         import anthropic
         from anthropic import APIConnectionError, APIError
         from thonny.prompts import PromptType, get_prompt
-        from logging import getLogger
-        
-        logger = getLogger(__name__)
         
         try:
             # Get language and prompt
@@ -200,8 +198,10 @@ class ClaudeAssistant(BaseAIAssistant):
             
             # Use fast model
             client = self._get_client()
+            model_name = "claude-haiku-4-5"
+            logger.info(f"🤖 Claude: explaining diagnostic with model '{model_name}'")
             response = client.messages.create(
-                model="claude-haiku-4-5",
+                model=model_name,
                 max_tokens=250,
                 messages=[{"role": "user", "content": prompt}],
             )

@@ -209,19 +209,21 @@ class ChatView(tktextext.TextFrame):
 
         from thonny.plugins.openai import OpenAIAssistant
 
-        # Try to use DebugAI or DebugGemini based on saved preference, fallback to Echo
+        # Initialize assistant based on selected model provider
+        from thonny.plugins.ai_models import get_default_model
+        
         try:
-            saved_model = get_workbench().get_option("ai.model", "gpt")
+            provider = get_workbench().get_option("ai.selected_model_provider", get_default_model().provider)
         except Exception:
-            saved_model = "gpt"
+            provider = get_default_model().provider
         
         # Use regular assistants by default (not debug versions)
-        if saved_model == "gemini":
-            self._current_assistant: Assistant = get_workbench().assistants.get("gemini", EchoAssistant())  # lowercase!
-        elif saved_model == "claude":
-            self._current_assistant: Assistant = get_workbench().assistants.get("claude", EchoAssistant())  # lowercase!
-        else:
-            self._current_assistant: Assistant = get_workbench().assistants.get("openai", EchoAssistant())  # lowercase!
+        if provider == "gemini":
+            self._current_assistant: Assistant = get_workbench().assistants.get("gemini", EchoAssistant())
+        elif provider == "claude":
+            self._current_assistant: Assistant = get_workbench().assistants.get("claude", EchoAssistant())
+        else:  # gpt
+            self._current_assistant: Assistant = get_workbench().assistants.get("openai", EchoAssistant())
 
         get_workbench().bind("ToplevelResponse", self.handle_toplevel_response, True)
         get_workbench().bind(
@@ -292,23 +294,35 @@ class ChatView(tktextext.TextFrame):
         self.lang_combobox.pack(side="left", padx=(0, 5))
         self.lang_combobox.bind("<<ComboboxSelected>>", lambda e: self._on_lang_selected())
         
-        # Model selection dropdown (GPT/Gemini/Claude) next to language button
-        def _current_model() -> str:
+        # Model selection dropdown - show actual models (not just providers)
+        from thonny.plugins.ai_models import parse_models_from_json, get_default_model
+        
+        def _get_available_models():
+            """Get list of available models from configuration"""
             try:
-                return get_workbench().get_option("ai.model", "gemini")
+                models_json = get_workbench().get_option("ai.models_json")
+                models = parse_models_from_json(models_json)
+                return models
             except Exception:
-                return "gemini"
+                return [get_default_model()]
         
-        def _model_label_from(model: str) -> str:
-            return {"gpt": "GPT", "gemini": "Gemini", "claude": "Claude"}.get(model, "GPT")
+        def _current_model_name() -> str:
+            """Get currently selected model name (UI name)"""
+            try:
+                return get_workbench().get_option("ai.selected_model_ui_name", get_default_model().ui_name)
+            except Exception:
+                return get_default_model().ui_name
         
-        self.model_var = tk.StringVar(value=_model_label_from(_current_model()))
+        self._available_models = _get_available_models()
+        model_names = [m.ui_name for m in self._available_models]
+        
+        self.model_var = tk.StringVar(value=_current_model_name())
         self.model_combobox = ttk.Combobox(
             right_buttons_frame,
             textvariable=self.model_var,
-            values=["Gemini", "Claude", "GPT"],
+            values=model_names,
             state="readonly",
-            width=8,
+            width=15,
         )
         self.model_combobox.pack(side="left", padx=(0, 5))
         self.model_combobox.bind("<<ComboboxSelected>>", lambda e: self._on_model_selected())
@@ -467,34 +481,60 @@ class ChatView(tktextext.TextFrame):
         self._update_suggestions()
     
     def _on_model_selected(self) -> None:
-        """Handle model selection change (GPT/Gemini/Claude), preserving chat history"""
-        # Map display name to internal value
-        label_to_model = {"GPT": "gpt", "Gemini": "gemini", "Claude": "claude"}
-        selected_label = self.model_var.get()
-        new_model = label_to_model.get(selected_label, "gpt")
+        """Handle model selection change, preserving chat history"""
+        from thonny.plugins.ai_models import parse_models_from_json
         
+        selected_ui_name = self.model_var.get()
+        
+        # Find selected model
         try:
-            get_workbench().set_option("ai.model", new_model)
+            models_json = get_workbench().get_option("ai.models_json")
+            models = parse_models_from_json(models_json)
+        except Exception:
+            models = self._available_models
+        
+        selected_model = None
+        for model in models:
+            if model.ui_name == selected_ui_name:
+                selected_model = model
+                break
+        
+        if not selected_model:
+            return  # Model not found
+        
+        # Save selection
+        try:
+            get_workbench().set_option("ai.selected_model_ui_name", selected_model.ui_name)
+            get_workbench().set_option("ai.selected_model_api_name", selected_model.api_name)
+            get_workbench().set_option("ai.selected_model_provider", selected_model.provider)
+            
+            # Also save to provider-specific options for backward compatibility
+            if selected_model.provider == "gemini":
+                get_workbench().set_option("ai.gemini_model", selected_model.api_name)
+            elif selected_model.provider == "claude":
+                get_workbench().set_option("ai.claude_model", selected_model.api_name)
+            elif selected_model.provider == "gpt":
+                get_workbench().set_option("ai.gpt_model", selected_model.api_name)
         except Exception:
             pass
         
-        # Switch assistant while preserving history (case-insensitive keys)
-        # Switch to regular assistants (not debug versions)
+        # Switch assistant based on provider
         assistants = get_workbench().assistants
+        provider = selected_model.provider
         
-        if new_model == "gpt":
+        if provider == "gpt":
             self._current_assistant = (
-                assistants.get("openai")  # lowercase!
+                assistants.get("openai")
                 or EchoAssistant()
             )
-        elif new_model == "gemini":
+        elif provider == "gemini":
             self._current_assistant = (
-                assistants.get("gemini")  # lowercase!
+                assistants.get("gemini")
                 or EchoAssistant()
             )
-        elif new_model == "claude":
+        elif provider == "claude":
             self._current_assistant = (
-                assistants.get("claude")  # lowercase!
+                assistants.get("claude")
                 or EchoAssistant()
             )
         
@@ -590,23 +630,25 @@ class ChatView(tktextext.TextFrame):
         
         # Определяем, какую модель использовать (GPT/Gemini/Claude)
         # и получаем соответствующий Debug assistant для авто-объяснений
+        from thonny.plugins.ai_models import get_default_model
+        
         try:
-            current_model = get_workbench().get_option("ai.model", "gpt")
+            provider = get_workbench().get_option("ai.selected_model_provider", get_default_model().provider)
         except Exception:
-            current_model = "gpt"
+            provider = get_default_model().provider
         
         assistants = get_workbench().assistants
         
         debug_assistant = None
-        if current_model == "gpt":
-            debug_assistant = assistants.get("debugai")  # lowercase!
-        elif current_model == "gemini":
-            debug_assistant = assistants.get("debuggemini")  # lowercase!
-        elif current_model == "claude":
-            debug_assistant = assistants.get("debugclaude")  # lowercase!
+        if provider == "gpt":
+            debug_assistant = assistants.get("debugai")
+        elif provider == "gemini":
+            debug_assistant = assistants.get("debuggemini")
+        elif provider == "claude":
+            debug_assistant = assistants.get("debugclaude")
         
         if not debug_assistant:
-            logger.warning(f"Debug assistant not found for model {current_model}")
+            logger.warning(f"Debug assistant not found for provider {provider}")
             return
         
         # Избегаем повторной генерации для того же шага (но не для ручного explain)
@@ -2224,8 +2266,19 @@ def _handle_show_fix_suggestion(event):
 
 
 def load_plugin():
+    from thonny.plugins.ai_models import get_default_model
+    
     # Register AI options with defaults so they persist between sessions
-    get_workbench().set_default("ai.model", "gemini")
+    default_model = get_default_model()
+    get_workbench().set_default("ai.selected_model_ui_name", default_model.ui_name)
+    get_workbench().set_default("ai.selected_model_api_name", default_model.api_name)
+    get_workbench().set_default("ai.selected_model_provider", default_model.provider)
+    
+    # Provider-specific model defaults (for backward compatibility with existing code)
+    get_workbench().set_default("ai.gemini_model", "gemini-2.5-pro")
+    get_workbench().set_default("ai.claude_model", "claude-sonnet-4-5")
+    get_workbench().set_default("ai.gpt_model", "gpt-5")
+    
     get_workbench().set_default("ai.language", "uk")
     get_workbench().set_default("ai.summary_max_msgs", 25)
     get_workbench().set_default("ai.summary_max_chars", 10000)

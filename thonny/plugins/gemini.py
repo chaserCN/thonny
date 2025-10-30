@@ -1,11 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
 from typing import Iterator, List, Optional
+from logging import getLogger
 
 from thonny import get_workbench
 from thonny.assistance import ChatContext, ChatMessage, ChatResponseChunk
 from thonny.plugins.base_assistant import BaseAIAssistant
 from thonny.ui_utils import create_url_label
+
+logger = getLogger(__name__)
 
 
 API_KEY_SECRET_KEY = "Gemini.api_key"
@@ -97,9 +100,6 @@ class GeminiAssistant(BaseAIAssistant):
         return self._model_cache[model_name]
 
     def _request_new_api_key(self) -> None:
-        from logging import getLogger
-        logger = getLogger(__name__)
-        
         dlg = GeminiApiKeyDialog(get_workbench())
         dlg.wait_window()  # Wait for dialog to close
         
@@ -143,6 +143,7 @@ class GeminiAssistant(BaseAIAssistant):
         try:
             # Get configured model (with caching)
             model_name = get_workbench().get_option("ai.gemini_model", "gemini-2.5-pro")
+            logger.info(f"🤖 Gemini: sending request with model '{model_name}'")
             # Note: Can't cache models with system_instruction since it varies
             # But configure() is cached in _get_model()
             self._get_model(model_name)  # Ensure API is configured
@@ -190,9 +191,6 @@ class GeminiAssistant(BaseAIAssistant):
         """Fast diagnostic explanation using gemini-2.5-flash-lite"""
         import google.generativeai as genai
         from thonny.prompts import PromptType, get_prompt
-        from logging import getLogger
-        
-        logger = getLogger(__name__)
         
         try:
             # Get language and prompt
@@ -207,7 +205,9 @@ class GeminiAssistant(BaseAIAssistant):
             )
 
             # Use cached fast model
-            model = self._get_model('gemini-2.5-flash-lite')
+            model_name = 'gemini-2.5-flash-lite'
+            logger.info(f"🤖 Gemini: explaining diagnostic with model '{model_name}'")
+            model = self._get_model(model_name)
             
             # Fast request
             response = model.generate_content(

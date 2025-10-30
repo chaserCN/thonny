@@ -1,11 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
 from typing import Iterator, List, Optional
+from logging import getLogger
 
 from thonny import get_workbench
 from thonny.assistance import ChatContext, ChatMessage, ChatResponseChunk
 from thonny.plugins.base_assistant import BaseAIAssistant
 from thonny.ui_utils import create_url_label
+
+logger = getLogger(__name__)
 
 
 API_KEY_SECRET_KEY = "OpenAI.api_key"
@@ -92,9 +95,6 @@ class OpenAIAssistant(BaseAIAssistant):
         return self._client
 
     def _request_new_api_key(self) -> None:
-        from logging import getLogger
-        logger = getLogger(__name__)
-        
         dlg = OpenAIApiKeyDialog(get_workbench())
         dlg.wait_window()  # Wait for dialog to close
         
@@ -134,9 +134,6 @@ class OpenAIAssistant(BaseAIAssistant):
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
         """Send request to OpenAI API and stream response"""
         from openai import OpenAI, APIConnectionError, APIError
-        from logging import getLogger
-        
-        logger = getLogger(__name__)
 
         try:
             # Use cached client
@@ -146,6 +143,7 @@ class OpenAIAssistant(BaseAIAssistant):
             all_messages = [{"role": "system", "content": system_prompt}] + messages
 
             model_name = get_workbench().get_option("ai.gpt_model", "gpt-5")
+            logger.info(f"🤖 OpenAI: sending request with model '{model_name}'")
             response = client.chat.completions.create(
                 model=model_name,
                 messages=all_messages,
@@ -173,9 +171,6 @@ class OpenAIAssistant(BaseAIAssistant):
         """Fast diagnostic explanation using gpt-4o-mini"""
         from openai import OpenAI, APIConnectionError, APIError
         from thonny.prompts import PromptType, get_prompt
-        from logging import getLogger
-        
-        logger = getLogger(__name__)
         
         try:
             # Get language and prompt
@@ -191,8 +186,10 @@ class OpenAIAssistant(BaseAIAssistant):
             
             # Use cached client and fast model
             client = self._get_client()
+            model_name = "gpt-4o-mini"
+            logger.info(f"🤖 OpenAI: explaining diagnostic with model '{model_name}'")
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model_name,
                 messages=[{"role": "user", "content": prompt}],
                 
             )
