@@ -102,10 +102,17 @@ def filter_garbage_completions(completions: list) -> list:
         if comp.kind and comp.kind == CompletionItemKind.Variable and comp.label.endswith("="):
             logger.info(f"🗑️  Filtering keyword arg: {comp.label}")
             continue
-        if comp.textEdit is not None:
-            continue  # TODO: support textEdit
+        # Extract insertText from textEdit if present (LSP standard mechanism)
+        if comp.textEdit is not None and hasattr(comp.textEdit, 'newText'):
+            # Use newText from textEdit as insertText
+            if comp.insertText is None:
+                comp.insertText = comp.textEdit.newText
+            # Reset textEdit so we can handle it normally
+            comp.textEdit = None
+        
         if comp.additionalTextEdits:
-            continue  # TODO: support this
+            # Ignore additionalTextEdits for now (used for imports, etc.)
+            comp.additionalTextEdits = None
         
         filtered.append(comp)
     
@@ -442,8 +449,36 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
         return {}, set(), set(), "", set(), set(), set()
 
 
+def simple_fuzzy_match(text: str, pattern: str) -> bool:
+    """
+    Check if all characters from pattern appear in text in order (case-insensitive).
+    
+    Examples:
+        simple_fuzzy_match("roll_result", "rr") -> True
+        simple_fuzzy_match("RANDOM_RANGE", "rr") -> True
+        simple_fuzzy_match("MAX_VALUE", "rr") -> False
+    """
+    if not pattern:
+        return True
+    
+    pattern = pattern.lower()
+    text = text.lower()
+    pattern_idx = 0
+    
+    for char in text:
+        if pattern_idx < len(pattern) and char == pattern[pattern_idx]:
+            pattern_idx += 1
+    
+    return pattern_idx == len(pattern)
+
+
 def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_after_cursor: str, 
-                                   source_code: str = None):
+                                   source_code: str = None,
+                                   var_types: dict = None,
+                                   user_defined_vars: set = None,
+                                   loop_vars: set = None,
+                                   current_function: str = None,
+                                   user_functions: set = None):
     """
     Factory function that creates a sort_key function for context-aware completion ranking.
     
@@ -458,15 +493,28 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         line_before_cursor: Text from line start to cursor
         line_after_cursor: Text from cursor to line end
         source_code: Full source code (optional, for parso inference)
+        var_types: Pre-computed variable types from Parso (optional)
+        user_defined_vars: Pre-computed user-defined variables (optional)
+        loop_vars: Pre-computed loop variables (optional)
+        current_function: Pre-computed current function name (optional)
+        user_functions: Pre-computed user-defined functions (optional)
         
     Returns:
         A sort_key function that can be used with sorted()
     """
     logger.info(f"🔍 create_context_aware_sort_key: prefix={repr(prefix)}, line_before={repr(line_before_cursor)}")
     
-    # Use parso (1 call!) to get types AND user-defined variables
-    var_types = {}
-    user_defined_vars = set()
+    # Use pre-computed Parso results if available, otherwise empty defaults
+    if var_types is None:
+        var_types = {}
+    if user_defined_vars is None:
+        user_defined_vars = set()
+    if loop_vars is None:
+        loop_vars = set()
+    if current_function is None:
+        current_function = ""
+    if user_functions is None:
+        user_functions = set()
     
     logger.info(f"\n{'='*60}")
     logger.info(f"🎯 CONTEXT-AWARE SORTING")
@@ -474,29 +522,6 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
     logger.info(f"   Line before: {line_before_cursor!r}")
     logger.info(f"   Line after: {line_after_cursor!r}")
     logger.info(f"   Source code length: {len(source_code) if source_code else 0} chars")
-    
-    # Calculate cursor line for function context detection
-    cursor_line = None
-    if source_code:
-        lines_before = source_code[:source_code.rfind(line_before_cursor) + len(line_before_cursor)].split('\n')
-        cursor_line = len(lines_before)
-    
-    if source_code and len(source_code) < 5000:  # Only for small files (< 5KB)
-        var_types, user_defined_vars, loop_vars, current_function, user_functions, imported_modules, imported_functions = _infer_variable_types_with_parso(source_code, cursor_line)
-        if user_defined_vars:
-            logger.info(f"👤 User-defined vars: {sorted(user_defined_vars)}")
-        if var_types:
-            logger.info(f"🔬 Inferred types: {var_types}")
-        if loop_vars:
-            logger.info(f"🔁 Loop variables: {sorted(loop_vars)}")
-        if user_functions:
-            logger.info(f"🎯 User functions: {sorted(user_functions)}")
-        if current_function:
-            logger.info(f"📍 Current function: {current_function}")
-    else:
-        # Fallback for large files or when Parso unavailable
-        var_types, user_defined_vars, loop_vars, current_function, user_functions = {}, set(), set(), "", set()
-    
     logger.info(f"{'='*60}\n")
     
     def sort_key(completion: lsp_types.CompletionItem):
@@ -511,12 +536,10 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         if not prefix:
             prefix_priority = 1000 if label.startswith("_") else 0
         elif label.startswith(prefix):
-            # Check if user-defined (for Functions/Classes)
-            # For variables, we check user_defined_vars in context boost
-            # For functions/classes, sortText still works OK for now (LSP marks user-defined differently)
+            # Exact prefix match - highest priority
             is_user_defined_func = sort_text.startswith(('00.', '01.', '02.'))
             
-            if kind and kind == CompletionItemKind.Variable:  # Variable - highest priority
+            if kind and kind in (CompletionItemKind.Variable, CompletionItemKind.Constant):  # Variable/Constant - highest priority
                 prefix_priority = -10000
             elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class, CompletionItemKind.Module) and is_user_defined_func:  # User-defined Function/Class/Module
                 prefix_priority = -8000
@@ -525,7 +548,31 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
             else:
                 prefix_priority = -5000  # Keywords and other builtins
         elif label.lower().startswith(prefix.lower()):
-            prefix_priority = -2500  # Case-insensitive still very important
+            # Case-insensitive exact prefix - still very high
+            # Variables should be higher priority than fuzzy-matched functions
+            is_user_defined_func = sort_text.startswith(('00.', '01.', '02.'))
+            
+            if kind and kind in (CompletionItemKind.Variable, CompletionItemKind.Constant):
+                prefix_priority = -9000  # Below exact match but above everything else
+            elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class, CompletionItemKind.Module) and is_user_defined_func:
+                prefix_priority = -7000
+            elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class, CompletionItemKind.Module):
+                prefix_priority = -5000
+            else:
+                prefix_priority = -4000  # Keywords
+        elif simple_fuzzy_match(label, prefix):
+            # Fuzzy match (e.g., 'rr' matches 'roll_result', 'repr')
+            # Lower priority than exact prefix, but still should appear
+            is_user_defined_func = sort_text.startswith(('00.', '01.', '02.'))
+            
+            if kind and kind in (CompletionItemKind.Variable, CompletionItemKind.Constant):
+                prefix_priority = -4000  # Below exact match but above non-matching
+            elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class, CompletionItemKind.Module) and is_user_defined_func:
+                prefix_priority = -3500
+            elif kind and kind in (CompletionItemKind.Function, CompletionItemKind.Class, CompletionItemKind.Module):
+                prefix_priority = -3000
+            else:
+                prefix_priority = -2000  # Keywords
         else:
             prefix_priority = 0
         
@@ -648,7 +695,9 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
             
             if is_import:
                 # Check if "from MODULE import" context
+                # Match "from X import" for filtering functions, or "from X " for boosting "import" keyword
                 from_match = re.match(r'from\s+(\w+)\s+import', line_stripped)
+                from_prefix_match = re.match(r'from\s+(\w+)\s+', line_stripped)  # Matches "from random "
                 
                 if from_match and kind and kind in (CompletionItemKind.Function, CompletionItemKind.Variable):  # Function/Variable from module
                     module_name = from_match.group(1)
@@ -689,8 +738,13 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                         context_boost += 200  # Demote classes and functions
                         boost_reason = "import: demote class/function"
                 elif kind and kind == CompletionItemKind.Keyword:  # Keyword
-                    context_boost += 300  # Strongly demote keywords
-                    boost_reason = "import: demote keyword"
+                    # Special case: "import" keyword after "from X " should be boosted!
+                    if from_prefix_match and label == "import":
+                        context_boost -= 2000  # Very strong boost - this is what user wants!
+                        boost_reason = "from X: boost 'import' keyword"
+                    else:
+                        context_boost += 300  # Strongly demote other keywords
+                        boost_reason = "import: demote keyword"
         
         # 3. BOOLEAN CONTEXTS (if, while, elif): boost variables/functions, demote keywords
         # is_boolean_context already defined above (line 452-456)
@@ -1023,7 +1077,9 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
             kind_name = lsp_types.CompletionItemKind(kind).name if kind else "Unknown"
             logger.info(f"   {'🔼' if context_boost < 0 else '🔽'} {label:20s} | boost={context_boost:+5d} | {boost_reason or 'no reason'} | kind={kind_name}")
         
-        return (final_priority, is_constant, sort_text.lower(), label.lower(), label)
+        # Don't sort by label.lower() - preserve LSP fuzzy match order!
+        # LSP already sorted by fuzzy match, we only add context-aware boost
+        return (final_priority, is_constant, sort_text.lower())
     
     return sort_key
 
@@ -1092,63 +1148,37 @@ class CompletionsBox(EditorInfoBox):
             line_after_cursor = ""
             source_code = ""
 
-        # Use shared context-aware sorting logic
-        sort_key = create_context_aware_sort_key(prefix, line_before_cursor, line_after_cursor, source_code)
+        # Run Parso ONCE to get variable types and user-defined variables
+        var_types = {}
+        user_defined_vars = set()
+        loop_vars = set()
+        current_function = ""
+        user_functions = set()
+        imported_modules = set()
+        imported_functions = set()
         
-        # Add missing user-defined variables (constants) that LSP doesn't return
         if source_code and len(source_code) < 5000:
             from thonny.plugins.autocomplete import _infer_variable_types_with_parso
             cursor_line = None
             if source_code:
                 lines_before = source_code[:source_code.rfind(line_before_cursor) + len(line_before_cursor)].split('\n')
                 cursor_line = len(lines_before)
-            var_types, user_defined_vars, _, _, _, imported_modules, imported_functions = _infer_variable_types_with_parso(source_code, cursor_line)
-            
-            # Save imports for use in _auto_add_parentheses
-            self._imported_modules = imported_modules
-            self._imported_functions = imported_functions
-            
-            if user_defined_vars:
-                user_vars_in_completions = []
-                user_vars_sort_texts = {}
-                for comp in completions:
-                    if comp.kind and comp.kind == CompletionItemKind.Variable and comp.label in user_defined_vars:
-                        user_vars_in_completions.append(comp.label)
-                        user_vars_sort_texts[comp.label] = comp.sortText or comp.label
-                
-                if user_vars_in_completions:
-                    logger.info(f"✅ User vars in LSP response: {sorted(user_vars_in_completions)}")
-                    logger.info(f"   sortText samples: {dict(list(user_vars_sort_texts.items())[:3])}")
-                missing_vars = user_defined_vars - set(user_vars_in_completions)
-                if missing_vars:
-                    logger.info(f"❌ User vars NOT in LSP response: {sorted(missing_vars)}")
-                    logger.info(f"➕ Adding {len(missing_vars)} missing user vars as synthetic completions")
-                    
-                    # Create synthetic CompletionItems for missing vars
-                    for var_name in sorted(missing_vars):
-                        # Create detail from inferred type
-                        detail = var_types.get(var_name)
-                        if detail:
-                            detail = f": {detail}"
-                        else:
-                            detail = None
-                        
-                        synthetic_item = CompletionItem(
-                            label=var_name,
-                            kind=lsp_types.CompletionItemKind(6),  # Variable
-                            sortText=f"09.9999.{var_name}",  # Same as LSP local vars, will be sorted by is_constant
-                            detail=detail,
-                            insertText=None,
-                            textEdit=None,
-                            additionalTextEdits=None,
-                            insertTextFormat=None,
-                            insertTextMode=None,
-                            documentation=None,
-                        )
-                        completions.append(synthetic_item)
-                    
-                    logger.info(f"✅ Added synthetic completions: {sorted(missing_vars)}")
-
+            var_types, user_defined_vars, loop_vars, current_function, user_functions, imported_modules, imported_functions = _infer_variable_types_with_parso(source_code, cursor_line)
+        
+        # Save imports for use in _auto_add_parentheses
+        self._imported_modules = imported_modules
+        self._imported_functions = imported_functions
+        
+        # Use shared context-aware sorting logic (pass Parso results to avoid re-parsing)
+        sort_key = create_context_aware_sort_key(
+            prefix, line_before_cursor, line_after_cursor, source_code,
+            var_types=var_types,
+            user_defined_vars=user_defined_vars,
+            loop_vars=loop_vars,
+            current_function=current_function,
+            user_functions=user_functions
+        )
+        
         if skip_sorting:
             # AI already sorted - don't re-sort!
             logger.info(f"🎯 Using AI-sorted order (skip_sorting=True)")
@@ -1156,6 +1186,11 @@ class CompletionsBox(EditorInfoBox):
         else:
             # Apply our sorting algorithm
             logger.info(f"🔄 Sorting {len(completions)} completions with context-aware algorithm...")
+            
+            # DEBUG: Log all Variables before sorting
+            variables_before = [c for c in completions if c.kind == CompletionItemKind.Variable]
+            if variables_before:
+                logger.info(f"   📝 Variables before sorting ({len(variables_before)}): {[v.label for v in variables_before]}")
             sorted_completions = sorted(completions, key=sort_key)
             
             # Log top results for debugging
