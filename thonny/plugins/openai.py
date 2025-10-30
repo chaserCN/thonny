@@ -132,7 +132,7 @@ class OpenAIAssistant(BaseAIAssistant):
         return out_msgs
     
     def _send_to_api(self, system_prompt: str, messages: List[dict]) -> Iterator[ChatResponseChunk]:
-        """Send request to OpenAI API and stream response"""
+        """Send request to OpenAI Responses API with full message history"""
         from openai import OpenAI, APIConnectionError, APIError
 
         try:
@@ -142,16 +142,17 @@ class OpenAIAssistant(BaseAIAssistant):
             # Combine system message with history
             all_messages = [{"role": "system", "content": system_prompt}] + messages
 
-            model_name = get_workbench().get_option("ai.gpt_model", "gpt-5")
+            # Use selected model API name from new system
+            model_name = get_workbench().get_option("ai.selected_model_api_name", "gpt-5")
             logger.info(f"🤖 OpenAI: sending request with model '{model_name}'")
-            response = client.chat.completions.create(
+            response = client.responses.create(
                 model=model_name,
-                messages=all_messages,
+                input=all_messages,
                 stream=False,
             )
 
-            # Get full response at once (single final chunk)
-            content = response.choices[0].message.content or ""
+            # Get response content
+            content = response.output_text if hasattr(response, 'output_text') else (response.output if hasattr(response, 'output') else "")
             if content:
                 yield ChatResponseChunk(content)
             else:

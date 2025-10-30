@@ -57,11 +57,6 @@ DEFAULT_MODELS = [
         api_name="gpt-5-codex"
     ),
     AIModel(
-        ui_name="Codex Mini",
-        provider="gpt",
-        api_name="codex-mini-latest"
-    ),
-    AIModel(
         ui_name="Claude Sonnet 4.5",
         provider="claude",
         api_name="claude-sonnet-4-5"

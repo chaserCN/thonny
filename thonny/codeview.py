@@ -196,16 +196,13 @@ class CodeViewText(EnhancedTextWithLogging, SyntaxText):
     
     def explain_token_under_cursor(self):
         """Explain the token/construct under cursor or selected text using AI"""
-        # Check if there's a selection
-        try:
+        # Check if there's a selection (without generating errors in log)
+        if self.tag_ranges("sel"):
+            # There's a selection
             sel_start = self.index("sel.first")
             sel_end = self.index("sel.last")
-            # If we got here, there's a selection
             self._explain_selection(sel_start, sel_end)
             return
-        except:
-            # No selection, continue with token under cursor
-            pass
         
         # Get cursor position
         cursor_index = self.index("insert")

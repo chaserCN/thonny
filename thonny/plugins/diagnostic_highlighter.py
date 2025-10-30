@@ -244,12 +244,6 @@ class DiagnosticTooltip:
                 self._execute_actions(actions)
                 return
             
-            # Get model name for timing log
-            try:
-                model = get_workbench().get_option("ai.model", "gpt")
-            except:
-                model = "gpt"
-            
             # Get current editor code
             editor = get_workbench().get_editor_notebook().get_current_editor()
             program_code = editor.get_content() if editor else ""
@@ -305,8 +299,6 @@ class DiagnosticTooltip:
                     self.text_widget.after(0, on_success)
                     
                 except Exception as e:
-                    logger.exception(f"[Tooltip] {model} translation failed for request {request_id}")
-                    
                     # Cache failure as None to prevent retries
                     self._translation_cache[message] = None
                     self._cache_timestamps[message] = time.time()

@@ -152,7 +152,8 @@ class ClaudeAssistant(BaseAIAssistant):
             # Claude uses separate system parameter (not in messages)
             # Note: messages should NOT include system messages
             # Available models: claude-sonnet-4-5, claude-haiku-4-5
-            model_name = get_workbench().get_option("ai.claude_model", "claude-sonnet-4-5")
+            # Use selected model API name from new system
+            model_name = get_workbench().get_option("ai.selected_model_api_name", "claude-sonnet-4-5")
             logger.info(f"🤖 Claude: sending request with model '{model_name}'")
             response = client.messages.create(
                 model=model_name,

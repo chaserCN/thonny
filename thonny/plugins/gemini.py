@@ -142,7 +142,8 @@ class GeminiAssistant(BaseAIAssistant):
 
         try:
             # Get configured model (with caching)
-            model_name = get_workbench().get_option("ai.gemini_model", "gemini-2.5-pro")
+            # Use selected model API name from new system
+            model_name = get_workbench().get_option("ai.selected_model_api_name", "gemini-2.5-pro")
             logger.info(f"🤖 Gemini: sending request with model '{model_name}'")
             # Note: Can't cache models with system_instruction since it varies
             # But configure() is cached in _get_model()
@@ -165,8 +166,6 @@ class GeminiAssistant(BaseAIAssistant):
             
             try:
                 full_text = response.text
-
-                print(f"Gemini response: {full_text}")
 
                 if full_text:
                     yield ChatResponseChunk(full_text)

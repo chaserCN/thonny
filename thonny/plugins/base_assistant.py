@@ -114,7 +114,7 @@ class BaseAIAssistant(Assistant):
             )
             messages = messages + [current_with_context]
         
-        print_request_info("DEBUG STEP", system_prompt, messages)
+        #print_request_info("DEBUG STEP", system_prompt, messages)
         
         # NO summarization for debug
         # Prepare all messages as-is
@@ -238,7 +238,7 @@ class BaseAIAssistant(Assistant):
         # Prepare single message
         user_message = ChatMessage(ChatRole.USER, user_prompt, [])
         
-        print_request_info("EXPLAIN LINE", system_prompt, [user_message])
+        #print_request_info("EXPLAIN LINE", system_prompt, [user_message])
         
         messages = self._prepare_messages([user_message])
 
@@ -292,7 +292,7 @@ class BaseAIAssistant(Assistant):
         # Prepare single message
         user_message = ChatMessage(ChatRole.USER, user_prompt, [])
         
-        print_request_info("EXPLAIN TOKEN", system_prompt, [user_message])
+        #print_request_info("EXPLAIN TOKEN", system_prompt, [user_message])
         
         messages = self._prepare_messages([user_message])
 
@@ -345,7 +345,7 @@ class BaseAIAssistant(Assistant):
         # Prepare single message
         user_message = ChatMessage(ChatRole.USER, user_prompt, [])
         
-        print_request_info("EXPLAIN SELECTION", system_prompt, [user_message])
+        #print_request_info("EXPLAIN SELECTION", system_prompt, [user_message])
         
         messages = self._prepare_messages([user_message])
 
@@ -398,19 +398,21 @@ def print_request_info(request_type: str, system_prompt: str, messages: List[Cha
 def get_ai_assistant():
     """Get configured AI assistant, return None if unavailable"""
     try:
-        model = get_workbench().get_option("ai.model", "gpt")
+        # Use new model selection system (ai.selected_model_provider)
+        provider = get_workbench().get_option("ai.selected_model_provider", "gemini")
     except:
-        model = "gpt"
+        provider = "gemini"
     
     assistants = get_workbench().assistants
-    if model == "gpt":
+    if provider == "gpt":
         assistant = assistants.get("openai")
-    elif model == "gemini":
+    elif provider == "gemini":
         assistant = assistants.get("gemini")
-    elif model == "claude":
+    elif provider == "claude":
         assistant = assistants.get("claude")
     else:
-        assistant = assistants.get("openai")
+        # Default to Gemini
+        assistant = assistants.get("gemini")
     
     if not assistant:
         return None
