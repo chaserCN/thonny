@@ -1455,6 +1455,16 @@ class CompletionsBox(EditorInfoBox):
         if char_after == "(":
             return
         
+        # Get context to check for special cases
+        line_before = self._target_text_widget.get("insert linestart", "insert")
+        
+        # Don't add () for exception classes in "except" context
+        if completion.kind == CompletionItemKind.Class:
+            # Check if we're after "except" keyword
+            except_pattern = r'\bexcept\s+\w*$'
+            if re.search(except_pattern, line_before):
+                return
+        
         # Determine if this is callable
         is_callable = False
         
@@ -1464,9 +1474,6 @@ class CompletionsBox(EditorInfoBox):
         
         # Method 2: For Variable type - check context + whitelist + imports
         elif completion.kind == CompletionItemKind.Variable:
-            # Get line before cursor to check context
-            line_before = self._target_text_widget.get("insert linestart", "insert")
-            
             # Check if there's module.function pattern
             match = re.search(r'(\w+)\.\w*$', line_before)
             if match:
