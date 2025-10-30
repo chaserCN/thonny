@@ -170,8 +170,6 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
         import parso
         from parso.python import tree
         
-        logger.info(f"🔬 PARSO: Analyzing {len(source_code)} chars of code...")
-        
         var_types = {}  # {var_name: type_hint}
         user_defined_vars = set()  # ALL variable names
         user_functions = set()  # User-defined function names
@@ -362,7 +360,6 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                                     loop_var = next_child.value
                                     user_defined_vars.add(loop_var)
                                     loop_vars_found.append(loop_var)
-                                    logger.info(f"   ✓ Comprehension loop var: {loop_var}")
             
             # Look for function definitions: def func_name(...):
             elif node.type == 'funcdef' and hasattr(node, 'children') and len(node.children) >= 2:
@@ -408,8 +405,6 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                                 param_names = extract_params(params_node)
                                 for param_name in param_names:
                                     user_defined_vars.add(param_name)
-                                    logger.info(f"   ✓ Function parameter: {param_name}")
-
             
             # Recursively process children
             if hasattr(node, 'children'):
@@ -417,27 +412,6 @@ def _infer_variable_types_with_parso(source_code: str, cursor_line: int = None) 
                     analyze_node(child)
         
         analyze_node(module)
-        
-        # Log results
-        if assignments_found:
-            logger.info(f"   ✓ Type inference: {', '.join(assignments_found)}")
-        if loop_vars_found:
-            logger.info(f"   ✓ Loop variables: {', '.join(loop_vars_found)}")
-        if functions_found:
-            logger.info(f"   ✓ User functions: {', '.join(functions_found)}")
-        if current_function:
-            logger.info(f"   📍 Cursor in function: {current_function}")
-        
-        other_vars = user_defined_vars - set(var_types.keys()) - set(loop_vars_found)
-        if other_vars:
-            logger.info(f"   ✓ Other assignments: {', '.join(sorted(other_vars))}")
-        
-        logger.info(f"   📊 Total: {len(user_defined_vars)} user-defined vars, {len(var_types)} with inferred types, {len(user_functions)} functions")
-        logger.info(f"   📦 Imports: {len(imported_modules)} modules, {len(imported_functions)} functions")
-        if imported_modules:
-            logger.info(f"      Modules: {', '.join(sorted(imported_modules))}")
-        if imported_functions:
-            logger.info(f"      Functions: {', '.join(sorted(imported_functions))}")
         
         loop_vars_set = set(loop_vars_found)
         return var_types, user_defined_vars, loop_vars_set, current_function, user_functions, imported_modules, imported_functions
@@ -500,8 +474,6 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
     Returns:
         A sort_key function that can be used with sorted()
     """
-    logger.info(f"🔍 create_context_aware_sort_key: prefix={repr(prefix)}, line_before={repr(line_before_cursor)}")
-    
     # Use pre-computed Parso results if available, otherwise empty defaults
     if var_types is None:
         var_types = {}
@@ -513,14 +485,6 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
         current_function = ""
     if user_functions is None:
         user_functions = set()
-    
-    logger.info(f"\n{'='*60}")
-    logger.info(f"🎯 CONTEXT-AWARE SORTING")
-    logger.info(f"   Prefix: {prefix!r}")
-    logger.info(f"   Line before: {line_before_cursor!r}")
-    logger.info(f"   Line after: {line_after_cursor!r}")
-    logger.info(f"   Source code length: {len(source_code) if source_code else 0} chars")
-    logger.info(f"{'='*60}\n")
     
     def sort_key(completion: lsp_types.CompletionItem):
         sort_text = completion.sortText or completion.label
@@ -1070,11 +1034,6 @@ def create_context_aware_sort_key(prefix: str, line_before_cursor: str, line_aft
                 is_constant = 1  # Constants after locals
             # else: is_constant = 0  # Local variables first
         
-        # Log items with significant context boost
-        if context_boost != 0 and abs(context_boost) >= 50:
-            kind_name = lsp_types.CompletionItemKind(kind).name if kind else "Unknown"
-            logger.info(f"   {'🔼' if context_boost < 0 else '🔽'} {label:20s} | boost={context_boost:+5d} | {boost_reason or 'no reason'} | kind={kind_name}")
-        
         # Don't sort by label.lower() - preserve LSP fuzzy match order!
         # LSP already sorted by fuzzy match, we only add context-aware boost
         return (final_priority, is_constant, sort_text.lower())
@@ -1139,8 +1098,6 @@ class CompletionsBox(EditorInfoBox):
             line_after_cursor = text.get("insert", "insert lineend")
             # Get code BEFORE cursor for Parso (only variables above matter!)
             source_code = text.get("1.0", "insert")
-            logger.info(f"📥 present_completions: prefix={repr(prefix)}, line_before={repr(line_before_cursor)}")
-            logger.info(f"   ↳ source_code length: {len(source_code)} chars")
         except:
             line_before_cursor = ""
             line_after_cursor = ""
@@ -1179,26 +1136,9 @@ class CompletionsBox(EditorInfoBox):
         
         if skip_sorting:
             # AI already sorted - don't re-sort!
-            logger.info(f"🎯 Using AI-sorted order (skip_sorting=True)")
             sorted_completions = completions
         else:
-            # Apply our sorting algorithm
-            logger.info(f"🔄 Sorting {len(completions)} completions with context-aware algorithm...")
-            
-            # DEBUG: Log all Variables before sorting
-            variables_before = [c for c in completions if c.kind == CompletionItemKind.Variable]
-            if variables_before:
-                logger.info(f"   📝 Variables before sorting ({len(variables_before)}): {[v.label for v in variables_before]}")
             sorted_completions = sorted(completions, key=sort_key)
-            
-            # Log top results for debugging
-            if sorted_completions:
-                logger.info(f"\n📊 TOP 10 RESULTS AFTER SORTING:")
-                for i, comp in enumerate(sorted_completions[:10], 1):
-                    kind_name = lsp_types.CompletionItemKind(comp.kind).name if comp.kind else "Unknown"
-                    detail_str = f" | {comp.detail[:30]}..." if comp.detail and len(comp.detail) > 30 else f" | {comp.detail}" if comp.detail else ""
-                    logger.info(f"   {i:2d}. {comp.label:20s} | {kind_name:12s}{detail_str}")
-                logger.info(f"")
             
             # Add print-f convenience completion RIGHT AFTER print in sorted list
             # This helps users who often forget to add 'f' prefix
@@ -1224,14 +1164,11 @@ class CompletionsBox(EditorInfoBox):
                     )
                     # Insert right after print
                     sorted_completions.insert(print_index + 1, print_f_item)
-                    logger.info(f"➕ Inserted print-f at position {print_index + 1} (right after print)")
         
         if not prefix.startswith("__"):
             before_filter = len(sorted_completions)
             sorted_completions = filter_garbage_completions(sorted_completions)
             after_filter = len(sorted_completions)
-            if before_filter != after_filter:
-                logger.info(f"🗑️  Filtered garbage: {before_filter} → {after_filter} completions")
         self._completions = sorted_completions
 
         # broadcast logging info
@@ -1636,14 +1573,6 @@ class CompletionsBox(EditorInfoBox):
                 if item.label not in seen:
                     reordered.append(item)
             
-            logger.info(f"📤 Final order shown to user ({len(reordered)} items):")
-            for i, comp in enumerate(reordered[:20]):  # Show first 20
-                kind_name = lsp_types.CompletionItemKind(comp.kind).name if comp.kind else "Unknown"
-                logger.info(f"  [{i:2d}] {comp.label:30s} | {kind_name:12s}")
-            if len(reordered) > 20:
-                logger.info(f"  ... and {len(reordered) - 20} more")
-            logger.info(f"━" * 80)
-            
             # Update internal list
             self._completions = reordered
             
@@ -1741,15 +1670,12 @@ class Completer:
     
     def _on_focus_out(self, event: tk.Event) -> None:
         """Hide completion box when editor loses focus (e.g., user switches to another window)"""
-        logger.info(f"🔴 _on_focus_out: hiding completion box")
         self._close_box()
 
     def _on_keypress(self, event: tk.Event) -> None:
-        logger.info(f"⌨️  _on_keypress: char={repr(event.char)}, keysym={event.keysym}")
         self.cancel_active_request()
         runner = get_runner()
         if not runner or runner.is_running():
-            logger.info(f"   ↳ Skipped: runner not available or running")
             return
 
         if (
@@ -1757,42 +1683,33 @@ class Completer:
             or command_is_pressed(event)
             or alt_is_pressed_without_char(event)
         ):
-            logger.info(f"   ↳ Skipped: modifier key pressed")
             return
 
         widget = event.widget
         if not widget or not isinstance(widget, SyntaxText):
-            logger.info(f"   ↳ Skipped: not SyntaxText widget")
             return
 
         if not widget.is_python_text():
-            logger.info(f"   ↳ Skipped: not Python text")
             return
 
         if widget.is_read_only():
-            logger.info(f"   ↳ Skipped: read-only widget")
             return
 
         should_auto_open = self._should_open_box_automatically(event)
-        logger.info(f"   ↳ _should_open_box_automatically={should_auto_open}, box_visible={self._box_is_visible()}")
         
         if not self._box_is_visible() and not should_auto_open:
-            logger.info(f"   ↳ Not opening box: auto_open=False, visible=False")
             return
 
         if event.keysym == "Escape":
             # Closing is handled by the box itself
-            logger.info(f"   ↳ Escape pressed")
             return
 
         if not event.char:
             # movement keypresses are handled by the box
-            logger.info(f"   ↳ No char (movement key)")
             return
 
         is_python_char = _is_python_name_char(event.char)
         is_dot = self._is_start_of_an_attribute(event)
-        logger.info(f"   ↳ char={repr(event.char)}, is_python_char={is_python_char}, is_dot={is_dot}, box_visible={self._box_is_visible()}")
 
         if (
             not self._box_is_visible()
@@ -1803,7 +1720,6 @@ class Completer:
             if event.char == " ":
                 line_before = widget.get("insert linestart", "insert")
                 line_stripped = line_before.strip()  # Remove leading AND trailing whitespace
-                logger.info(f"   ↳ SPACE pressed, line_before={repr(line_before)}, line_stripped={repr(line_stripped)}")
                 
                 # Check if we just typed space after keywords that need completions
                 # - "for ... in" -> suggest iterables
@@ -1835,15 +1751,7 @@ class Completer:
                 should_open = (ends_with_in or is_boolean_first_space or is_except or 
                               is_with or is_import or is_return)
                 
-                logger.info(f"   ↳ Space checks: for_in={ends_with_in}, bool={is_boolean_first_space}, "
-                           f"except={is_except}, with={is_with}, import={is_import}, return={is_return}")
-                logger.info(f"   ↳ should_open={should_open}")
-            
-                if should_open:
-                    logger.info(f"   ↳ ✅ Opening box: space after keyword that needs completions")
-                    # Continue to request completions
-                else:
-                    logger.info(f"   ↳ ❌ Not opening box: space (not after special keyword)")
+                if not should_open:
                     return
             
             # Special case: '(' after certain functions should trigger completions
@@ -1859,11 +1767,7 @@ class Completer:
                 
                 should_open = any(line_stripped.endswith(f"{func}(") for func in important_functions)
                 
-                if should_open:
-                    logger.info(f"   ↳ Opening box: '(' after important function")
-                    # Continue to request completions
-                else:
-                    logger.info(f"   ↳ Not opening box: '(' (not after important function)")
+                if not should_open:
                     return
             
             # Special case: ',' inside function calls should trigger completions
@@ -1875,11 +1779,7 @@ class Completer:
                 open_parens = line_before.count("(")
                 close_parens = line_before.count(")")
                 
-                if open_parens > close_parens:
-                    logger.info(f"   ↳ Opening box: ',' inside function call")
-                    # Continue to request completions
-                else:
-                    logger.info(f"   ↳ Not opening box: ',' (not inside function call)")
+                if open_parens <= close_parens:
                     return
             
             # Special case: '{' in f-strings should trigger completions
@@ -1888,22 +1788,15 @@ class Completer:
                 
                 # Check if we're inside an f-string
                 # Examples: f"text {", f'value: {", print(f"{
-                if re.search(r'f["\'].*\{$', line_before):
-                    logger.info(f"   ↳ Opening box: '{{' in f-string")
-                    # Continue to request completions
-                else:
-                    logger.info(f"   ↳ Not opening box: '{{' (not in f-string)")
+                if not re.search(r'f["\'].*\{$', line_before):
                     return
             
             else:
-                # non-word chars are allowed only while the box is already open
-                logger.info(f"   ↳ Not opening box: non-word char and box not visible")
                 return
 
         # Log current line BEFORE after_idle
         try:
             line_before = widget.get("insert linestart", "insert")
-            logger.info(f"   ↳ Will request completions. Current line before cursor: {repr(line_before)}")
         except:
             pass
         
@@ -1930,11 +1823,9 @@ class Completer:
         # Log what we're requesting
         try:
             line_before = text.get("insert linestart", "insert")
-            logger.info(f"📤 request_completions_for_text: line_before={repr(line_before)}")
             
             # Don't show completions on empty line (annoying!)
             if not line_before.strip():
-                logger.info(f"   ↳ ❌ Empty line - not requesting completions")
                 return
         except:
             pass
@@ -1966,7 +1857,6 @@ class Completer:
             # TODO:
             return
 
-        logger.info(f"   ↳ Sending LSP request at position line={position.line}, char={position.character}")
         self._last_request_text = text
         
         # Capture line_before snapshot BEFORE sending request
@@ -1982,7 +1872,6 @@ class Completer:
         self._request_snapshots[lsp_request_id] = request_line_before
         # Remember the latest request ID
         self._latest_request_id = lsp_request_id
-        logger.info(f"   ↳ LSP request #{lsp_request_id}, line_before: {repr(request_line_before)}")
 
     def _handle_completions_response(
         self,
@@ -1991,7 +1880,6 @@ class Completer:
         ],
     ) -> None:
         lsp_request_id = response._request_id
-        logger.info(f"📥 Received LSP response #{lsp_request_id}")
         
         error = response.get_error()
         if error is not None:
@@ -2005,7 +1893,6 @@ class Completer:
         
         # Check if response is stale (not the latest request)
         if lsp_request_id != self._latest_request_id:
-            logger.info(f"⏭️  Ignoring stale LSP response #{lsp_request_id} (latest is #{self._latest_request_id})")
             # Clean up old snapshot
             self._request_snapshots.pop(lsp_request_id, None)
             return
@@ -2015,14 +1902,11 @@ class Completer:
         current_line_before = self._last_request_text.get("insert linestart", "insert")
         
         if current_line_before != request_line_before:
-            logger.info(f"⏭️  Ignoring LSP response #{lsp_request_id}: line changed from {repr(request_line_before)} to {repr(current_line_before)}")
-            # Clean up snapshot
             self._request_snapshots.pop(lsp_request_id, None)
             return
         
         # Clean up snapshot (no longer needed)
         self._request_snapshots.pop(lsp_request_id, None)
-        logger.info(f"✅ LSP response #{lsp_request_id} is current")
         
         # Check if we should show completions for this context
         # Don't show for "for " - user is typing variable name
@@ -2030,18 +1914,15 @@ class Completer:
         # BUT show after comma: print("asd", <-- here we want completions!
         line_before_stripped = self._last_request_text.get("insert linestart", "insert").strip()
         if line_before_stripped == "for":
-            logger.info(f"🚫 Ignoring completions: cursor after 'for ' (user typing variable name)")
             self._close_box()
             return
         # Only ignore if EXACTLY "print(" - not after comma or other chars
         if line_before_stripped.endswith("print(") and line_before_stripped == "print(":
-            logger.info(f"🚫 Ignoring completions: cursor after 'print(' (too cluttered)")
             self._close_box()
             return
 
         result = response.get_result_or_raise()
         if result is None:
-            logger.info("None completions response")
             return
 
         completions: List[lsp_types.CompletionItem]
@@ -2061,11 +1942,6 @@ class Completer:
             self._close_box()
             return
         else:
-            # Log completion count
-            logger.info(f"📥 LSP response #{lsp_request_id}: {len(completions)} completions")
-            
-            # Show completions
-            logger.info(f"🎯 _handle_completions_response #{lsp_request_id}: showing {len(completions)} completions (normal path)")
             if not self._completions_box:
                 self._completions_box = CompletionsBox(self)
             self._completions_box.present_completions(self._last_request_text, completions)
@@ -2077,12 +1953,10 @@ class Completer:
         
         # Mark AI request as in progress
         self._ai_request_in_progress = True
-        logger.info(f"🔒 AI request started (blocking new requests)")
         
         # Get AI assistant
         assistant = get_ai_assistant()
         if not assistant:
-            logger.info("No AI assistant available, showing completions immediately")
             self._ai_request_in_progress = False  # Release lock
             if not self._completions_box:
                 self._completions_box = CompletionsBox(self)
@@ -2110,19 +1984,11 @@ class Completer:
                 line_after_cursor = ""
                 source_code = ""
             
-            # Use shared context-aware sorting logic
-            logger.info(f"🔄 Applying context-aware sort to {len(completions)} completions (AI path)")
             sort_key = create_context_aware_sort_key(prefix, line_before_cursor, line_after_cursor, source_code)
             sorted_completions = sorted(completions, key=sort_key)
             
-            logger.info(f"📋 Top 20 after context-aware sort:")
             for i, item in enumerate(sorted_completions[:20]):
                 kind_name = lsp_types.CompletionItemKind(item.kind).name if item.kind else "Unknown"
-                detail_str = f" ({item.detail[:20]}...)" if item.detail and len(item.detail) > 20 else f" ({item.detail})" if item.detail else ""
-                logger.info(f"  [{i+1:2d}] {item.label:25s} | {kind_name:12s}{detail_str}")
-            if len(sorted_completions) > 20:
-                logger.info(f"  ... and {len(sorted_completions) - 20} more")
-            logger.info(f"━" * 80)
             
             # Step 2: Take top 50 for AI reranking
             top_completions = sorted_completions[:50]
@@ -2135,8 +2001,6 @@ class Completer:
                     kind_name = lsp_types.CompletionItemKind(item.kind).name
                     completion_kinds[item.label] = kind_name
             
-            logger.info(f"🤖 Sending top {len(labels)} to AI for reranking")
-            
             # Step 3: Get reasonable context (last 100 lines or less)
             try:
                 cursor_index = text.index("insert")
@@ -2147,9 +2011,6 @@ class Completer:
                 code_context = text.get(f"{context_start_line}.0", cursor_index)
                 cursor_line = text.get(f"{cursor_line_num}.0", cursor_index)
                 
-                logger.info(f"📝 Sending context: {len(code_context)} chars, lines {context_start_line}-{cursor_line_num}")
-                logger.info(f"   Current line: '{cursor_line}' ← cursor here")
-                
             except Exception as e:
                 logger.warning(f"Failed to get full context: {e}")
                 code_context = text.get("1.0", "end")
@@ -2158,9 +2019,6 @@ class Completer:
             # Remember current request to detect if it's stale
             request_text = text
             original_completions_list = sorted_completions
-            
-            # Step 4: Call AI in BACKGROUND THREAD (non-blocking!)
-            logger.info(f"⏳ Starting AI request in background (UI не зависає!)...")
             
             def do_ai_reranking():
                 try:
@@ -2172,7 +2030,6 @@ class Completer:
                         completion_kinds=completion_kinds
                     )
                     
-                    logger.info(f"✅ AI returned {len(reranked_labels)} labels")
                     
                     # Step 5: Reorder based on AI ranking
                     label_to_item = {item.label: item for item in top_completions}
@@ -2193,14 +2050,6 @@ class Completer:
                     for item in original_completions_list[50:]:
                         reordered.append(item)
                     
-                    logger.info(f"📤 Final reranked list ({len(reordered)} items):")
-                    for i, comp in enumerate(reordered[:20]):
-                        kind_name = lsp_types.CompletionItemKind(comp.kind).name if comp.kind else "Unknown"
-                        logger.info(f"  [{i:2d}] {comp.label:30s} | {kind_name:12s}")
-                    if len(reordered) > 20:
-                        logger.info(f"  ... and {len(reordered) - 20} more")
-                    logger.info(f"━" * 80)
-                    
                     # Show completions in UI thread
                     def show_completions():
                         try:
@@ -2210,13 +2059,9 @@ class Completer:
                                     self._completions_box = CompletionsBox(self)
                                 # Pass skip_sorting=True so AI order is preserved!
                                 self._completions_box.present_completions(request_text, reordered, skip_sorting=True)
-                                logger.info(f"✅ Completions box shown to user (with AI sorting)")
-                            else:
-                                logger.info(f"⏭️  AI response ignored (user typed more, request stale)")
                         finally:
                             # Always release the lock
                             self._ai_request_in_progress = False
-                            logger.info(f"🔓 AI request finished (accepting new requests)")
                     
                     # Schedule showing in UI thread
                     get_workbench().after(0, show_completions)
@@ -2234,7 +2079,6 @@ class Completer:
                         finally:
                             # Always release the lock
                             self._ai_request_in_progress = False
-                            logger.info(f"🔓 AI request finished (error fallback, accepting new requests)")
                     get_workbench().after(0, show_fallback)
             
             # Start background thread
@@ -2246,7 +2090,6 @@ class Completer:
             logger.exception(f"❌ AI reranking setup failed: {e}")
             # Release lock
             self._ai_request_in_progress = False
-            logger.info(f"🔓 AI request failed to start (accepting new requests)")
             # Fallback: show completions immediately (without sorting - will be sorted by present_completions)
             if not self._completions_box:
                 self._completions_box = CompletionsBox(self)
@@ -2270,10 +2113,6 @@ class Completer:
                 kind_name = lsp_types.CompletionItemKind(item.kind).name
                 completion_kinds[item.label] = kind_name
         
-        logger.info(f"🤖 Starting AI reranking for {len(labels)} completions:")
-        logger.info(f"   All labels: {labels}")
-        logger.info(f"   With types: {completion_kinds}")
-        
         # Get code context (10 lines before and after cursor)
         try:
             cursor_index = text.index("insert")
@@ -2286,17 +2125,10 @@ class Completer:
             code_context = text.get(f"{start_line}.0", f"{end_line}.0")
             cursor_line = text.get(f"{cursor_line_num}.0", f"{cursor_line_num}.end")
             
-            logger.info(f"📝 Code context (lines {start_line}-{end_line}, cursor at line {cursor_line_num}):")
-            logger.info(f"━" * 80)
-            logger.info(code_context)
-            logger.info(f"   Current line: '{cursor_line}' ← cursor here")
-            logger.info(f"━" * 80)
-            
         except:
             # Fallback: use whole file
             code_context = text.get("1.0", "end")
             cursor_line = ""
-            logger.info(f"⚠️  Failed to get cursor context, using whole file")
         
         # Remember current request to detect if it's stale
         request_text = text
@@ -2319,18 +2151,14 @@ class Completer:
                         self._completions_box.winfo_exists() and 
                         self._last_request_text == request_text):
                         
-                        logger.info(f"✅ AI returned {len(reranked_labels)} labels: {reranked_labels}")
                         self._completions_box.update_order_from_ai(reranked_labels, original_completions)
-                    else:
-                        logger.info(f"⏭️  AI response ignored (completions box closed or stale)")
-                        logger.info(f"   Box exists: {self._completions_box is not None and self._completions_box.winfo_exists()}, Same text: {self._last_request_text == request_text}")
                 
                 # Schedule UI update in main thread
                 if self._completions_box:
                     get_workbench().after(0, update_ui)
-                    
-            except Exception as e:
-                logger.info(f"❌ AI reranking failed (async): {e}")
+            except Exception:
+                # Silently ignore reranking errors - completions are already shown with local sorting
+                pass
         
         # Start background thread (no join - truly async!)
         thread = threading.Thread(target=do_reranking, daemon=True)
