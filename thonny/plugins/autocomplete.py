@@ -1,4 +1,5 @@
 import re
+import time
 import tkinter as tk
 from logging import getLogger
 from tkinter import messagebox
@@ -1069,6 +1070,10 @@ class CompletionsBox(EditorInfoBox):
         self._tweaking_listbox_selection = False
         self._details_box: Optional[CompletionsDetailsBox] = None
         self._completions: List[lsp_types.CompletionItem] = []
+        # Debounced hiding to avoid too-fast close causing gray window on some systems
+        self._hide_after_id: Optional[str] = None
+        self._hide_delay_ms: int = 40
+        self._last_show_ts: float = 0.0
 
         self._listbox.bind("<<ListboxSelect>>", self._on_select_item_via_event, True)
 
@@ -1205,6 +1210,15 @@ class CompletionsBox(EditorInfoBox):
         approx_box_height = round(list_row_height * (self._listbox["height"] + 0.5))
 
         name_start_index = self._find_completion_insertion_index()
+
+        # Cancel any pending hide and record show time
+        if self._hide_after_id is not None:
+            try:
+                self.after_cancel(self._hide_after_id)
+            except Exception:
+                pass
+            self._hide_after_id = None
+        self._last_show_ts = time.time()
 
         self._show_on_target_text(name_start_index, approx_box_height, "below")
 
@@ -1379,6 +1393,23 @@ class CompletionsBox(EditorInfoBox):
         
         # Ensure focus returns to the text widget after mouse selection
         self._target_text_widget.focus_set()
+
+    def hide(self, event: Optional[tk.Event] = None) -> None:
+        # Debounce hiding: schedule withdraw a bit later; cancel if we're shown again meanwhile
+        if self._hide_after_id is not None:
+            try:
+                self.after_cancel(self._hide_after_id)
+            except Exception:
+                pass
+            self._hide_after_id = None
+
+        def _do_hide():
+            # Only hide if no new show occurred since scheduling
+            # If needed, we could check timestamps; for now rely on cancellation on show
+            super(CompletionsBox, self).hide(event)
+            self._hide_after_id = None
+
+        self._hide_after_id = self.after(self._hide_delay_ms, _do_hide)
 
     def _auto_add_parentheses(self, completion: CompletionItem, insert_text: str) -> None:
         """Automatically add parentheses for functions, methods, and classes."""
