@@ -453,47 +453,78 @@ def render_markdown(text_widget: tk.Text, markdown_text: str, show_copy_button: 
     
     def insert_formatted_text(text):
         """Insert text with inline formatting (bold, italic, code)"""
-        # Order matters: handle code first to avoid interfering with ** and *
-        parts = re.split(r'(`[^`]+`)', text)
+        # First pass: handle bold/italic to preserve structure
+        # Bold: **text** (may contain inline code inside)
+        parts = re.split(r'(\*\*[^*]+?\*\*|\*[^*]+?\*)', text)
         
         for part in parts:
-            if part.startswith("`") and part.endswith("`"):
-                # Inline code
-                code_content = part[1:-1]
-                code_start = text_widget.index("end-1c")
-                insert_method("end", code_content)
-                code_end = text_widget.index("end-1c")
-                text_widget.tag_add("md_inline_code", code_start, code_end)
+            if part.startswith("**") and part.endswith("**"):
+                # Bold text - may contain inline code
+                bold_text = part[2:-2]
+                bold_start = text_widget.index("end-1c")
                 
-                # Apply Python syntax highlighting to inline code
-                try:
-                    highlight_python_syntax(text_widget, code_start, code_end, tag_suffix)
-                except Exception as e:
-                    pass  # Fallback to plain inline code if highlighting fails
-                
-                # Make inline code clickable to copy
-                _make_inline_code_clickable(text_widget, code_start, code_end, code_content)
-            else:
-                # Handle bold and italic
-                # Bold: **text**
-                subparts = re.split(r'(\*\*[^*]+\*\*)', part)
-                for subpart in subparts:
-                    if subpart.startswith("**") and subpart.endswith("**"):
-                        bold_text = subpart[2:-2]
-                        bold_start = text_widget.index("end-1c")
-                        insert_method("end", bold_text)
-                        text_widget.tag_add("md_bold", bold_start, text_widget.index("end-1c"))
+                # Process inline code inside bold
+                code_parts = re.split(r'(`[^`]+`)', bold_text)
+                for code_part in code_parts:
+                    if code_part.startswith("`") and code_part.endswith("`"):
+                        code_content = code_part[1:-1]
+                        code_start = text_widget.index("end-1c")
+                        insert_method("end", code_content)
+                        code_end = text_widget.index("end-1c")
+                        text_widget.tag_add("md_inline_code", code_start, code_end)
+                        try:
+                            highlight_python_syntax(text_widget, code_start, code_end, tag_suffix)
+                        except:
+                            pass
+                        _make_inline_code_clickable(text_widget, code_start, code_end, code_content)
                     else:
-                        # Handle italic: *text* (but not ** which is already handled)
-                        italic_parts = re.split(r'(\*[^*]+\*)', subpart)
-                        for italic_part in italic_parts:
-                            if italic_part.startswith("*") and italic_part.endswith("*") and not italic_part.startswith("**"):
-                                italic_text = italic_part[1:-1]
-                                italic_start = text_widget.index("end-1c")
-                                insert_method("end", italic_text)
-                                text_widget.tag_add("md_italic", italic_start, text_widget.index("end-1c"))
-                            else:
-                                insert_method("end", italic_part)
+                        insert_method("end", code_part)
+                
+                bold_end = text_widget.index("end-1c")
+                text_widget.tag_add("md_bold", bold_start, bold_end)
+                
+            elif part.startswith("*") and part.endswith("*") and not part.startswith("**"):
+                # Italic text - may contain inline code
+                italic_text = part[1:-1]
+                italic_start = text_widget.index("end-1c")
+                
+                # Process inline code inside italic
+                code_parts = re.split(r'(`[^`]+`)', italic_text)
+                for code_part in code_parts:
+                    if code_part.startswith("`") and code_part.endswith("`"):
+                        code_content = code_part[1:-1]
+                        code_start = text_widget.index("end-1c")
+                        insert_method("end", code_content)
+                        code_end = text_widget.index("end-1c")
+                        text_widget.tag_add("md_inline_code", code_start, code_end)
+                        try:
+                            highlight_python_syntax(text_widget, code_start, code_end, tag_suffix)
+                        except:
+                            pass
+                        _make_inline_code_clickable(text_widget, code_start, code_end, code_content)
+                    else:
+                        insert_method("end", code_part)
+                
+                italic_end = text_widget.index("end-1c")
+                text_widget.tag_add("md_italic", italic_start, italic_end)
+                
+            else:
+                # Plain text - may contain inline code
+                code_parts = re.split(r'(`[^`]+`)', part)
+                for code_part in code_parts:
+                    if code_part.startswith("`") and code_part.endswith("`"):
+                        code_content = code_part[1:-1]
+                        code_start = text_widget.index("end-1c")
+                        insert_method("end", code_content)
+                        code_end = text_widget.index("end-1c")
+                        text_widget.tag_add("md_inline_code", code_start, code_end)
+                        try:
+                            highlight_python_syntax(text_widget, code_start, code_end, tag_suffix)
+                        except:
+                            pass
+                        _make_inline_code_clickable(text_widget, code_start, code_end, code_content)
+                    else:
+                        insert_method("end", code_part)
     
     lines = markdown_text.split("\n")
     i = 0

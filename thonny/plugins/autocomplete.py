@@ -98,10 +98,8 @@ def filter_garbage_completions(completions: list) -> list:
             continue  # Filter dunders
         if comp.label in garbage_builtins:
             continue  # Filter garbage builtins
-        # Filter keyword arguments (Variable with '=' suffix)
-        if comp.kind and comp.kind == CompletionItemKind.Variable and comp.label.endswith("="):
-            logger.info(f"🗑️  Filtering keyword arg: {comp.label}")
-            continue
+        # Note: Keyword arguments (Variable with '=' suffix) are now allowed
+        # They can be useful for showing function parameter names with default values
         # Extract insertText from textEdit if present (LSP standard mechanism)
         if comp.textEdit is not None and hasattr(comp.textEdit, 'newText'):
             # Use newText from textEdit as insertText
