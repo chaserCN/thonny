@@ -380,23 +380,6 @@ class BaseAIAssistant(Assistant):
         """
         pass
     
-    @abstractmethod
-    def rerank_completions(self, code_context: str, cursor_line: str, completions: List[str], max_results: int = 10, completion_kinds: dict = None) -> List[str]:
-        """
-        Rerank code completions based on context (using fast model like flash-lite/haiku/mini)
-        
-        Args:
-            code_context: Code around cursor (5-10 lines before and after)
-            cursor_line: The line where cursor is located
-            completions: List of completion labels from LSP (e.g., ["range", "list", "enumerate"])
-            max_results: Maximum number of results to return (default: 10)
-            completion_kinds: Optional dict mapping completion label to kind (e.g., {"range": "Function", "my_var": "Variable"})
-            
-        Returns:
-            Reranked list of completion labels (most relevant first), limited to max_results
-        """
-        pass
-
 def print_request_info(request_type: str, system_prompt: str, messages: List[ChatMessage]):
     print("=" * 80)
     print(f"{request_type} MODE REQUEST")
